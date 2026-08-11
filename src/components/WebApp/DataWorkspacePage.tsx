@@ -8,10 +8,12 @@ import {
   type ResourcePackageManifest,
 } from '../../platform/resources/resourcePackage';
 import {
+  fetchImagePackageManifest,
   installDefaultImagePackage,
   readInstalledImagePackage,
   type ImageInstallProgress,
   type InstalledImagePackage,
+  type ImagePackageManifest,
 } from '../../platform/resources/imagePackage';
 import {
   applyDefaultLocalDataPackage,
@@ -95,6 +97,7 @@ export function DataWorkspacePage() {
   const [progress, setProgress] = useState<ResourceInstallProgress | null>(null);
   const [imageProgress, setImageProgress] = useState<ImageInstallProgress | null>(null);
   const [images, setImages] = useState<InstalledImagePackage | null>(null);
+  const [availableImages, setAvailableImages] = useState<ImagePackageManifest | null>(null);
   const [packages, setPackages] = useState<LocalDataPackageSummary[]>([]);
   const [packageScope, setPackageScope] = useState<LocalDataScope>('share');
   const [selectedPackageKey, setSelectedPackageKey] = useState('');
@@ -127,6 +130,7 @@ export function DataWorkspacePage() {
       readInstalledResourcePackage().then(setInstalled),
       readInstalledImagePackage().then(setImages),
       fetchResourcePackageManifest().then(setAvailable).catch(() => undefined),
+      fetchImagePackageManifest().then(setAvailableImages).catch(() => undefined),
       refreshPackages(),
     ]);
   }, []);
@@ -140,8 +144,11 @@ export function DataWorkspacePage() {
     [packages, selectedPackageKey],
   );
   const updateAvailable = useMemo(
-    () => Boolean(installed && available && installed.version !== available.version),
-    [available, installed],
+    () => Boolean(
+      (installed && available && installed.version !== available.version)
+      || (images && availableImages && images.version !== availableImages.version),
+    ),
+    [available, availableImages, images, installed],
   );
 
   useEffect(() => {
@@ -154,7 +161,14 @@ export function DataWorkspacePage() {
     setMessage('');
     try {
       const next = await installDefaultResourcePackage(setProgress);
-      const nextImages = await installDefaultImagePackage(setImageProgress);
+      const latestImages = availableImages || await fetchImagePackageManifest();
+      const currentImages = await readInstalledImagePackage();
+      const nextImages = (
+        currentImages?.version === latestImages.version
+        && currentImages.manifest.archive.sha256 === latestImages.archive.sha256
+      )
+        ? currentImages
+        : await installDefaultImagePackage(setImageProgress);
       await ensureDefaultLocalDataPackage({ replace: true });
       setInstalled(next);
       setImages(nextImages);

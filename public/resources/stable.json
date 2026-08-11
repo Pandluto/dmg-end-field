@@ -1,0 +1,12 @@
+{
+  "type": "dmg.resource-channel.v1",
+  "schemaVersion": 1,
+  "channel": "stable",
+  "releaseVersion": "20260809.9d9efd499c53",
+  "publishedAt": "2026-08-09T03:06:12.585Z",
+  "releaseManifest": {
+    "path": "resources/releases/20260809.9d9efd499c53/resource-release-manifest.json",
+    "sha256": "2152eaf22b3e3e727e23baedf8492acb3c369efd0053b526b91f342080f6fa2e",
+    "size": 116143
+  }
+}

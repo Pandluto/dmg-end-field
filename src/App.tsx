@@ -15,6 +15,7 @@ import {
 import { AppShell } from './components/WebApp/AppShell';
 import { DataWorkspacePage } from './components/WebApp/DataWorkspacePage';
 import { SettingsPage } from './components/WebApp/SettingsPage';
+import { ResourcePackagerPage } from './components/WebApp/ResourcePackagerPage';
 import { StartPage } from './components/WebApp/StartPage';
 import {
   APP_ROUTE_PATHS,
@@ -72,7 +73,8 @@ function isOverlayPath(path: string): boolean {
   return path === APP_ROUTE_PATHS.root
     || path === APP_ROUTE_PATHS.welcome
     || path === APP_ROUTE_PATHS.dataWorkspace
-    || path === APP_ROUTE_PATHS.settings;
+    || path === APP_ROUTE_PATHS.settings
+    || path === APP_ROUTE_PATHS.resourcePackager;
 }
 
 function isWorkbenchPath(path: string): boolean {
@@ -211,6 +213,7 @@ function App() {
     page = workspaceActivated ? <WorkbenchFrame /> : <IdleWorkbenchBackdrop />;
     if (currentPath === APP_ROUTE_PATHS.dataWorkspace) overlay = <DataWorkspacePage />;
     else if (currentPath === APP_ROUTE_PATHS.settings) overlay = <SettingsPage />;
+    else if (currentPath === APP_ROUTE_PATHS.resourcePackager) overlay = <ResourcePackagerPage />;
     else overlay = <StartPage />;
   } else if (currentPath === APP_ROUTE_PATHS.draft) {
     page = <OperatorDraftPage />;

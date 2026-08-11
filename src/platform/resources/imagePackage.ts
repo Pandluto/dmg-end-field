@@ -1,25 +1,27 @@
 import { unzip } from 'fflate';
 import { resolvePublicPath } from '../../utils/assetResolver';
 import { webDatabase } from '../database/webDatabase';
+import { fetchCurrentResourceRelease } from './resourceChannel';
+import { sha256Hex } from './resourceIntegrity';
 
 const IMAGE_PACKAGE_ID = 'dmg-end-field-image-pack';
 const IMAGE_CACHE_NAME = 'dmg-image-pack-v1';
-const IMAGE_MANIFEST_PATH = 'web-image-manifest.json';
 
 export type ImagePackageManifest = {
   schemaVersion: 1;
   packageId: typeof IMAGE_PACKAGE_ID;
   version: string;
+  releaseVersion?: string;
   generatedAt: string;
   releaseTag: string;
   files: Array<{ path: string; sha256: string; size: number }>;
   totalBytes: number;
+  publicBasePath?: string;
   archive: {
     path: string;
     fileName: string;
     sha256: string;
     size: number;
-    sourceUrl: string;
     parts?: Array<{
       path: string;
       fileName: string;
@@ -47,16 +49,16 @@ export type ImageInstallProgress = {
   currentPath: string;
 };
 
-function bytesToHex(bytes: ArrayBuffer): string {
-  return [...new Uint8Array(bytes)]
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
+function isPortableImagePath(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length > 0
+    && !/^(?:[a-z]+:)?\/\//i.test(value)
+    && !value.startsWith('/')
+    && !value.split('/').includes('..');
 }
 
 async function sha256(bytes: Uint8Array): Promise<string> {
-  const copy = new Uint8Array(bytes.byteLength);
-  copy.set(bytes);
-  return bytesToHex(await crypto.subtle.digest('SHA-256', copy.buffer));
+  return sha256Hex(bytes);
 }
 
 function mimeType(path: string): string {
@@ -172,24 +174,55 @@ function unzipArchive(archive: Uint8Array): Promise<Record<string, Uint8Array>> 
   });
 }
 
-export async function fetchImagePackageManifest(): Promise<ImagePackageManifest> {
-  const response = await fetch(resolvePublicPath(IMAGE_MANIFEST_PATH), { cache: 'no-store' });
-  if (!response.ok) throw new Error(`图片包清单加载失败：HTTP ${response.status}`);
-  const manifest = await response.json() as ImagePackageManifest;
+export async function fetchImagePackageManifest(
+  options: { fresh?: boolean } = {},
+): Promise<ImagePackageManifest> {
+  const context = await fetchCurrentResourceRelease(options);
+  const manifest = context.imageManifest as ImagePackageManifest;
   if (
     manifest.schemaVersion !== 1
     || manifest.packageId !== IMAGE_PACKAGE_ID
     || !Array.isArray(manifest.files)
+    || manifest.files.length === 0
+    || manifest.files.length > 10_000
+    || manifest.files.some((entry) => (
+      !isPortableImagePath(entry.path)
+      || !entry.path.startsWith('assets/images/')
+      || !/^[a-f0-9]{64}$/.test(entry.sha256)
+      || !Number.isSafeInteger(entry.size)
+      || entry.size <= 0
+    ))
     || !manifest.archive?.path
+    || !isPortableImagePath(manifest.archive.path)
+    || !/^[a-f0-9]{64}$/.test(manifest.archive.sha256)
+    || !Number.isSafeInteger(manifest.archive.size)
+    || manifest.archive.size <= 0
+    || manifest.archive.size > 256 * 1024 * 1024
+    || manifest.totalBytes !== manifest.files.reduce((total, entry) => total + entry.size, 0)
     || (
       manifest.archive.parts !== undefined
       && (
         !Array.isArray(manifest.archive.parts)
         || manifest.archive.parts.length === 0
+        || manifest.archive.parts.some((part) => (
+          !isPortableImagePath(part.path)
+          || !/^[a-f0-9]{64}$/.test(part.sha256)
+          || !Number.isSafeInteger(part.size)
+          || part.size <= 0
+          || part.size > 25 * 1024 * 1024
+        ))
+        || manifest.archive.parts.reduce((total, part) => total + part.size, 0)
+          !== manifest.archive.size
       )
     )
   ) {
     throw new Error('图片包清单格式无效。');
+  }
+  if (
+    context.channel
+    && manifest.releaseVersion !== context.channel.releaseVersion
+  ) {
+    throw new Error('图片清单不属于当前服务器资源版本。');
   }
   return manifest;
 }

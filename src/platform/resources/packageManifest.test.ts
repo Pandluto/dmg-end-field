@@ -14,28 +14,27 @@ const resourceManifest: ResourcePackageManifest = {
   version: 'v1.8-LTS-slim',
   generatedAt: '2026-08-02T00:00:00.000Z',
   summary: { operators: 31, weapons: 76, images: 559 },
-  files: [{ path: 'data/default-local-data.json', sha256: 'abc', size: 3 }],
+  files: [{ path: 'data/default-local-data.json', sha256: 'a'.repeat(64), size: 3 }],
   totalBytes: 3,
 };
 
 const imageManifest: ImagePackageManifest = {
   schemaVersion: 1,
   packageId: 'dmg-end-field-image-pack',
-  version: '1.7.3',
+  version: '1.8.3',
   generatedAt: '2026-08-02T00:00:00.000Z',
-  releaseTag: 'v1.7.3',
-  files: [{ path: 'assets/images/example.png', sha256: 'def', size: 4 }],
+  releaseTag: 'v1.8.3',
+  files: [{ path: 'assets/images/example.png', sha256: 'b'.repeat(64), size: 4 }],
   totalBytes: 4,
   archive: {
     path: 'packages/images.zip',
     fileName: 'images.zip',
-    sha256: 'ghi',
+    sha256: 'c'.repeat(64),
     size: 4,
-    sourceUrl: 'https://example.invalid/images.zip',
     parts: [{
       path: 'packages/images.zip.part-001',
       fileName: 'images.zip.part-001',
-      sha256: 'jkl',
+      sha256: 'd'.repeat(64),
       size: 4,
     }],
   },
@@ -43,47 +42,78 @@ const imageManifest: ImagePackageManifest = {
 
 const originalFetch = globalThis.fetch;
 
+function legacyFetch(
+  data: unknown = resourceManifest,
+  images: unknown = imageManifest,
+  calls: string[] = [],
+): typeof fetch {
+  return (async (input: string | URL | Request) => {
+    const url = String(input);
+    calls.push(url);
+    if (url.includes('resources/stable.json')) return new Response('missing', { status: 404 });
+    if (url.includes('web-data-manifest.json')) {
+      return new Response(JSON.stringify(data), { status: 200 });
+    }
+    if (url.includes('web-image-manifest.json')) {
+      return new Response(JSON.stringify(images), { status: 200 });
+    }
+    return new Response('missing', { status: 404 });
+  }) as typeof fetch;
+}
+
 try {
   const resourceCalls: string[] = [];
+  globalThis.fetch = legacyFetch(resourceManifest, imageManifest, resourceCalls);
+  assert.deepEqual(await fetchResourcePackageManifest({ fresh: true }), resourceManifest);
+  assert.ok(resourceCalls.some((url) => /resources\/stable\.json\?channel=/.test(url)));
+  assert.ok(resourceCalls.some((url) => /web-data-manifest\.json$/.test(url)));
+
+  let stableCalls = 0;
   globalThis.fetch = (async (input: string | URL | Request) => {
-    resourceCalls.push(String(input));
-    return new Response(JSON.stringify(resourceManifest), { status: 200 });
+    const url = String(input);
+    if (url.includes('resources/stable.json')) {
+      stableCalls += 1;
+      throw new Error('offline');
+    }
+    if (url.includes('web-data-manifest.json')) {
+      return new Response(JSON.stringify(resourceManifest), { status: 200 });
+    }
+    if (url.includes('web-image-manifest.json')) {
+      return new Response(JSON.stringify(imageManifest), { status: 200 });
+    }
+    return new Response('missing', { status: 404 });
   }) as typeof fetch;
-  assert.deepEqual(await fetchResourcePackageManifest(), resourceManifest);
-  assert.equal(resourceCalls.length, 1);
-  assert.match(resourceCalls[0], /web-data-manifest\.json\?install=\d+$/);
+  await assert.rejects(
+    () => fetchResourcePackageManifest({ fresh: true }),
+    /服务器资源通道网络请求失败/,
+  );
+  assert.equal(stableCalls, 1);
 
-  let fallbackCall = 0;
-  globalThis.fetch = (async (input: string | URL | Request) => {
-    fallbackCall += 1;
-    if (fallbackCall === 1) throw new Error('offline');
-    assert.match(String(input), /web-data-manifest\.json$/);
-    return new Response(JSON.stringify(resourceManifest), { status: 200 });
-  }) as typeof fetch;
-  assert.deepEqual(await fetchResourcePackageManifest(), resourceManifest);
-  assert.equal(fallbackCall, 2);
+  globalThis.fetch = legacyFetch({ ...resourceManifest, packageId: 'wrong-package' });
+  await assert.rejects(
+    () => fetchResourcePackageManifest({ fresh: true }),
+    /资源清单格式无效/,
+  );
 
-  globalThis.fetch = (async () => new Response(JSON.stringify({
-    ...resourceManifest,
-    packageId: 'wrong-package',
-  }), { status: 200 })) as typeof fetch;
-  await assert.rejects(fetchResourcePackageManifest, /资源清单格式无效/);
+  globalThis.fetch = legacyFetch();
+  assert.deepEqual(await fetchImagePackageManifest({ fresh: true }), imageManifest);
 
-  globalThis.fetch = (async () => new Response(JSON.stringify(imageManifest), {
-    status: 200,
-  })) as typeof fetch;
-  assert.deepEqual(await fetchImagePackageManifest(), imageManifest);
-
-  globalThis.fetch = (async () => new Response(JSON.stringify({
+  globalThis.fetch = legacyFetch(resourceManifest, {
     ...imageManifest,
     archive: { ...imageManifest.archive, parts: [] },
-  }), { status: 200 })) as typeof fetch;
-  await assert.rejects(fetchImagePackageManifest, /图片包清单格式无效/);
+  });
+  await assert.rejects(
+    () => fetchImagePackageManifest({ fresh: true }),
+    /图片包清单格式无效/,
+  );
 
   globalThis.fetch = (async () => new Response('missing', { status: 404 })) as typeof fetch;
-  await assert.rejects(fetchImagePackageManifest, /HTTP 404/);
+  await assert.rejects(
+    () => fetchImagePackageManifest({ fresh: true }),
+    /本地数据清单加载失败：HTTP 404/,
+  );
 } finally {
   globalThis.fetch = originalFetch;
 }
 
-console.log('Web data and image package manifest contracts: PASS');
+console.log('Server resource channel and legacy manifest contracts: PASS');

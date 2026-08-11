@@ -1,12 +1,14 @@
 import { resolvePublicPath } from '../../utils/assetResolver';
 import { webDatabase } from '../database/webDatabase';
+import { fetchCurrentResourceRelease } from './resourceChannel';
+import { sha256Hex } from './resourceIntegrity';
 
 const DEFAULT_PACKAGE_ID = 'dmg-end-field-core-data';
 const RESOURCE_CACHE_NAME = 'dmg-resource-pack-v1';
-const MANIFEST_PATH = 'web-data-manifest.json';
 
 export type ResourceManifestEntry = {
   path: string;
+  downloadPath?: string;
   sha256: string;
   size: number;
 };
@@ -15,6 +17,7 @@ export type ResourcePackageManifest = {
   schemaVersion: 1;
   packageId: string;
   version: string;
+  releaseVersion?: string;
   generatedAt: string;
   summary?: {
     operators: number;
@@ -42,10 +45,12 @@ export type ResourceInstallProgress = {
   currentPath: string;
 };
 
-function bytesToHex(bytes: ArrayBuffer): string {
-  return Array.from(new Uint8Array(bytes))
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
+function isPortableResourcePath(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length > 0
+    && !/^(?:[a-z]+:)?\/\//i.test(value)
+    && !value.startsWith('/')
+    && !value.split('/').includes('..');
 }
 
 function absoluteResourceCacheUrl(path: string): string {
@@ -55,29 +60,26 @@ function absoluteResourceCacheUrl(path: string): string {
   return new URL(resolvePublicPath(path), baseUrl).href;
 }
 
-async function sha256(buffer: ArrayBuffer): Promise<string> {
-  return bytesToHex(await crypto.subtle.digest('SHA-256', buffer));
-}
-
-export async function fetchResourcePackageManifest(): Promise<ResourcePackageManifest> {
-  const manifestUrl = resolvePublicPath(MANIFEST_PATH);
-  const freshUrl = `${manifestUrl}${manifestUrl.includes('?') ? '&' : '?'}install=${Date.now()}`;
-  let response: Response;
-  try {
-    // The PWA precache can still answer a no-store request with an older
-    // manifest. A unique URL forces an online install to read one coherent
-    // manifest/file generation; the stable URL remains the offline fallback.
-    response = await fetch(freshUrl, { cache: 'no-store' });
-  } catch {
-    response = await fetch(manifestUrl);
-  }
-  if (!response.ok) throw new Error(`资源清单加载失败：HTTP ${response.status}`);
-  const manifest = await response.json() as ResourcePackageManifest;
+export async function fetchResourcePackageManifest(
+  options: { fresh?: boolean } = {},
+): Promise<ResourcePackageManifest> {
+  const context = await fetchCurrentResourceRelease(options);
+  const manifest = context.dataManifest as ResourcePackageManifest;
   if (
     manifest.schemaVersion !== 1
     || manifest.packageId !== DEFAULT_PACKAGE_ID
     || !Array.isArray(manifest.files)
     || manifest.files.length === 0
+    || manifest.files.length > 16
+    || manifest.files.some((entry) => (
+      !isPortableResourcePath(entry.path)
+      || (entry.downloadPath !== undefined && !isPortableResourcePath(entry.downloadPath))
+      || !/^[a-f0-9]{64}$/.test(entry.sha256)
+      || !Number.isSafeInteger(entry.size)
+      || entry.size <= 0
+    ))
+    || manifest.totalBytes !== manifest.files.reduce((total, entry) => total + entry.size, 0)
+    || manifest.totalBytes > 64 * 1024 * 1024
     || (
       manifest.summary !== undefined
       && (
@@ -91,6 +93,12 @@ export async function fetchResourcePackageManifest(): Promise<ResourcePackageMan
     )
   ) {
     throw new Error('资源清单格式无效。');
+  }
+  if (
+    context.channel
+    && manifest.releaseVersion !== context.channel.releaseVersion
+  ) {
+    throw new Error('数据清单不属于当前服务器资源版本。');
   }
   return manifest;
 }
@@ -161,7 +169,8 @@ export async function installDefaultResourcePackage(
   for (let index = 0; index < manifest.files.length; index += 1) {
     const entry = manifest.files[index];
     const url = resolvePublicPath(entry.path);
-    const versionedUrl = `${url}${url.includes('?') ? '&' : '?'}sha256=${entry.sha256}`;
+    const downloadUrl = resolvePublicPath(entry.downloadPath || entry.path);
+    const versionedUrl = `${downloadUrl}${downloadUrl.includes('?') ? '&' : '?'}sha256=${entry.sha256}`;
     let response: Response;
     try {
       // Workbox uses the complete URL as its CacheFirst key. The content hash
@@ -174,8 +183,8 @@ export async function installDefaultResourcePackage(
     if (!response.ok) {
       throw new Error(`资源下载失败：${entry.path}（HTTP ${response.status}）`);
     }
-    const bytes = await response.clone().arrayBuffer();
-    const digest = await sha256(bytes);
+    const bytes = new Uint8Array(await response.clone().arrayBuffer());
+    const digest = await sha256Hex(bytes);
     if (digest !== entry.sha256) {
       throw new Error(`资源校验失败：${entry.path}`);
     }
@@ -229,6 +238,23 @@ export async function installDefaultResourcePackage(
     byteSize: downloadedBytes,
     manifest,
   };
+}
+
+export async function readInstalledResourcePackageFile(
+  path: string,
+): Promise<{ bytes: Uint8Array; installed: InstalledResourcePackage; entry: ResourceManifestEntry }> {
+  const installed = await readInstalledResourcePackage();
+  if (!installed) throw new Error('官方基础资料尚未下载。');
+  const entry = installed.manifest.files.find((candidate) => candidate.path === path);
+  if (!entry) throw new Error(`已安装资料包中找不到 ${path}。`);
+  const cache = await caches.open(RESOURCE_CACHE_NAME);
+  const response = await cache.match(resolvePublicPath(entry.path));
+  if (!response) throw new Error(`官方基础资料缓存缺少 ${entry.path}。`);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength !== entry.size || await sha256Hex(bytes) !== entry.sha256) {
+    throw new Error(`官方基础资料缓存校验失败：${entry.path}`);
+  }
+  return { bytes, installed, entry };
 }
 
 export async function removeDefaultResourcePackage(): Promise<void> {

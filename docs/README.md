@@ -8,6 +8,7 @@
 - [开发与启动](./guides/development.md)
 - [项目架构总览](./architecture/overview.md)
 - [数据生命周期](./architecture/data-lifecycle.md)
+- [服务器资源通道](./architecture/resource-delivery.md)
 - [技术栈与技术选择](./technology-stack.md)
 - [当前 Spec 索引](./specs/README.md)
 - [测试方法](./testing/README.md)

@@ -56,11 +56,11 @@ No SSH password, private key, token, or certificate belongs in this file.
 
 ## Domestic cache contract
 
-- `index.html`, SPA fallbacks, `version.json`, `sw.js`, `manifest.webmanifest`, `web-data-manifest.json`, and `web-image-manifest.json`: `no-store` or equivalent no-cache/revalidation behavior.
+- `index.html`, SPA fallbacks, `version.json`, `sw.js`, `manifest.webmanifest`, `resources/stable.json`, `web-data-manifest.json`, and `web-image-manifest.json`: `no-store` or equivalent no-cache/revalidation behavior.
 - Hashed JS, CSS, Worker, and WASM under `/assets/`: one-year immutable caching.
 - `/assets/images/`: `max-age=0, must-revalidate`; do not inherit the immutable `/assets/` rule.
 - `/data/`: `max-age=0, must-revalidate` so current data can replace fixed paths.
-- Versioned package parts under `/packages/`: immutable caching.
+- Versioned data, manifests, and package parts under `/resources/releases/`: immutable caching.
 - `sw.js`: include `Service-Worker-Allowed: /`.
 
 ## Domestic HTTPS migration

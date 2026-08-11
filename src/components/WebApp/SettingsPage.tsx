@@ -26,6 +26,7 @@ import {
   subscribeAppTheme,
   type AppThemeId,
 } from '../../platform/theme/appTheme';
+import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 
 type StorageOverview = {
   usage: number;
@@ -315,6 +316,17 @@ export function SettingsPage() {
           </div>
           <button type="button" onClick={handleRemovePackage}>移除资料包</button>
         </div>
+        {['127.0.0.1', 'localhost'].includes(window.location.hostname) && (
+          <div className="settings-action-row">
+            <div>
+              <strong>制作完整资源发布包</strong>
+              <span>选择图片目录与一份 Share Data，自动生成版本号并下载发布 ZIP。</span>
+            </div>
+            <button type="button" onClick={() => navigateToAppPath(APP_ROUTE_PATHS.resourcePackager)}>
+              打开发包工具
+            </button>
+          </div>
+        )}
       </section>
 
       <section className="settings-section">

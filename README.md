@@ -18,7 +18,7 @@
 
 - 只提供桌面浏览器 Web 应用，不再包含 Electron、DEF/OpenCode、MCP 或本地桥接服务。
 - 私人排轴、快照、Work Node、配置和自定义图片写入当前浏览器的 SQLite WASM/OPFS 数据库，不上传云端。
-- 官方 JSON 与图片资料在首次确认后下载，经过 SHA-256 校验后进入浏览器 Cache Storage。
+- 官方 JSON 与图片资料从当前国内或海外站点的同源资源通道下载，经过 SHA-256 校验后进入浏览器 Cache Storage。
 - 一个浏览器配置中只允许一个标签页写入；其他标签页显示占用状态并可显式接管。
 - 访问门禁保存在当前浏览器 30 天。它用于本地部署访问拦截，不替代服务端身份认证。
 - 不读取或迁移旧桌面 SQLite；需要保留的数据应通过 Web LTS 自身的导入/导出能力流转。
@@ -32,7 +32,7 @@ npm ci
 npm run dev
 ```
 
-第一次执行 `npm run dev` 会准备约 31 MB 的官方图片压缩包，然后在
+第一次执行 `npm run dev` 会准备约 35 MB 的官方图片压缩包，然后在
 `http://127.0.0.1:3030` 启动站点。首次进入页面输入部署密码并确认下载资料。
 
 生产式本地预览：
@@ -42,7 +42,7 @@ npm run build:local
 npm run preview
 ```
 
-`build:local` 生成包含图片压缩包的自包含 `dist/`。当前分支只做本地部署，不执行 GitHub Pages 发布。
+`build:local` 生成包含当前稳定资源的自包含 `dist/`。客户端运行时不依赖 GitHub Release。
 
 ## 文档
 
@@ -50,6 +50,7 @@ npm run preview
 - [开发与验证](docs/guides/development.md)
 - [架构总览](docs/architecture/overview.md)
 - [数据生命周期](docs/architecture/data-lifecycle.md)
+- [服务器资源通道](docs/architecture/resource-delivery.md)
 - [安全边界](docs/architecture/security-boundaries.md)
 - [技术栈](docs/technology-stack.md)
 

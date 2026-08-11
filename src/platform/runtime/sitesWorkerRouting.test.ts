@@ -36,3 +36,27 @@ const unrelatedResponse = await sitesWorker.fetch(
 )
 assert.equal(unrelatedResponse.status, 404)
 assert.deepEqual(requestedPaths, ['/not-a-client-route'])
+
+requestedPaths.length = 0
+const stableResponse = await sitesWorker.fetch(
+  new Request('https://dmgendfield.online/resources/stable.json'),
+  env,
+)
+assert.equal(stableResponse.headers.get('Cache-Control'), 'no-store, no-cache, must-revalidate')
+assert.deepEqual(requestedPaths, ['/resources/stable.json'])
+
+requestedPaths.length = 0
+const immutableResponse = await sitesWorker.fetch(
+  new Request('https://dmgendfield.online/resources/releases/v-test/packages/images.part-001'),
+  env,
+)
+assert.equal(immutableResponse.headers.get('Cache-Control'), 'public, max-age=31536000, immutable')
+assert.deepEqual(requestedPaths, ['/resources/releases/v-test/packages/images.part-001'])
+
+requestedPaths.length = 0
+const mobileImageResponse = await sitesWorker.fetch(
+  new Request('https://dmgendfield.online/assets/images/example.png?imageVersion=v-test'),
+  env,
+)
+assert.equal(mobileImageResponse.headers.get('Cache-Control'), 'public, max-age=0, must-revalidate')
+assert.deepEqual(requestedPaths, ['/assets/images/example.png'])

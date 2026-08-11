@@ -21,9 +21,15 @@ declare global {
 const root = ReactDOM.createRoot(document.getElementById('root')!)
 
 async function mountEntry() {
-  const Entry = window.__DMG_MOBILE_ENTRY__
-    ? (await import('./mobile/MobileBootstrap')).MobileBootstrap
-    : (await import('./components/WebApp/WebBootstrap')).WebBootstrap
+  const isLocalResourcePackager = (
+    ['127.0.0.1', 'localhost'].includes(window.location.hostname)
+    && window.location.hash.split('?')[0] === '#/settings/resource-packager'
+  )
+  const Entry = isLocalResourcePackager
+    ? (await import('./components/WebApp/ResourcePackagerPage')).ResourcePackagerPage
+    : window.__DMG_MOBILE_ENTRY__
+      ? (await import('./mobile/MobileBootstrap')).MobileBootstrap
+      : (await import('./components/WebApp/WebBootstrap')).WebBootstrap
 
   root.render(
     <React.StrictMode>

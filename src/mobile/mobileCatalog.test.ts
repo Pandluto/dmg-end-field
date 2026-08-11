@@ -8,9 +8,21 @@ function readFixture(relativePath: string): unknown {
   return JSON.parse(readFileSync(new URL(`../../public/${relativePath}`, import.meta.url), 'utf8')) as unknown;
 }
 
+function readFixtureText(relativePath: string): string {
+  return readFileSync(new URL(`../../public/${relativePath}`, import.meta.url), 'utf8');
+}
+
+const channel = readFixture('resources/stable.json') as {
+  releaseManifest: { path: string };
+};
+const deployment = readFixture(channel.releaseManifest.path) as {
+  delivery: { dataManifest: { path: string }; imageManifest: { path: string } };
+};
 const dataManifest = readFixture('web-data-manifest.json') as { version: string };
 const imageManifest = readFixture('web-image-manifest.json') as { version: string };
-const archive = readFixture('data/default-local-data.json');
+const dataEntry = (dataManifest as unknown as {
+  files: Array<{ path: string; downloadPath?: string }>;
+}).files[0];
 const originalFetch = globalThis.fetch;
 const originalWindow = globalThis.window;
 const requests: string[] = [];
@@ -23,14 +35,20 @@ Object.defineProperty(globalThis, 'window', {
 globalThis.fetch = async (input) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
   requests.push(url);
-  if (url.includes('web-data-manifest.json')) {
-    return new Response(JSON.stringify(dataManifest), { status: 200 });
+  if (url.includes('resources/stable.json')) {
+    return new Response(readFixtureText('resources/stable.json'), { status: 200 });
   }
-  if (url.includes('default-local-data.json')) {
-    return new Response(JSON.stringify(archive), { status: 200 });
+  if (url.includes(channel.releaseManifest.path)) {
+    return new Response(readFixtureText(channel.releaseManifest.path), { status: 200 });
   }
-  if (url.includes('web-image-manifest.json')) {
-    return new Response(JSON.stringify(imageManifest), { status: 200 });
+  if (url.includes(deployment.delivery.dataManifest.path)) {
+    return new Response(readFixtureText(deployment.delivery.dataManifest.path), { status: 200 });
+  }
+  if (url.includes(deployment.delivery.imageManifest.path)) {
+    return new Response(readFixtureText(deployment.delivery.imageManifest.path), { status: 200 });
+  }
+  if (url.includes(dataEntry.downloadPath || dataEntry.path)) {
+    return new Response(readFixtureText(dataEntry.downloadPath || dataEntry.path), { status: 200 });
   }
   return new Response('not found', { status: 404 });
 };
@@ -51,9 +69,10 @@ try {
     assert.ok(weapon?.imgUrl.includes(`/assets/images/img-operator/`));
     assert.ok(weapon?.imgUrl.includes(`imageVersion=${encodeURIComponent(imageManifest.version)}`));
   }
-  assert.ok(requests.some((url) => /web-data-manifest\.json.*mobile=/.test(url)));
+  assert.ok(requests.some((url) => /resources\/stable\.json.*channel=/.test(url)));
+  assert.ok(requests.some((url) => url.includes(channel.releaseManifest.path)));
   assert.ok(requests.some((url) => /default-local-data\.json.*sha256=/.test(url)));
-  assert.ok(requests.some((url) => /web-image-manifest\.json.*mobile=/.test(url)));
+  assert.ok(requests.some((url) => url.includes(deployment.delivery.imageManifest.path)));
   assert.equal(
     versionMobileImageUrl('assets/images/example.png?size=small#preview', 'v2'),
     '/assets/images/example.png?size=small&imageVersion=v2#preview',

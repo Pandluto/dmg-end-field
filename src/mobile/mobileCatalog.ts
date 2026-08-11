@@ -18,9 +18,9 @@ import type { SkillButtonBuff } from '../types/storage';
 import { resolvePublicPath } from '../utils/assetResolver';
 import type { MobileCatalog } from './model';
 import type { OperatorDraft } from '../core/templates/operatorTemplate';
+import { fetchCurrentResourceRelease } from '../platform/resources/resourceChannel';
+import { sha256Hex } from '../platform/resources/resourceIntegrity';
 
-const DATA_MANIFEST_PATH = 'web-data-manifest.json';
-const IMAGE_MANIFEST_PATH = 'web-image-manifest.json';
 const DEFAULT_LOCAL_DATA_PATH = 'data/default-local-data.json';
 const DATA_ARCHIVE_TYPE = 'def.localdata.archive.v1';
 const DATA_MANIFEST_SCHEMA_VERSION = 1;
@@ -29,6 +29,7 @@ type JsonRecord = Record<string, unknown>;
 
 type MobileManifestEntry = {
   path: string;
+  downloadPath?: string;
   sha256: string;
   size?: number;
 };
@@ -59,8 +60,6 @@ type MobileArchive = {
     session: JsonRecord;
   };
 };
-
-let mobileEntrySequence = 0;
 
 function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -98,11 +97,6 @@ function appendQuery(url: string, key: string, value: string): string {
   return `${url}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
 }
 
-function createMobileEntryQuery(): string {
-  mobileEntrySequence += 1;
-  return `${Date.now()}${String(mobileEntrySequence).padStart(4, '0')}`;
-}
-
 function normalizeManifestEntry(value: unknown, index: number): MobileManifestEntry {
   if (!isRecord(value)) {
     throw new Error(`第 ${index + 1} 个文件条目无效。`);
@@ -110,7 +104,15 @@ function normalizeManifestEntry(value: unknown, index: number): MobileManifestEn
   if (typeof value.path !== 'string' || !value.path.trim()) {
     throw new Error(`第 ${index + 1} 个文件条目缺少 path。`);
   }
-  if (typeof value.sha256 !== 'string' || !value.sha256.trim()) {
+  const normalizedPath = value.path.trim().replace(/\\/g, '/');
+  if (
+    normalizedPath.startsWith('/')
+    || /^(?:[a-z]+:)?\/\//i.test(normalizedPath)
+    || normalizedPath.split('/').includes('..')
+  ) {
+    throw new Error(`第 ${index + 1} 个文件条目的 path 越界。`);
+  }
+  if (typeof value.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(value.sha256.trim())) {
     throw new Error(`第 ${index + 1} 个文件条目缺少 sha256。`);
   }
   if (
@@ -119,8 +121,22 @@ function normalizeManifestEntry(value: unknown, index: number): MobileManifestEn
   ) {
     throw new Error(`第 ${index + 1} 个文件条目的 size 无效。`);
   }
+  const downloadPath = typeof value.downloadPath === 'string'
+    ? value.downloadPath.trim().replace(/\\/g, '/')
+    : '';
+  if (
+    downloadPath
+    && (
+      downloadPath.startsWith('/')
+      || /^(?:[a-z]+:)?\/\//i.test(downloadPath)
+      || downloadPath.split('/').includes('..')
+    )
+  ) {
+    throw new Error(`第 ${index + 1} 个文件条目的 downloadPath 越界。`);
+  }
   return {
-    path: value.path.trim(),
+    path: normalizedPath,
+    ...(downloadPath ? { downloadPath } : {}),
     sha256: value.sha256.trim(),
     ...(value.size === undefined ? {} : { size: Number(value.size) }),
   };
@@ -229,7 +245,12 @@ function normalizeArchive(value: unknown): MobileArchive {
   };
 }
 
-async function fetchJson(url: string, label: string): Promise<unknown> {
+async function fetchVerifiedJson(entry: MobileManifestEntry, label: string): Promise<unknown> {
+  if (entry.size !== undefined && entry.size > 64 * 1024 * 1024) {
+    throw new Error(`${label}体积超出限制。`);
+  }
+  const sourcePath = entry.downloadPath || entry.path;
+  const url = appendQuery(resolvePublicPath(sourcePath), 'sha256', entry.sha256);
   let response: Response;
   try {
     response = await fetch(url, { cache: 'no-store' });
@@ -239,8 +260,16 @@ async function fetchJson(url: string, label: string): Promise<unknown> {
   if (!response.ok) {
     throw new Error(`${label}失败：HTTP ${response.status}。`);
   }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength > 64 * 1024 * 1024) throw new Error(`${label}体积超出限制。`);
+  if (
+    (entry.size !== undefined && bytes.byteLength !== entry.size)
+    || await sha256Hex(bytes) !== entry.sha256
+  ) {
+    throw new Error(`${label}校验失败。`);
+  }
   try {
-    return await response.json() as unknown;
+    return JSON.parse(new TextDecoder().decode(bytes).replace(/^\uFEFF/, '')) as unknown;
   } catch {
     throw new Error(`${label}不是有效 JSON。`);
   }
@@ -484,12 +513,8 @@ function buildMobileCatalog(
 }
 
 export async function loadMobileCatalog(): Promise<MobileCatalog> {
-  const dataManifestUrl = appendQuery(
-    resolvePublicPath(DATA_MANIFEST_PATH),
-    'mobile',
-    createMobileEntryQuery(),
-  );
-  const rawDataManifest = await fetchJson(dataManifestUrl, '移动端数据清单加载');
+  const release = await fetchCurrentResourceRelease({ fresh: true });
+  const rawDataManifest = release.dataManifest;
 
   let dataManifest: MobileDataManifest;
   try {
@@ -505,12 +530,7 @@ export async function loadMobileCatalog(): Promise<MobileCatalog> {
     throw new Error(`移动端数据清单格式无效：找不到 ${DEFAULT_LOCAL_DATA_PATH}。`);
   }
 
-  const dataUrl = appendQuery(
-    resolvePublicPath(dataEntry.path),
-    'sha256',
-    dataEntry.sha256,
-  );
-  const rawArchive = await fetchJson(dataUrl, '移动端官方数据包加载');
+  const rawArchive = await fetchVerifiedJson(dataEntry, '移动端官方数据包加载');
 
   let archive: MobileArchive;
   try {
@@ -519,10 +539,7 @@ export async function loadMobileCatalog(): Promise<MobileCatalog> {
     throw new Error(`移动端官方数据包格式无效：${errorMessage(error)}`);
   }
 
-  const rawImageManifest = await fetchJson(
-    appendQuery(resolvePublicPath(IMAGE_MANIFEST_PATH), 'mobile', createMobileEntryQuery()),
-    '移动端图片清单加载',
-  );
+  const rawImageManifest = release.imageManifest;
   let imageManifest: MobileImageManifest;
   try {
     imageManifest = normalizeImageManifest(rawImageManifest);

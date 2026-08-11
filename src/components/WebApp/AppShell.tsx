@@ -67,7 +67,7 @@ function clampLauncherPosition(
 }
 
 function sectionMeta(path: string): SectionMeta {
-  if (path === APP_ROUTE_PATHS.settings) {
+  if (path === APP_ROUTE_PATHS.settings || path.startsWith(`${APP_ROUTE_PATHS.settings}/`)) {
     return {
       key: 'settings',
       title: '设置',

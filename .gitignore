@@ -4,6 +4,7 @@ dev-dist
 public/packages/*.zip
 public/packages/*.partial
 public/packages/*.part-*
+public/resources/releases/**/packages/*.part-*
 public/data/catalog.sqlite
 public/assets/images/**
 !public/assets/images/_manifest.json

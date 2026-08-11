@@ -2,7 +2,6 @@ import process from 'node:process';
 
 const releaseRef = (process.argv[2] || process.env.GITHUB_REF_NAME || 'latest').trim();
 
-// GitHub Releases is the source of truth for published data. The ref may be a
-// semantic version, an LTS label, or another repository-controlled release
-// name; it must not be compared with package.json.
+// Application release tags are independent from the server resource channel.
+// Official data and images are published through resources/stable.json.
 console.log(`RELEASE_VERSION_ACCEPTED ref=${releaseRef}`);

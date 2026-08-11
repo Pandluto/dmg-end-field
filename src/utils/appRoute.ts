@@ -5,6 +5,7 @@ export const APP_ROUTE_PATHS = {
   timelineWorkspace: '/timeline',
   dataWorkspace: '/data',
   settings: '/settings',
+  resourcePackager: '/settings/resource-packager',
   draft: '/data/operators',
   buffSheet: '/data/buffs',
   weaponSheet: '/data/weapons',

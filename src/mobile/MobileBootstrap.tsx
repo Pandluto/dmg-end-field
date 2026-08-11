@@ -4,6 +4,7 @@ import { readAccessLeaseStatus } from '../platform/auth/accessLease';
 import type { MobileCatalog } from './model';
 import { loadMobileCatalog } from './mobileCatalog';
 import { MobileApp } from './MobileApp';
+import { fetchCurrentResourceRelease } from '../platform/resources/resourceChannel';
 import '../components/WebApp/web-app.css';
 import './MobileBootstrap.css';
 
@@ -12,22 +13,13 @@ type MobileBootstrapPhase = 'checking-access' | 'locked' | 'loading' | 'ready' |
 const VERSION_CHECK_INTERVAL_MS = 5 * 60 * 1_000;
 
 async function readLatestMobileVersions(): Promise<{ dataVersion: string; imageVersion: string }> {
-  const requestVersion = async (pathname: string) => {
-    const url = new URL(pathname, window.location.origin);
-    url.searchParams.set('mobile-check', String(Date.now()));
-    const response = await fetch(url, {
-      cache: 'no-store',
-      headers: { Accept: 'application/json' },
-    });
-    if (!response.ok) return '';
-    const payload = await response.json() as { version?: unknown };
-    return typeof payload.version === 'string' ? payload.version : '';
+  const context = await fetchCurrentResourceRelease({ fresh: true });
+  const data = context.dataManifest as { version?: unknown };
+  const images = context.imageManifest as { version?: unknown };
+  return {
+    dataVersion: typeof data.version === 'string' ? data.version : '',
+    imageVersion: typeof images.version === 'string' ? images.version : '',
   };
-  const [dataVersion, imageVersion] = await Promise.all([
-    requestVersion('/web-data-manifest.json'),
-    requestVersion('/web-image-manifest.json'),
-  ]);
-  return { dataVersion, imageVersion };
 }
 
 export function MobileBootstrap() {
