@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { loadMobileCatalog, versionMobileImageUrl } from './mobileCatalog';
-import { createDefaultMobileOperatorConfig, createEmptyMobileDraft } from './mobileDraft';
+import {
+  createDefaultMobileOperatorConfig,
+  createEmptyMobileDraft,
+  normalizeMobileDraft,
+} from './mobileDraft';
 import { buildMobileRuntimeState } from './mobileRuntime';
 
 function readFixture(relativePath: string): unknown {
@@ -110,6 +114,22 @@ try {
   assert.ok(Number.isFinite(runtime.report.totalExpected));
   assert.ok(runtime.slotCalculations[draft.slots[0].id]?.result.hits.length > 0);
   assert.ok(runtime.availableBuffs.some((buff) => buff.ownerCharacterId === character.id));
+
+  draft.slots[0].action.customHits = [{
+    key: 'frozen-hit',
+    displayName: '分享快照伤害段',
+    multiplier: 0.01,
+    levels: { M3: 0.02 },
+    element: character.element,
+    skillType: skill.buttonType,
+  }];
+  const frozenRuntime = buildMobileRuntimeState(normalizeMobileDraft(draft), catalog);
+  assert.deepEqual(
+    frozenRuntime.slotCalculations[draft.slots[0].id]?.result.hits.map((hit) => hit.hit.key),
+    ['frozen-hit'],
+  );
+  assert.notEqual(frozenRuntime.report.totalExpected, runtime.report.totalExpected);
+  delete draft.slots[0].action.customHits;
 
   draft.slots[0].action.anomalyDamages = [{
     id: 'mobile-test-burn',

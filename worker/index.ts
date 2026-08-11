@@ -8,8 +8,10 @@ export default {
   async fetch(request: Request, env: Env) {
     const url = new URL(request.url)
     const isMobileRoute = url.pathname === '/mobile' || url.pathname.startsWith('/mobile/')
+    const isShareRoute = url.pathname.startsWith('/share/')
+    const isClientEntryRoute = isMobileRoute || isShareRoute
     const assetRequest = (
-      isMobileRoute
+      isClientEntryRoute
       && (request.method === 'GET' || request.method === 'HEAD')
     )
       ? new Request(new URL('/', request.url), {
@@ -70,7 +72,7 @@ export default {
     const mustRevalidate = (
       request.mode === 'navigate'
       || acceptsHtml
-      || isMobileRoute
+      || isClientEntryRoute
       || url.pathname === '/cache-recovery.html'
       || url.pathname === '/'
       || url.pathname === '/index.html'

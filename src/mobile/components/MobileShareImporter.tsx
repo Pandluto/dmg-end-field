@@ -3,6 +3,8 @@ import type { MobileCatalog, MobileDraft } from '../model';
 import {
   decodeMobileShareIdFromImage,
   fetchMobileShare,
+  isDesktopWorktreeSharePayload,
+  isMobileSnapshotSharePayload,
   type MobileShareRecord,
 } from '../mobileShare';
 import { MobilePortal } from './MobilePortal';
@@ -18,7 +20,12 @@ interface MobileShareImporterProps {
 type ImportState =
   | { status: 'idle' }
   | { status: 'loading'; message: string }
-  | { status: 'ready'; share: MobileShareRecord }
+  | {
+    status: 'ready';
+    share: MobileShareRecord;
+    draft: MobileDraft;
+    source: 'mobile' | 'desktop';
+  }
   | { status: 'error'; message: string };
 
 function formatExpiry(timestamp: number): string {
@@ -48,7 +55,21 @@ export function MobileShareImporter({
   const loadShare = async (shareId: string) => {
     setState({ status: 'loading', message: '正在读取分享内容…' });
     try {
-      setState({ status: 'ready', share: await fetchMobileShare(shareId) });
+      const share = await fetchMobileShare(shareId);
+      if (isMobileSnapshotSharePayload(share.payload)) {
+        setState({ status: 'ready', share, draft: share.payload.draft, source: 'mobile' });
+        return;
+      }
+      if (isDesktopWorktreeSharePayload(share.payload)) {
+        setState({
+          status: 'ready',
+          share,
+          draft: share.payload.presentedDraft,
+          source: 'desktop',
+        });
+        return;
+      }
+      throw new Error('分享来源无法识别。');
     } catch (error) {
       setState({
         status: 'error',
@@ -77,18 +98,18 @@ export function MobileShareImporter({
   const operatorNames = useMemo(() => {
     if (state.status !== 'ready') return [];
     const characterById = new Map(catalog.characters.map((character) => [character.id, character.name]));
-    return state.share.payload.draft.selectedOperatorIds
+    return state.draft.selectedOperatorIds
       .map((operatorId) => characterById.get(operatorId) || operatorId)
       .filter(Boolean);
   }, [catalog.characters, state]);
 
   const summary = useMemo(() => {
     if (state.status !== 'ready') return null;
-    const actions = state.share.payload.draft.slots.flatMap((slot) => slot.action ? [slot.action] : []);
+    const actions = state.draft.slots.flatMap((slot) => slot.action ? [slot.action] : []);
     return {
       actionCount: actions.length,
       buffCount: actions.reduce((sum, action) => sum + action.buffs.length, 0),
-      noteCount: Object.keys(state.share.payload.draft.reportNotes).length,
+      noteCount: Object.keys(state.draft.reportNotes).length,
     };
   }, [state]);
 
@@ -111,7 +132,7 @@ export function MobileShareImporter({
   const saveShare = () => {
     if (state.status !== 'ready') return;
     try {
-      onSave(state.share.payload.draft, buildArchiveName(operatorNames));
+      onSave(state.draft, buildArchiveName(operatorNames));
     } catch (error) {
       setState({
         status: 'error',
@@ -187,6 +208,11 @@ export function MobileShareImporter({
                       : `${formatExpiry(state.share.expiresAt)} 前可读取`}
                   </span>
                 </div>
+                {state.source === 'desktop' ? (
+                  <p className="mobile-share-import-warning">
+                    此码来自桌面完整节点树；手机版只会保存生成二维码时正在展示的节点。
+                  </p>
+                ) : null}
                 {versionMismatch ? (
                   <p className="mobile-share-import-warning">
                     分享使用的数据版本与当前版本不同；保存后会按当前目录自动对齐可用内容。

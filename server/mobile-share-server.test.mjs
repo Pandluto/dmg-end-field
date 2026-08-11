@@ -33,6 +33,61 @@ function createPayload(label = '测试') {
   };
 }
 
+function createDesktopPayload() {
+  const mobile = createPayload('桌面当前节点');
+  const timelinePayload = {
+    selectedCharacters: ['operator-1'],
+    timelineData: {
+      version: '1.1.0',
+      createdAt: FIXED_NOW,
+      updatedAt: FIXED_NOW,
+      staffLines: [{ staffIndex: 0, characterName: '测试干员', occupiedNodes: [], buttons: [] }],
+    },
+    skillButtonTable: {},
+    allBuffList: [],
+    anomalyStateSnapshots: [],
+    characterInputMap: {},
+    characterComputedMap: {},
+    characterDisplayCacheMap: {},
+    operatorConfigPageCache: {},
+  };
+  return {
+    schemaVersion: 2,
+    source: 'desktop',
+    dataVersion: 'desktop-data-v2',
+    imageVersion: 'desktop-image-v2',
+    presentedDraft: mobile.draft,
+    bundle: {
+      type: 'dmg.timeline-bundle.v2',
+      schemaVersion: 2,
+      manifest: {
+        exportedAt: FIXED_NOW,
+        scope: 'document',
+        timelineId: 'desktop-tree-1',
+        label: '完整桌面树',
+        payloadHash: 'sha256:test-only',
+      },
+      document: { id: 'desktop-tree-1', label: '完整桌面树' },
+      payloads: [timelinePayload],
+      snapshots: [{ id: 'snapshot-1', label: '根快照', createdAt: FIXED_NOW, payloadIndex: 0 }],
+      workNodes: [{
+        id: 'node-1',
+        branchId: 'branch-1',
+        label: '当前节点',
+        status: 'ready',
+        approvalPolicy: 'auto-low-risk',
+        riskFlags: [],
+        logs: [],
+        createdAt: FIXED_NOW,
+        updatedAt: FIXED_NOW,
+        basePayloadIndex: 0,
+        workingPayloadIndex: 0,
+      }],
+      checkoutRef: { targetType: 'work-node', targetId: 'node-1', updatedAt: FIXED_NOW },
+    },
+  };
+}
+
 function createComplexPayload() {
   const selectedOperatorIds = ['operator-alpha', 'operator-beta', 'operator-gamma', 'operator-delta'];
   const equipment = (prefix) => ({
@@ -315,6 +370,26 @@ test('reuses an identical permanent payload without spending another creation sl
   }
 });
 
+test('deduplicates the same desktop tree when only its export time changes', () => {
+  const store = createMobileShareStore({
+    dbPath: ':memory:',
+    now: () => FIXED_NOW,
+    dailyLimit: 1,
+  });
+  try {
+    const firstPayload = createDesktopPayload();
+    const nextPayload = structuredClone(firstPayload);
+    nextPayload.bundle.manifest.exportedAt += 10_000;
+    const first = store.create(firstPayload, '203.0.113.1', 'device-a');
+    const reused = store.create(nextPayload, '203.0.113.2', 'device-b');
+    assert.equal(reused.reused, true);
+    assert.equal(reused.id, first.id);
+    assert.deepEqual(store.stats(), { active: 1, permanent: 1, createdLast24Hours: 1 });
+  } finally {
+    store.close();
+  }
+});
+
 test('accepts only server-signed device tokens and replaces tampered identities', () => {
   const store = createMobileShareStore({ dbPath: ':memory:' });
   try {
@@ -386,6 +461,25 @@ test('round-trips a complete mobile workspace through real HTTP without losing n
     assert.equal(restored.expiresAt, null);
     assert.equal(restored.permanent, true);
     assert.deepEqual(restored.payload, payload);
+  } finally {
+    await service.close();
+  }
+});
+
+test('round-trips a desktop worktree envelope and its presented mobile projection', async () => {
+  const service = await startHttpService({ now: () => FIXED_NOW });
+  try {
+    const payload = createDesktopPayload();
+    const createResponse = await fetch(`${service.baseUrl}/api/mobile-shares`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(createResponse.status, 201);
+    const created = await readJson(createResponse);
+    const restoredResponse = await fetch(`${service.baseUrl}/api/mobile-shares/${created.id}`);
+    assert.equal(restoredResponse.status, 200);
+    assert.deepEqual((await readJson(restoredResponse)).payload, payload);
   } finally {
     await service.close();
   }
@@ -775,6 +869,34 @@ test('returns no-store JSON for health and stable 404 responses for unknown API 
     const options = await fetch(`${service.baseUrl}/api/mobile-shares`, { method: 'OPTIONS' });
     assert.equal(options.status, 204);
     assert.equal(options.headers.get('cache-control'), 'no-store');
+  } finally {
+    await service.close();
+  }
+});
+
+test('allows official cross-node reads and rejects untrusted browser origins', async () => {
+  const service = await startHttpService({ now: () => FIXED_NOW });
+  try {
+    const allowed = await fetch(`${service.baseUrl}/api/mobile-shares/health`, {
+      headers: { origin: 'https://dmgendfield.online' },
+    });
+    assert.equal(allowed.status, 200);
+    assert.equal(allowed.headers.get('access-control-allow-origin'), 'https://dmgendfield.online');
+    assert.equal(allowed.headers.get('vary'), 'Origin');
+
+    const preflight = await fetch(`${service.baseUrl}/api/mobile-shares`, {
+      method: 'OPTIONS',
+      headers: { origin: 'https://150.158.133.176' },
+    });
+    assert.equal(preflight.status, 204);
+    assert.match(preflight.headers.get('access-control-allow-methods') || '', /GET/);
+
+    const blocked = await fetch(`${service.baseUrl}/api/mobile-shares/health`, {
+      headers: { origin: 'https://untrusted.example' },
+    });
+    assert.equal(blocked.status, 403);
+    assert.equal((await readJson(blocked)).code, 'ORIGIN_NOT_ALLOWED');
+    assert.equal(blocked.headers.get('access-control-allow-origin'), null);
   } finally {
     await service.close();
   }

@@ -28,6 +28,7 @@ import {
   buildMobileShareUrl,
   createMobileShare,
   createMobileShareQrDataUrl,
+  type MobileShareRecord,
 } from '../mobileShare';
 import { MobilePortal } from '../components/MobilePortal';
 import './MobileReportPage.css';
@@ -45,6 +46,7 @@ export interface MobileReportPageProps {
   dataVersion: string;
   imageVersion: string;
   shareEnabled: boolean;
+  onCreateShare?: () => Promise<MobileShareRecord>;
   timelineNotes: Record<string, string>;
   onTimelineNotesChange: (notes: Record<string, string>) => void;
 }
@@ -802,8 +804,8 @@ function ReportShareQrCard({ share }: { share: ReportShareQr }) {
       <img src={share.qrDataUrl} alt="战术报告分享二维码" />
       <span>
         <small>MOBILE TACTICAL SHARE</small>
-        <strong>从手机版 01 页导入此报告</strong>
-        <p>此二维码永久有效。保存图片后选择“导入分享”，队伍、配装、排轴、Buff 与批注将加入本机存档。</p>
+        <strong>扫码导入此战术报告</strong>
+        <p>手机与桌面会按生成端自动选择当前快照或完整节点树；导入不会持续同步。</p>
         <code>{share.id}</code>
       </span>
     </aside>
@@ -823,6 +825,7 @@ export function MobileReportPage({
   dataVersion,
   imageVersion,
   shareEnabled,
+  onCreateShare,
   timelineNotes,
   onTimelineNotesChange,
 }: MobileReportPageProps) {
@@ -981,7 +984,9 @@ export function MobileReportPage({
   const handleExport = () => void exportReport();
 
   const handleShareExport = () => void exportReport(async () => {
-    const share = await createMobileShare(draft, dataVersion, imageVersion);
+    const share = await (onCreateShare
+      ? onCreateShare()
+      : createMobileShare(draft, dataVersion, imageVersion));
     const url = buildMobileShareUrl(share.id);
     return {
       id: share.id,
