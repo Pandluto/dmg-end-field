@@ -3,12 +3,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const sourcePath = path.join(
-  repositoryRoot,
-  'data',
-  'sharedata',
-  'share-20260809-030612-8-9.json',
-);
+const shareDataRoot = path.join(repositoryRoot, 'data', 'sharedata');
+const sourceFileName = fs.existsSync(shareDataRoot)
+  ? fs.readdirSync(shareDataRoot)
+    .filter((fileName) => /^share-\d{8}-.+\.json$/.test(fileName))
+    .sort()
+    .at(-1)
+  : undefined;
+const sourcePath = sourceFileName
+  ? path.join(shareDataRoot, sourceFileName)
+  : path.join(shareDataRoot, '__missing-latest-share-data__.json');
 const legacyTimelineSourcePath = path.join(
   repositoryRoot,
   'data',
@@ -30,12 +34,12 @@ if (!fs.existsSync(sourcePath)) {
   process.exit(0);
 }
 
-const sectionPrefixes = {
-  operators: ['def.operator-editor.'],
-  weapons: ['def.weapon-sheet.'],
-  equipments: ['def.equipment-sheet.'],
-  buffs: ['def.buff-editor.', 'def.buff-sheet.'],
-};
+const independentLibraryKeys = new Set([
+  'def.operator-editor.library.v1',
+  'def.weapon-sheet.library.v1',
+  'def.equipment-sheet.library.v1',
+  'def.buff-editor.library.v1',
+]);
 const timelineSnapshotArchiveKey = 'def.timeline.snapshot-archive.v1';
 const workspaceStorageKeys = {
   selectedCharacters: 'def.selected-characters.v1',
@@ -54,9 +58,7 @@ function readJson(filePath) {
 }
 
 function isIndependentLibraryKey(key) {
-  return Object.values(sectionPrefixes)
-    .flat()
-    .some((prefix) => key === prefix || key.startsWith(prefix));
+  return independentLibraryKeys.has(key);
 }
 
 function countRecord(value) {

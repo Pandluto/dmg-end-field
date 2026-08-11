@@ -3,23 +3,18 @@ import type {
   ConfigSnapshot,
   EquipmentPieceInput,
   EquipmentSetBuffInput,
-  OperatorBuffEffectInput,
   OperatorBuffInput,
   OperatorPanelInput,
   WeaponSkillInput,
 } from '../calculators/operatorPanelCalculator';
-import type { BuffData, CandidateBuff } from '../domain/buff';
 import type { Character } from '../../types';
 import type { CharacterConfigJson, OperatorConfigPageCache } from '../../types/storage';
 import type { EquipmentConfig } from '../../utils/equipmentParser';
 import { isPercentField } from '../../utils/equipmentParser';
-import { resolvePublicPath } from '../../utils/assetResolver';
 import { persistentLocalStorage } from '../../platform/storage/persistentStorage';
 import { getCharacterConfigMap } from '../../utils/storage';
 import { normalizeGameKnowledgeText, resolveGameGearSetAlias } from '../../utils/gameKnowledge';
 import { getOperatorConfigPageCache, setOperatorConfigPageCache } from '../repositories';
-import { normalizeExtraHitConfig } from './buffExtraHit';
-import { normalizeStoredBuffDefinition } from './buffStorageNormalization';
 import {
   buildOperatorEquipmentSetBuffs,
   findOperatorEquipmentItem,
@@ -123,16 +118,6 @@ function readLocalStorageJson<T>(key: string, fallback: T): T {
     return raw ? (JSON.parse(raw) as T) : fallback;
   } catch {
     return fallback;
-  }
-}
-
-async function loadPublicJson<T>(path: string): Promise<T | null> {
-  try {
-    const response = await fetch(resolvePublicPath(path), { cache: 'no-store' });
-    if (!response.ok) return null;
-    return (await response.json()) as T;
-  } catch {
-    return null;
   }
 }
 
@@ -575,14 +560,6 @@ function buildEquipmentSetBuffsForSnapshot(
   return buildOperatorEquipmentSetBuffs(selectedEquipmentIds, equipmentLibrary);
 }
 
-function createEmptyOperatorBuffs(): OperatorBuffInput {
-  return {
-    talent: { effects: {} },
-    potential: { effects: {} },
-    skill: { effects: {} },
-  };
-}
-
 function normalizeOperatorBuffInput(value: unknown): OperatorBuffInput {
   const source = value as Partial<OperatorBuffInput> | undefined;
   return {
@@ -590,79 +567,6 @@ function normalizeOperatorBuffInput(value: unknown): OperatorBuffInput {
     potential: { effects: { ...(source?.potential?.effects ?? {}) } },
     skill: { effects: { ...(source?.skill?.effects ?? {}) } },
   } as OperatorBuffInput;
-}
-
-function inferOperatorBuffGroup(buff: CandidateBuff): keyof OperatorBuffInput {
-  if (buff.ownerBuffGroup === 'talent' || buff.ownerBuffGroup === 'potential' || buff.ownerBuffGroup === 'skill') {
-    return buff.ownerBuffGroup;
-  }
-  const text = [buff.source, buff.sourceName, buff.level, buff.displayName, buff.name]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-  if (text.includes('potential') || text.includes('potentials') || text.includes('潜能')) return 'potential';
-  if (text.includes('skill') || text.includes('技能')) return 'skill';
-  return 'talent';
-}
-
-function normalizePublicBuffCategory(category: CandidateBuff['category']): OperatorBuffEffectInput['category'] {
-  if (category === 'passive' || category === 'countable' || category === 'condition') return category;
-  return 'condition';
-}
-
-function normalizePublicBuffEffect(buff: CandidateBuff, index: number): OperatorBuffEffectInput | null {
-  const normalized = normalizeStoredBuffDefinition(buff) as CandidateBuff;
-  const effectKind = normalized.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
-  const type = effectKind === 'extraHit' ? '' : String(normalized.type || '');
-  if (effectKind === 'modifier' && !type) return null;
-  return {
-    schemaVersion: 2,
-    effectId: normalized.name || normalized.displayName || `json-buff-${index + 1}`,
-    name: normalized.name || normalized.displayName || `json-buff-${index + 1}`,
-    type,
-    category: normalizePublicBuffCategory(normalized.category),
-    value: effectKind === 'extraHit' ? undefined : normalized.value,
-    maxStacks: normalized.maxStacks,
-    unit: 'unit' in normalized ? String((normalized as CandidateBuff & { unit?: string }).unit) : undefined,
-    description: normalized.description,
-    raw: normalized.condition || normalized.sourceName,
-    valueMode: normalized.valueMode,
-    derivedValue: normalized.derivedValue,
-    effectKind,
-    multiplier: normalized.multiplier,
-    ...(effectKind === 'extraHit'
-      ? { extraHitConfig: normalizeExtraHitConfig(normalized.extraHitConfig, `${normalized.name || index}-extra-hit`) }
-      : {}),
-  };
-}
-
-async function loadPublicOperatorBuffs(character: Character): Promise<OperatorBuffInput> {
-  const data = await loadPublicJson<BuffData>(`data/characters/${character.name}/${character.name}buff.json`);
-  const result = createEmptyOperatorBuffs();
-  (data?.buffs ?? []).forEach((buff, index) => {
-    const effect = normalizePublicBuffEffect(buff, index);
-    if (!effect) return;
-    const groupKey = inferOperatorBuffGroup(buff);
-    const effectKey = `${effect.effectId}:${index}`;
-    result[groupKey].effects[effectKey] = effect;
-  });
-  return result;
-}
-
-function mergeOperatorBuffs(...groups: OperatorBuffInput[]): OperatorBuffInput {
-  const merged = createEmptyOperatorBuffs();
-  (['talent', 'potential', 'skill'] as const).forEach((groupKey) => {
-    groups.forEach((group) => {
-      Object.assign(merged[groupKey].effects, group[groupKey]?.effects ?? {});
-    });
-  });
-  return merged;
-}
-
-async function buildOperatorBuffs(character: Character, snapshot: ConfigSnapshot | undefined): Promise<OperatorBuffInput> {
-  const sourceBuffs = normalizeOperatorBuffInput(character.operatorBuffs ?? snapshot?.operator.buffs);
-  const publicBuffs = await loadPublicOperatorBuffs(character);
-  return mergeOperatorBuffs(sourceBuffs, publicBuffs);
 }
 
 function resolveWeaponName(snapshot: ConfigSnapshot | undefined, legacyConfig: CharacterConfigJson | undefined): string {
@@ -727,7 +631,7 @@ async function buildSnapshotForCharacter(
       subStatFlatBonus: snapshot?.operator.subStatFlatBonus ?? 0,
       skillConfig: buildSkillConfig(snapshot, legacyConfig),
       attributes: character.attributes,
-      buffs: await buildOperatorBuffs(character, snapshot),
+      buffs: normalizeOperatorBuffInput(character.operatorBuffs ?? snapshot?.operator.buffs),
     },
     weapon: {
       id: weaponName,

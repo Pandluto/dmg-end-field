@@ -144,6 +144,13 @@ if (
 ) {
   fail('public web data manifest is invalid');
 } else {
+  const expectedDataFiles = ['data/default-local-data.json'];
+  if (
+    dataManifest.files.length !== expectedDataFiles.length
+    || dataManifest.files.some((entry, index) => entry.path !== expectedDataFiles[index])
+  ) {
+    fail('public web data package must contain only the canonical default archive');
+  }
   let totalBytes = 0;
   for (const entry of dataManifest.files) {
     if (!isPortableRelativePath(entry.path) || !entry.path.startsWith('data/')) {
@@ -168,6 +175,30 @@ if (
     if (sha256(absolutePath) !== entry.sha256) fail(`web data hash mismatch: ${entry.path}`);
   }
   if (totalBytes !== dataManifest.totalBytes) fail('web data totalBytes mismatch');
+
+  const defaultArchive = readJson('public/data/default-local-data.json');
+  const local = defaultArchive.storage?.local;
+  const expectedLibraryKeys = [
+    'def.buff-editor.library.v1',
+    'def.equipment-sheet.library.v1',
+    'def.operator-editor.library.v1',
+    'def.weapon-sheet.library.v1',
+  ];
+  const actualLibraryKeys = local && typeof local === 'object' && !Array.isArray(local)
+    ? Object.keys(local).sort()
+    : [];
+  if (JSON.stringify(actualLibraryKeys) !== JSON.stringify(expectedLibraryKeys)) {
+    fail('default local data must contain only canonical libraries');
+  }
+  const countRecord = (value) => (
+    value && typeof value === 'object' && !Array.isArray(value) ? Object.keys(value).length : 0
+  );
+  if (
+    dataManifest.summary?.operators !== countRecord(local?.['def.operator-editor.library.v1'])
+    || dataManifest.summary?.weapons !== countRecord(local?.['def.weapon-sheet.library.v1'])
+  ) {
+    fail('web data summary does not match canonical library counts');
+  }
 }
 
 const imageManifest = readJson('public/web-image-manifest.json');
@@ -179,6 +210,9 @@ if (
 ) {
   fail('public web image manifest is invalid');
 } else {
+  if (dataManifest.summary?.images !== imageManifest.files.length) {
+    fail('web data summary does not match image package count');
+  }
   let totalBytes = 0;
   const imagePaths = new Set();
   for (const entry of imageManifest.files) {

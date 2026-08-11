@@ -16,6 +16,11 @@ export type ResourcePackageManifest = {
   packageId: string;
   version: string;
   generatedAt: string;
+  summary?: {
+    operators: number;
+    weapons: number;
+    images: number;
+  };
   files: ResourceManifestEntry[];
   totalBytes: number;
 };
@@ -43,6 +48,13 @@ function bytesToHex(bytes: ArrayBuffer): string {
     .join('');
 }
 
+function absoluteResourceCacheUrl(path: string): string {
+  const baseUrl = typeof window === 'undefined'
+    ? 'https://dmg-resource-package.invalid/'
+    : window.location.href;
+  return new URL(resolvePublicPath(path), baseUrl).href;
+}
+
 async function sha256(buffer: ArrayBuffer): Promise<string> {
   return bytesToHex(await crypto.subtle.digest('SHA-256', buffer));
 }
@@ -65,6 +77,18 @@ export async function fetchResourcePackageManifest(): Promise<ResourcePackageMan
     manifest.schemaVersion !== 1
     || manifest.packageId !== DEFAULT_PACKAGE_ID
     || !Array.isArray(manifest.files)
+    || manifest.files.length === 0
+    || (
+      manifest.summary !== undefined
+      && (
+        !Number.isSafeInteger(manifest.summary.operators)
+        || manifest.summary.operators <= 0
+        || !Number.isSafeInteger(manifest.summary.weapons)
+        || manifest.summary.weapons <= 0
+        || !Number.isSafeInteger(manifest.summary.images)
+        || manifest.summary.images <= 0
+      )
+    )
   ) {
     throw new Error('资源清单格式无效。');
   }
@@ -86,7 +110,7 @@ export async function readInstalledResourcePackage(): Promise<InstalledResourceP
   const row = rows[0];
   if (!row) return null;
   try {
-    return {
+    const installed = {
       packageId: String(row.package_id),
       version: String(row.version),
       installedAt: Number(row.installed_at),
@@ -94,8 +118,36 @@ export async function readInstalledResourcePackage(): Promise<InstalledResourceP
       byteSize: Number(row.byte_size),
       manifest: JSON.parse(String(row.manifest_json)) as ResourcePackageManifest,
     };
+    return await verifyInstalledResourcePackageCache(installed) ? installed : null;
   } catch {
     return null;
+  }
+}
+
+export async function verifyInstalledResourcePackageCache(
+  installed: InstalledResourcePackage,
+): Promise<boolean> {
+  if (
+    installed.packageId !== DEFAULT_PACKAGE_ID
+    || installed.manifest.packageId !== DEFAULT_PACKAGE_ID
+    || installed.version !== installed.manifest.version
+    || !Array.isArray(installed.manifest.files)
+    || installed.manifest.files.length === 0
+    || !('caches' in globalThis)
+  ) {
+    return false;
+  }
+
+  try {
+    const cache = await caches.open(RESOURCE_CACHE_NAME);
+    const expectedUrls = new Set(
+      installed.manifest.files.map((entry) => absoluteResourceCacheUrl(entry.path)),
+    );
+    const cachedRequests = await cache.keys();
+    return cachedRequests.length === expectedUrls.size
+      && cachedRequests.every((request) => expectedUrls.has(request.url));
+  } catch {
+    return false;
   }
 }
 
@@ -137,6 +189,16 @@ export async function installDefaultResourcePackage(
       currentPath: entry.path,
     });
   }
+
+  const expectedUrls = new Set(
+    manifest.files.map((entry) => absoluteResourceCacheUrl(entry.path)),
+  );
+  const cachedRequests = await cache.keys();
+  await Promise.all(
+    cachedRequests
+      .filter((request) => !expectedUrls.has(request.url))
+      .map((request) => cache.delete(request)),
+  );
 
   const installedAt = Date.now();
   await webDatabase.execute(

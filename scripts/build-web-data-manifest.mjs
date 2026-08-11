@@ -7,20 +7,28 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const publicRoot = path.join(repositoryRoot, 'public');
 const dataRoot = path.join(publicRoot, 'data');
 const outputPath = path.join(publicRoot, 'web-data-manifest.json');
-const packageJson = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'package.json'), 'utf8'));
+const defaultArchivePath = path.join(dataRoot, 'default-local-data.json');
+const imageManifestPath = path.join(publicRoot, 'web-image-manifest.json');
 
-function walk(directory) {
-  return fs.readdirSync(directory, { withFileTypes: true })
-    .sort((left, right) => left.name.localeCompare(right.name))
-    .flatMap((entry) => {
-      const absolutePath = path.join(directory, entry.name);
-      if (entry.isDirectory()) return walk(absolutePath);
-      if (!entry.isFile() || !entry.name.endsWith('.json')) return [];
-      return [absolutePath];
-    });
+function readJson(filePath) {
+  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
-const files = walk(dataRoot).map((absolutePath) => {
+function storedRecord(value) {
+  if (typeof value === 'string') {
+    try {
+      return storedRecord(JSON.parse(value));
+    } catch {
+      return {};
+    }
+  }
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+const defaultArchive = readJson(defaultArchivePath);
+const imageManifest = readJson(imageManifestPath);
+const local = storedRecord(defaultArchive.storage?.local);
+const files = [defaultArchivePath].map((absolutePath) => {
   const bytes = fs.readFileSync(absolutePath);
   return {
     path: path.relative(publicRoot, absolutePath).split(path.sep).join('/'),
@@ -28,11 +36,25 @@ const files = walk(dataRoot).map((absolutePath) => {
     size: bytes.byteLength,
   };
 });
+const defaultArchiveHash = files[0].sha256;
+const sourceDate = String(defaultArchive.exportedAt || defaultArchive.createdAt || '')
+  .slice(0, 10)
+  .replace(/-/g, '') || 'undated';
+const summary = {
+  operators: Object.keys(storedRecord(local['def.operator-editor.library.v1'])).length,
+  weapons: Object.keys(storedRecord(local['def.weapon-sheet.library.v1'])).length,
+  images: Array.isArray(imageManifest.files) ? imageManifest.files.length : 0,
+};
+
+if (summary.operators === 0 || summary.weapons === 0 || summary.images === 0) {
+  throw new Error(`Web data summary is incomplete: ${JSON.stringify(summary)}`);
+}
 
 const comparableManifest = {
   schemaVersion: 1,
   packageId: 'dmg-end-field-core-data',
-  version: packageJson.version,
+  version: `${sourceDate}.${defaultArchiveHash.slice(0, 8)}`,
+  summary,
   files,
   totalBytes: files.reduce((sum, file) => sum + file.size, 0),
 };

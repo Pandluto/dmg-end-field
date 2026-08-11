@@ -1,11 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
+  fetchResourcePackageManifest,
   installDefaultResourcePackage,
-  readInstalledResourcePackage,
   type InstalledResourcePackage,
   type ResourceInstallProgress,
+  type ResourcePackageManifest,
 } from '../../platform/resources/resourcePackage';
 import {
+  fetchImagePackageManifest,
   installDefaultImagePackage,
   readInstalledImagePackage,
   type ImageInstallProgress,
@@ -33,21 +35,41 @@ export function WelcomePage({ onInstalled }: WelcomePageProps) {
   const [progress, setProgress] = useState<CombinedProgress | null>(null);
   const [isInstalling, setIsInstalling] = useState(false);
   const [error, setError] = useState('');
+  const [availablePackage, setAvailablePackage] = useState<ResourcePackageManifest | null>(null);
   const percentage = useMemo(() => {
     if (!progress?.totalBytes) return 0;
     return Math.min(100, Math.round(progress.downloadedBytes / progress.totalBytes * 100));
   }, [progress]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void fetchResourcePackageManifest()
+      .then((manifest) => {
+        if (!cancelled) setAvailablePackage(manifest);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const handleInstall = async () => {
     setIsInstalling(true);
     setError('');
     try {
-      const installed = await readInstalledResourcePackage()
-        || await installDefaultResourcePackage((next) => {
-          setProgress({ ...next, packageLabel: '基础数据' });
-        });
-      const images = await readInstalledImagePackage()
-        || await installDefaultImagePackage((next) => {
+      const installed = await installDefaultResourcePackage((next) => {
+        setProgress({ ...next, packageLabel: '基础数据' });
+      });
+      const [installedImages, latestImageManifest] = await Promise.all([
+        readInstalledImagePackage(),
+        fetchImagePackageManifest(),
+      ]);
+      const images = (
+        installedImages?.version === latestImageManifest.version
+        && installedImages.manifest.archive.sha256 === latestImageManifest.archive.sha256
+      )
+        ? installedImages
+        : await installDefaultImagePackage((next) => {
           setProgress({ ...next, packageLabel: '图片资源' });
         });
       await applyDefaultLocalDataPackage({
@@ -92,14 +114,29 @@ export function WelcomePage({ onInstalled }: WelcomePageProps) {
         </div>
         <div className="install-panel">
           <div className="install-panel-header">
-            <span>Web LTS 基础资料包</span>
+            <span>
+              Web LTS 基础资料包
+              {availablePackage?.version ? ` · ${availablePackage.version}` : ''}
+            </span>
             <span className="status-chip">{isInstalling ? '正在安装' : '尚未安装'}</span>
           </div>
           <div className="package-contents">
-            <span>30 位本地干员</span>
-            <span>75 件本地武器</span>
+            <span>
+              {availablePackage?.summary
+                ? `${availablePackage.summary.operators} 位本地干员`
+                : '正在读取干员资料'}
+            </span>
+            <span>
+              {availablePackage?.summary
+                ? `${availablePackage.summary.weapons} 件本地武器`
+                : '正在读取武器资料'}
+            </span>
             <span>装备与 Buff 本地库</span>
-            <span>559 个图片资源</span>
+            <span>
+              {availablePackage?.summary
+                ? `${availablePackage.summary.images} 个图片资源`
+                : '正在读取图片清单'}
+            </span>
           </div>
           {progress && (
             <div className="install-progress">

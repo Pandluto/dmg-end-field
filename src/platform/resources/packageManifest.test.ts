@@ -13,6 +13,7 @@ const resourceManifest: ResourcePackageManifest = {
   packageId: 'dmg-end-field-core-data',
   version: 'v1.8-LTS-slim',
   generatedAt: '2026-08-02T00:00:00.000Z',
+  summary: { operators: 31, weapons: 76, images: 559 },
   files: [{ path: 'data/default-local-data.json', sha256: 'abc', size: 3 }],
   totalBytes: 3,
 };
