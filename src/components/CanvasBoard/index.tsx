@@ -6071,7 +6071,9 @@ export function CanvasBoard({
   };
 
   const handleOpenSaveSnapshotModal = async () => {
-    if (!await promoteTemporaryTimeline()) return;
+    // 本地存档必须基于当前工作树的最新 checkpoint。点击入口时立即保存，
+    // 即使用户随后取消导出，也不会让当前排轴停留在未落盘状态。
+    if (!await handleSaveWorkNodeCheckpoint()) return;
     setSnapshotDraftName('');
     setIsSaveSnapshotModalOpen(true);
   };
@@ -6085,11 +6087,7 @@ export function CanvasBoard({
     saveTimelineData();
     setSelectedCharacterIds(selectedCharacters.map((character) => character.id));
     try {
-      // SQLite is the only directly usable form. Save the current working
-      // state into its worktree before exporting an archive copy.
-      if (!await handleSaveWorkNodeCheckpoint()) {
-        return;
-      }
+      // 点击入口时已经保存了当前工作节点；此处只导出该 SQLite 工作区。
       const result = await createTimelineRepositoryClient().exportSqliteWorkspaceArchive({
         timelineId: activeTimelineId,
         kind: 'local',
@@ -6857,7 +6855,7 @@ export function CanvasBoard({
             <div className="timeline-snapshot-modal-head">
               <div>
                 <h3>导出本地存档</h3>
-                <p>先保存当前工作节点，再从 SQLite 工作区导出本地存档。</p>
+                <p>当前工作节点已自动保存，可从 SQLite 工作区导出本地存档。</p>
               </div>
               <button type="button" className="modal-close-btn" onClick={handleCloseSaveSnapshotModal}>
                 关闭
