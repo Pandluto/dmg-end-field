@@ -1,12 +1,14 @@
 /**
  * SkillButton Repository
- * 只负责 def.skill-button.v1 的读写
+ * 负责 def.skill-button.v1 的读写，并维持 timeline Buff 镜像写入不变量
  * 不依赖 React，不写业务规则
  */
 
 import { STORAGE_KEYS } from '../../constants/storage-keys';
 import { HitResistanceInput, PersistedSkillButton, SkillButtonAnomalyConfig, SkillButtonTable } from '../../types/storage';
 import { safeSessionStorage } from '../../utils/storage';
+import { synchronizeTimelineButtonBuffMirrors } from '../domain/timelineButtonBuffMirror';
+import { loadTimelineData, saveTimelineData } from './timelineRepository';
 
 function normalizeResistanceInput(input: unknown): HitResistanceInput {
   const record = input && typeof input === 'object' ? input as Record<string, unknown> : {};
@@ -132,6 +134,10 @@ export function getSkillButtonTable(): SkillButtonTable {
  */
 export function setSkillButtonTable(table: SkillButtonTable): void {
   safeSessionStorage.setItem(STORAGE_KEYS.SKILL_BUTTON_TABLE, JSON.stringify(table));
+  const timelineData = loadTimelineData();
+  if (!timelineData) return;
+  const synchronized = synchronizeTimelineButtonBuffMirrors(timelineData, table);
+  if (synchronized.changed) saveTimelineData(synchronized.timelineData);
 }
 
 /**
@@ -162,4 +168,3 @@ export function removeSkillButtonById(buttonId: string): void {
   delete table[buttonId];
   setSkillButtonTable(table);
 }
-

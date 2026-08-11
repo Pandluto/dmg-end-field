@@ -100,7 +100,7 @@ export function useTimelineData(selectedCharacters: { name: string }[]) {
   }, []);
 
   /**
-   * 更新按钮的 selectedBuff（操作 skill-button 总表，不再写入 timeline.data）
+   * 更新按钮的 selectedBuff，并同步 timeline.data 的 Buff 镜像。
    * @param buttonId - 按钮 ID
    * @param buffIds - Buff ID 列表
    */
