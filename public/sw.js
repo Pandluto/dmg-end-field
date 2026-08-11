@@ -345,6 +345,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // The source worker served by Vite has no atomic app shell. Let the browser
+  // use the development server directly instead of reviving package caches
+  // left by an earlier local session on the same origin.
+  if (!HAS_BUILT_APP_SHELL) return;
+
   if (url.pathname.includes('/assets/images/')) {
     event.respondWith(readInstalledPackage(request, IMAGE_CACHE_NAME));
     return;

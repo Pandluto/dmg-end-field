@@ -104,6 +104,13 @@ function staticAssetUrl(relativePath: string): string {
   return `${normalizeBaseUrl()}${normalizeSlashes(relativePath)}`;
 }
 
+function builtinImageIndexUrl(): string {
+  const url = staticAssetUrl(BUILTIN_IMAGE_INDEX_PATH);
+  if (!import.meta.env.DEV) return url;
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}dev=${Date.now()}`;
+}
+
 function fileParts(fileName: string): { baseName: string; ext: string } {
   const dot = fileName.lastIndexOf('.');
   if (dot <= 0) return { baseName: fileName, ext: '' };
@@ -187,7 +194,10 @@ function rowToEntry(row: ImageRow): ImageAssetEntry {
 
 async function loadBuiltinManifest(): Promise<ImageAssetEntry[]> {
   if (builtinManifest) return builtinManifest;
-  const response = await fetch(staticAssetUrl(BUILTIN_IMAGE_INDEX_PATH), {
+  // A previously installed development worker may still own this origin and
+  // contain an obsolete image-package cache. Development must read the index
+  // served by Vite so a stale cache cannot block the entire workspace boot.
+  const response = await fetch(builtinImageIndexUrl(), {
     cache: 'no-store',
   });
   if (!response.ok) throw new Error(`图片索引加载失败：HTTP ${response.status}`);
