@@ -13,6 +13,7 @@ import {
   getGridLineCenterY,
   GRID_NODE_COUNT,
 } from '../calculators/gridSnapLayout';
+import { synchronizeTimelineButtonBuffMirrors } from '../domain/timelineButtonBuffMirror';
 import {
   getSkillButtonById,
   getSkillButtonTable,
@@ -147,7 +148,7 @@ export function buildTimelineButtonsFromSkillButtonTable(
         skillDisplayName: button.skillDisplayName,
         skillIconUrl: button.skillIconUrl,
         customHits: button.customHits,
-        buffIds: [...(button.selectedBuff || [])],
+        buffIds: [...(button.selectedBuff ?? [])],
       }))
       .sort((left, right) => left.nodeIndex - right.nodeIndex);
 
@@ -190,7 +191,15 @@ function hasTimelineTableMismatch(
     return true;
   }
 
-  return timelineButtonIds.some((buttonId, index) => buttonId !== tableButtonIds[index]);
+  if (timelineButtonIds.some((buttonId, index) => buttonId !== tableButtonIds[index])) {
+    return true;
+  }
+
+  return synchronizeTimelineButtonBuffMirrors(
+    timelineData,
+    skillButtonTable,
+    timelineData.updatedAt,
+  ).changed;
 }
 
 export function reconcileSelectionChange(
@@ -616,7 +625,7 @@ export function getStaffButtons(timelineData: TimelineData, staffIndex: number):
 }
 
 /**
- * 更新按钮的 selectedBuff（操作 skill-button 总表，不再写入 timeline.data）
+ * 更新按钮的 selectedBuff；repository 会同步 timeline.data 的 Buff 镜像。
  * @param buttonId - 按钮 ID
  * @param buffIds - Buff ID 列表
  */

@@ -28,6 +28,7 @@ import {
   normalizeStoredBuffList,
   normalizeStoredOperatorConfigPageCache,
 } from '../core/services/buffStorageNormalization';
+import { synchronizeTimelineButtonBuffMirrors } from '../core/domain/timelineButtonBuffMirror';
 import { persistentLocalStorage } from '../platform/storage/persistentStorage';
 
 export interface TimelineSnapshotPayload {
@@ -315,9 +316,20 @@ function readCurrentPayload(): TimelineSnapshotPayload | null {
     return null;
   }
 
+  // skillButtonTable owns Buff references. Repair the compact timeline mirror
+  // at the final payload boundary so a stale in-memory write cannot make save,
+  // snapshot export, or runtime checkout reject otherwise valid user edits.
+  const synchronized = synchronizeTimelineButtonBuffMirrors(timelineData, skillButtonTable);
+  if (synchronized.changed) {
+    safeSessionStorage.setItem(
+      STORAGE_KEYS.TIMELINE_DATA,
+      JSON.stringify(synchronized.timelineData),
+    );
+  }
+
   return {
     selectedCharacters,
-    timelineData,
+    timelineData: synchronized.timelineData,
     skillButtonTable,
     allBuffList,
     anomalyStateSnapshots,

@@ -85,7 +85,7 @@ import {
   type TimelineBundleV2,
   type TimelineShareFile,
 } from '../../utils/timelineSnapshotStorage';
-import { restoreUserWorkspaceSnapshot } from '../../utils/userWorkspaceBridge';
+import { flushUserWorkspaceState, restoreUserWorkspaceSnapshot } from '../../utils/userWorkspaceBridge';
 import './CanvasBoard.css';
 import { resolveRuntimeTemplateSkill } from '../../core/services/skillDamageTemplateResolver';
 import { buildDamageReportSnapshot } from '../../core/services/damageReportService';
@@ -1035,15 +1035,31 @@ export function CanvasBoard({
     const checkoutWorkNode = persistedCheckout.targetType === 'work-node'
       ? exported.workNodes.find((node) => node.id === persistedCheckout.targetId)
       : null;
-    const payload = persistedCheckout.targetType === 'snapshot'
+    const persistedPayload = persistedCheckout.targetType === 'snapshot'
       ? exported.snapshots.find((snapshot) => snapshot.id === persistedCheckout.targetId)?.payload
       : checkoutWorkNode?.workingPayload;
-    if (!payload) {
+    if (!persistedPayload) {
       throw new Error('当前 checkout payload 不存在。');
     }
+
+    const validation = validateTimelinePayload(persistedPayload);
+    if (validation.ok) {
+      return {
+        payload: persistedPayload,
+        checkoutRef: persistedCheckout,
+      };
+    }
+
+    // Only invalid historical checkouts enter the compatibility path. Healthy
+    // workspaces stay read-only during mount, while payloads affected by the old
+    // Buff-mirror bug are repaired in both the document tree and user.sqlite.
+    const applied = await repository.applySqliteWorkspace(timelineId, expectedCheckoutRef.updatedAt);
+    if (checkoutIdentity(applied.checkoutRef) !== checkoutIdentity(expectedCheckoutRef)) {
+      throw new Error('当前 checkout 已变化，请刷新后重试。');
+    }
     return {
-      payload,
-      checkoutRef: persistedCheckout,
+      payload: applied.payload,
+      checkoutRef: applied.checkoutRef,
     };
   }, []);
 
@@ -5979,32 +5995,35 @@ export function CanvasBoard({
   const handleSaveWorkNodeCheckpoint = async (): Promise<boolean> => {
     if (!await promoteTemporaryTimeline()) return false;
     setSelectedCharacterIds(selectedCharacters.map((character) => character.id));
-    if (!activeCheckoutRef) {
-      const currentPayload = getCurrentTimelineSnapshotPayload();
-      if (!currentPayload) {
-        alert('当前没有可保存到工作树的排轴数据');
-        return false;
-      }
-      try {
-        const visibleMirrors = buildVisibleTimelineMirrors(selectedCharacters, skillButtons, currentPayload);
-        const canonicalPayload = { ...currentPayload, ...visibleMirrors };
-        const validation = validateTimelinePayload(canonicalPayload);
-        if (!validation.ok) {
-          throw new Error(validation.issues.map((issue) => issue.message).join('；'));
-        }
-        setSkillButtonTable(visibleMirrors.skillButtonTable);
-        saveTimelineRepo(visibleMirrors.timelineData);
-        replaceTimelineData(visibleMirrors.timelineData);
-      } catch (error) {
-        alert(`工作节点保存失败：${error instanceof Error ? error.message : String(error)}`);
-        return false;
-      }
-    } else {
-      saveTimelineData();
-    }
-    const payload = getCurrentTimelineSnapshotPayload();
-    if (!payload) {
+    saveTimelineData();
+    const currentPayload = getCurrentTimelineSnapshotPayload();
+    if (!currentPayload) {
       alert('当前没有可保存到工作树的排轴数据');
+      return false;
+    }
+
+    let payload: TimelineSnapshotPayload;
+    try {
+      // Always rebuild both persistence mirrors from the currently visible
+      // Canvas. Existing checkouts can carry the same stale Buff mirror as a
+      // first save, so they must not bypass this canonicalization step.
+      const visibleMirrors = buildVisibleTimelineMirrors(selectedCharacters, skillButtons, currentPayload);
+      payload = { ...currentPayload, ...visibleMirrors };
+      const validation = validateTimelinePayload(payload);
+      if (!validation.ok) {
+        throw new Error(validation.issues.map((issue) => issue.message).join('；'));
+      }
+      setSkillButtonTable(visibleMirrors.skillButtonTable);
+      saveTimelineRepo(visibleMirrors.timelineData);
+      replaceTimelineData(visibleMirrors.timelineData);
+      setSessionWorkingPayload(payload, 'runtime');
+      // Commit the live working copy to user.sqlite before touching the Work
+      // Node tree. A later checkout/storage failure must not erase this edit.
+      await flushUserWorkspaceState();
+    } catch (error) {
+      // Even an invalid checkout must keep the user's latest working draft.
+      await flushUserWorkspaceState().catch(() => undefined);
+      alert(`工作节点保存失败：${error instanceof Error ? error.message : String(error)}`);
       return false;
     }
 
