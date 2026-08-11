@@ -1408,6 +1408,7 @@ test('candidate browser behavior regression', async ({ context, page }) => {
 
       await page.getByRole('button', { name: '队伍', exact: true }).click();
       await expect(page.getByRole('heading', { name: '选择干员', exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: '继续排轴', exact: true })).toBeVisible();
       await page.getByRole('button', { name: '新建存档', exact: true }).click();
       await expect(page.locator('.canvas-container')).toBeVisible();
 
@@ -1419,11 +1420,16 @@ test('candidate browser behavior regression', async ({ context, page }) => {
           .find((name) => /\/src\/agentKernel\/timelineRepository\/localTimelineClient\.ts(?:\?|$)/.test(name));
         if (!moduleUrl) throw new Error('Timeline repository module URL is unavailable.');
         const repositoryModule = await import(/* @vite-ignore */ moduleUrl);
-        const documents = await repositoryModule.createTimelineRepositoryClient().listDocuments();
+        const repository = repositoryModule.createTimelineRepositoryClient();
+        const [documents, originalWorkNodes] = await Promise.all([
+          repository.listDocuments(),
+          repository.listWorkNodes(originalTimelineId),
+        ]);
         return {
           activeTimelineId,
           originalPreserved: documents.some((document: { id: string }) => document.id === originalTimelineId),
           detachedExists: documents.some((document: { id: string }) => document.id === activeTimelineId),
+          originalCheckpointCount: originalWorkNodes.length,
         };
       }, previousTimelineId);
 
@@ -1431,6 +1437,7 @@ test('candidate browser behavior regression', async ({ context, page }) => {
       expect(detachedWorkspace.activeTimelineId).not.toBe(previousTimelineId);
       expect(detachedWorkspace.originalPreserved).toBe(true);
       expect(detachedWorkspace.detachedExists).toBe(true);
+      expect(detachedWorkspace.originalCheckpointCount).toBeGreaterThan(0);
     });
 
     await expect(page.getByRole('button', { name: '表格', exact: true })).toHaveCount(0);

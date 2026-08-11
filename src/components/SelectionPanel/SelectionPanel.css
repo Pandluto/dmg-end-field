@@ -177,6 +177,10 @@
   margin-top: 14px;
 }
 
+.selection-workspace-actions.is-single {
+  grid-template-columns: 1fr;
+}
+
 .selection-confirm-button,
 .selection-new-archive-button {
   min-height: 34px;
@@ -187,23 +191,23 @@
 }
 
 .selection-confirm-button {
-  background: #ffffff;
-  color: #111111;
-}
-
-.selection-new-archive-button {
   background: #111111;
   color: #ffffff;
 }
 
+.selection-new-archive-button {
+  background: #ffffff;
+  color: #111111;
+}
+
 .selection-confirm-button:hover:not(:disabled) {
-  border-color: rgba(0, 0, 0, 0.9);
-  background: rgba(0, 0, 0, 0.04);
+  border-color: #111111;
+  background: #303030;
 }
 
 .selection-new-archive-button:hover:not(:disabled) {
-  border-color: #111111;
-  background: #303030;
+  border-color: rgba(0, 0, 0, 0.9);
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .selection-error {

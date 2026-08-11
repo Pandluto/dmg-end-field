@@ -101,6 +101,7 @@ export function SelectionPanel() {
 
   const isSelected = (characterId: string) => draftCharacterIds.includes(characterId);
   const isFull = draftCharacterIds.length >= 4;
+  const hasExistingWorkspace = selectedCharacters.length > 0;
 
   const toggleCharacter = (character: Character) => {
     if (isSelected(character.id)) {
@@ -223,23 +224,28 @@ export function SelectionPanel() {
               })}
             </div>
 
-            <div className="selection-workspace-actions">
-              <button
-                type="button"
-                className="selection-new-archive-button"
-                onClick={handleCreateDetachedWorkspace}
-                disabled={draftCharacters.length === 0 || pendingWorkspaceAction !== null}
-                title="以当前出战队列创建独立 SQLite，并保留当前存档"
-              >
-                {pendingWorkspaceAction === 'detached' ? '正在新建…' : '新建存档'}
-              </button>
+            <div className={`selection-workspace-actions${hasExistingWorkspace ? '' : ' is-single'}`}>
+              {hasExistingWorkspace && (
+                <button
+                  type="button"
+                  className="selection-new-archive-button"
+                  onClick={handleCreateDetachedWorkspace}
+                  disabled={draftCharacters.length === 0 || pendingWorkspaceAction !== null}
+                  title="先自动保存当前排轴，再以所选队伍创建独立 SQLite"
+                >
+                  {pendingWorkspaceAction === 'detached' ? '正在新建…' : '新建存档'}
+                </button>
+              )}
               <button
                 type="button"
                 className="selection-confirm-button"
                 onClick={handleConfirm}
                 disabled={draftCharacters.length === 0 || pendingWorkspaceAction !== null}
+                title={hasExistingWorkspace ? '自动保存当前排轴，并按所选队伍继续' : '以所选队伍开始排轴'}
               >
-                {pendingWorkspaceAction === 'apply' ? '正在应用…' : '开始排轴'}
+                {pendingWorkspaceAction === 'apply'
+                  ? '正在应用…'
+                  : hasExistingWorkspace ? '继续排轴' : '开始排轴'}
               </button>
             </div>
             {workspaceError && <p className="selection-error">{workspaceError}</p>}

@@ -122,6 +122,7 @@ import type {
 import { useTimelineSession } from '../../agentKernel/timelineRepository/useTimelineSession';
 import { shouldHydrateTimelineCheckoutOnCanvasMount } from '../../agentKernel/timelineRepository/timelineSession';
 import { runTimelineArchiveConversionForReload } from './timelineArchiveConversionFlow';
+import { hasTimelineCheckpointPayloadChanged } from '../../core/services/timelineCheckpointService';
 
 function getLegacySnapshotTimelineId(snapshotId: string): string {
   return `timeline-document-${snapshotId}`;
@@ -134,27 +135,6 @@ async function ensureTimelineDocumentExists(
 ) {
   const existing = (await repository.listDocuments()).find((document) => document.id === timelineId);
   return existing || repository.ensureDocument({ id: timelineId, label });
-}
-
-/**
- * Checkpoint 只应记录内容变化，不应因每次落盘产生的 createdAt / updatedAt
- * 噪声而制造重复节点。Payload 是可序列化数据，故可用稳定序列化比较。
- */
-function serializeCheckpointPayload(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(serializeCheckpointPayload).join(',')}]`;
-  if (!value || typeof value !== 'object') return JSON.stringify(value);
-  return `{${Object.entries(value)
-    .filter(([key]) => key !== 'createdAt' && key !== 'updatedAt')
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, entry]) => `${JSON.stringify(key)}:${serializeCheckpointPayload(entry)}`)
-    .join(',')}}`;
-}
-
-function hasCheckpointPayloadChanged(
-  previousPayload: TimelineSnapshotPayload,
-  nextPayload: TimelineSnapshotPayload,
-): boolean {
-  return serializeCheckpointPayload(previousPayload) !== serializeCheckpointPayload(nextPayload);
 }
 
 function checkoutIdentity(checkoutRef: TimelineCheckoutRef | null): string {
@@ -3645,7 +3625,7 @@ export function CanvasBoard({
         : checkoutRef?.targetType === 'snapshot'
           ? documentBundle.snapshots.find((snapshot) => snapshot.id === checkoutRef.targetId)?.payload
           : undefined;
-      if (nodes.length > 0 && checkoutPayload && !hasCheckpointPayloadChanged(checkoutPayload, payload)) {
+      if (nodes.length > 0 && checkoutPayload && !hasTimelineCheckpointPayloadChanged(checkoutPayload, payload)) {
         setWorkNodeSaveNotice('当前工作区没有新改动，未新增工作节点');
         window.setTimeout(() => setWorkNodeSaveNotice(''), 2200);
         return true;

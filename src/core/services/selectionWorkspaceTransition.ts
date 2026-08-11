@@ -8,10 +8,14 @@ import {
 import { setSelectedCharacterIds } from '../../utils/storage';
 import { flushUserWorkspaceState } from '../../utils/userWorkspaceBridge';
 import { createTimelineRepositoryClient } from '../../agentKernel/timelineRepository/localTimelineClient';
-import { activateTimelineSession } from '../../agentKernel/timelineRepository/timelineSession';
+import {
+  activateTimelineSession,
+  getTimelineSessionSnapshot,
+} from '../../agentKernel/timelineRepository/timelineSession';
 import { createAiTimelineWorkNodeClient } from '../../agentKernel/timelineWorktree/localNodeClient';
 import { validateTimelinePayload } from '../../agentKernel/timelineWorktree/validator';
 import { createEmptyTimelineData, reconcileSelectionChange } from './timelineService';
+import { saveTimelineCheckpoint } from './timelineCheckpointService';
 import {
   classifySelectionWorkspaceTransition,
   resolveSelectionHorizontalParentId,
@@ -90,6 +94,32 @@ function buildSelectionBranchMetadata(
   };
 }
 
+async function saveCurrentWorkspaceBeforeSelectionTransition(
+  input: ApplySelectionWorkspaceTransitionInput,
+): Promise<void> {
+  const expectedCharacterIds = input.previousCharacters.map((character) => character.id);
+  if (expectedCharacterIds.length === 0) return;
+
+  const currentPayload = getCurrentTimelineSnapshotPayload();
+  if (!currentPayload) {
+    throw new Error('当前排轴尚未准备完成，未切换队伍或新建存档。');
+  }
+  if (JSON.stringify(currentPayload.selectedCharacters) !== JSON.stringify(expectedCharacterIds)) {
+    throw new Error('当前排轴与已选干员不一致，未切换队伍或新建存档。请返回排轴界面刷新后重试。');
+  }
+
+  const timelineSession = getTimelineSessionSnapshot();
+  if (timelineSession.activeTimelineId !== input.activeTimelineId) {
+    throw new Error('当前 SQLite 工作区已发生变化，未切换队伍或新建存档。');
+  }
+  await saveTimelineCheckpoint({
+    timelineId: input.activeTimelineId,
+    timelineLabel: timelineSession.activeTimelineLabel,
+    payload: currentPayload,
+    reason: '在选人界面继续排轴或新建存档前，自动保存原工作区。',
+  });
+}
+
 async function createNewTemporaryWorkspace(
   input: ApplySelectionWorkspaceTransitionInput,
   options: { preserveActiveWorkspace?: boolean; labelPrefix?: string } = {},
@@ -140,6 +170,7 @@ export async function createDetachedSelectionWorkspace(
   if (input.actor === 'ai' && (input.approval?.mode !== 'manual' || input.approval.approvedBy !== 'user')) {
     throw new Error('AI 选人必须取得用户手动审批后才能应用。');
   }
+  await saveCurrentWorkspaceBeforeSelectionTransition(input);
   return createNewTemporaryWorkspace(input, {
     preserveActiveWorkspace: true,
     labelPrefix: '独立存档',
@@ -267,6 +298,9 @@ export async function applySelectionWorkspaceTransition(
     input.nextCharacters.map((character) => character.id),
   );
   if (transition === 'unchanged') {
+    if (input.actor === 'user') {
+      await saveCurrentWorkspaceBeforeSelectionTransition(input);
+    }
     return {
       transition,
       timelineId: input.activeTimelineId,
@@ -277,6 +311,7 @@ export async function applySelectionWorkspaceTransition(
   if (input.actor === 'ai' && (input.approval?.mode !== 'manual' || input.approval.approvedBy !== 'user')) {
     throw new Error('AI 选人必须取得用户手动审批后才能应用。');
   }
+  await saveCurrentWorkspaceBeforeSelectionTransition(input);
   return transition === 'new-temporary-workspace'
     ? createNewTemporaryWorkspace(input)
     : createHorizontalSelectionBranch(input);
