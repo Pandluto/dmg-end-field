@@ -15,6 +15,21 @@ const env = {
       if (pathname === '/mobile') {
         return Response.redirect('https://dmgendfield.online/', 307)
       }
+      if (pathname.endsWith('/existing.part-001')) {
+        return new Response('image archive part', {
+          headers: { 'Content-Type': 'application/octet-stream' },
+        })
+      }
+      if (pathname.endsWith('/missing.part-001')) {
+        return new Response('<main>SPA fallback</main>', {
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        })
+      }
+      if (pathname === '/assets/images/example.png') {
+        return new Response('image bytes', {
+          headers: { 'Content-Type': 'image/png' },
+        })
+      }
       return new Response('not found', { status: 404 })
     },
   },
@@ -47,11 +62,21 @@ assert.deepEqual(requestedPaths, ['/resources/stable.json'])
 
 requestedPaths.length = 0
 const immutableResponse = await sitesWorker.fetch(
-  new Request('https://dmgendfield.online/resources/releases/v-test/packages/images.part-001'),
+  new Request('https://dmgendfield.online/resources/releases/v-test/packages/existing.part-001'),
   env,
 )
+assert.equal(immutableResponse.status, 200)
 assert.equal(immutableResponse.headers.get('Cache-Control'), 'public, max-age=31536000, immutable')
-assert.deepEqual(requestedPaths, ['/resources/releases/v-test/packages/images.part-001'])
+assert.deepEqual(requestedPaths, ['/resources/releases/v-test/packages/existing.part-001'])
+
+requestedPaths.length = 0
+const missingResourceResponse = await sitesWorker.fetch(
+  new Request('https://dmgendfield.online/resources/releases/v-test/packages/missing.part-001'),
+  env,
+)
+assert.equal(missingResourceResponse.status, 404)
+assert.equal(missingResourceResponse.headers.get('Cache-Control'), 'no-store')
+assert.deepEqual(requestedPaths, ['/resources/releases/v-test/packages/missing.part-001'])
 
 requestedPaths.length = 0
 const mobileImageResponse = await sitesWorker.fetch(

@@ -20,9 +20,31 @@ export default {
       : request
     const response = await env.ASSETS.fetch(assetRequest)
     const headers = new Headers(response.headers)
+    const isVersionedResource = url.pathname.startsWith('/resources/releases/')
+    const isImage = url.pathname.startsWith('/assets/images/')
+    const isStaticAssetNamespace = isVersionedResource || isImage
+    const isSpaFallback = (
+      isStaticAssetNamespace
+      && response.ok
+      && response.headers.get('Content-Type')?.includes('text/html')
+    )
 
-    if (url.pathname.startsWith('/resources/releases/')) {
-      headers.set('Cache-Control', 'public, max-age=31536000, immutable')
+    if (isSpaFallback) {
+      return new Response('not found', {
+        status: 404,
+        headers: {
+          'Cache-Control': 'no-store',
+          'Content-Type': 'text/plain; charset=utf-8',
+          'X-Content-Type-Options': 'nosniff',
+        },
+      })
+    }
+
+    if (isVersionedResource) {
+      headers.set(
+        'Cache-Control',
+        response.ok ? 'public, max-age=31536000, immutable' : 'no-store',
+      )
       headers.set('X-Content-Type-Options', 'nosniff')
       return new Response(response.body, {
         status: response.status,
@@ -31,8 +53,11 @@ export default {
       })
     }
 
-    if (url.pathname.startsWith('/assets/images/')) {
-      headers.set('Cache-Control', 'public, max-age=0, must-revalidate')
+    if (isImage) {
+      headers.set(
+        'Cache-Control',
+        response.ok ? 'public, max-age=0, must-revalidate' : 'no-store',
+      )
       headers.set('X-Content-Type-Options', 'nosniff')
       return new Response(response.body, {
         status: response.status,

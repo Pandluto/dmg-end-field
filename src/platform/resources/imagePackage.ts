@@ -49,6 +49,8 @@ export type ImageInstallProgress = {
   currentPath: string;
 };
 
+class ImageArchiveUnavailableError extends Error {}
+
 function isPortableImagePath(value: unknown): value is string {
   return typeof value === 'string'
     && value.length > 0
@@ -129,6 +131,11 @@ async function downloadArchive(
     const part = parts[index];
     const response = await fetch(resolvePublicPath(part.path), { cache: 'no-store' });
     if (!response.ok) {
+      if (response.status === 404 || response.status === 410) {
+        throw new ImageArchiveUnavailableError(
+          `当前站点未部署图片压缩分片：${part.fileName}`,
+        );
+      }
       throw new Error(
         `图片包分片尚未部署到站点（${part.fileName}，HTTP ${response.status}）。`
         + '请先运行 npm run assets:web-prepare。',
@@ -158,6 +165,71 @@ async function downloadArchive(
     throw new Error('图片压缩包 SHA-256 校验失败。');
   }
   return archive;
+}
+
+async function cacheVerifiedImage(
+  cache: Cache,
+  entry: ImagePackageManifest['files'][number],
+  bytes: Uint8Array,
+  version: string,
+): Promise<void> {
+  if (bytes.byteLength !== entry.size) throw new Error(`图片体积不符：${entry.path}`);
+  if (await sha256(bytes) !== entry.sha256) throw new Error(`图片校验失败：${entry.path}`);
+  const responseBytes = new Uint8Array(bytes.byteLength);
+  responseBytes.set(bytes);
+  await cache.put(
+    resolvePublicPath(entry.path),
+    new Response(responseBytes.buffer, {
+      headers: {
+        'Content-Type': mimeType(entry.path),
+        'Content-Length': String(entry.size),
+        'X-Dmg-Image-Package': version,
+      },
+    }),
+  );
+}
+
+async function installImageFilesDirectly(
+  manifest: ImagePackageManifest,
+  cache: Cache,
+  onProgress?: (progress: ImageInstallProgress) => void,
+): Promise<void> {
+  const concurrency = 8;
+  let completed = 0;
+  let downloadedBytes = 0;
+  onProgress?.({
+    stage: 'downloading',
+    completed,
+    total: manifest.files.length,
+    downloadedBytes,
+    totalBytes: manifest.totalBytes,
+    currentPath: '当前站点使用独立图片文件，正在切换下载方式',
+  });
+  for (let offset = 0; offset < manifest.files.length; offset += concurrency) {
+    const batch = manifest.files.slice(offset, offset + concurrency);
+    await Promise.all(batch.map(async (entry) => {
+      const source = resolvePublicPath(entry.path);
+      const separator = source.includes('?') ? '&' : '?';
+      const response = await fetch(`${source}${separator}sha256=${entry.sha256}`, {
+        cache: 'no-store',
+      });
+      if (!response.ok) {
+        throw new Error(`图片文件下载失败：${entry.path}（HTTP ${response.status}）`);
+      }
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      await cacheVerifiedImage(cache, entry, bytes, manifest.version);
+      completed += 1;
+      downloadedBytes += bytes.byteLength;
+      onProgress?.({
+        stage: 'downloading',
+        completed,
+        total: manifest.files.length,
+        downloadedBytes,
+        totalBytes: manifest.totalBytes,
+        currentPath: entry.path,
+      });
+    }));
+  }
 }
 
 function unzipArchive(archive: Uint8Array): Promise<Record<string, Uint8Array>> {
@@ -318,49 +390,40 @@ export async function installDefaultImagePackage(
     throw new Error('浏览器图片缓存不可用。请关闭无痕模式或受限存储后重试。');
   }
   const manifest = await fetchImagePackageManifest();
-  const archive = await downloadArchive(manifest, onProgress);
-  onProgress?.({
-    stage: 'extracting',
-    completed: 0,
-    total: manifest.files.length,
-    downloadedBytes: archive.byteLength,
-    totalBytes: manifest.archive.size,
-    currentPath: '正在解压图片包',
-  });
-  const extracted = await unzipArchive(archive);
   const cache = await caches.open(IMAGE_CACHE_NAME);
-
-  for (let index = 0; index < manifest.files.length; index += 1) {
-    const entry = manifest.files[index];
-    const archivePath = entry.path.replace(/^assets\//, '');
-    const bytes = extracted[archivePath];
-    if (!bytes) throw new Error(`图片包缺少文件：${entry.path}`);
-    if (bytes.byteLength !== entry.size) {
-      throw new Error(`图片体积不符：${entry.path}`);
-    }
-    if (await sha256(bytes) !== entry.sha256) {
-      throw new Error(`图片校验失败：${entry.path}`);
-    }
-    const responseBytes = new Uint8Array(bytes.byteLength);
-    responseBytes.set(bytes);
-    await cache.put(
-      resolvePublicPath(entry.path),
-      new Response(responseBytes.buffer, {
-        headers: {
-          'Content-Type': mimeType(entry.path),
-          'Content-Length': String(entry.size),
-          'X-Dmg-Image-Package': manifest.version,
-        },
-      }),
-    );
+  let archive: Uint8Array | null = null;
+  try {
+    archive = await downloadArchive(manifest, onProgress);
+  } catch (error) {
+    if (!(error instanceof ImageArchiveUnavailableError)) throw error;
+  }
+  if (archive) {
     onProgress?.({
-      stage: 'verifying',
-      completed: index + 1,
+      stage: 'extracting',
+      completed: 0,
       total: manifest.files.length,
       downloadedBytes: archive.byteLength,
       totalBytes: manifest.archive.size,
-      currentPath: entry.path,
+      currentPath: '正在解压图片包',
     });
+    const extracted = await unzipArchive(archive);
+    for (let index = 0; index < manifest.files.length; index += 1) {
+      const entry = manifest.files[index];
+      const archivePath = entry.path.replace(/^assets\//, '');
+      const bytes = extracted[archivePath];
+      if (!bytes) throw new Error(`图片包缺少文件：${entry.path}`);
+      await cacheVerifiedImage(cache, entry, bytes, manifest.version);
+      onProgress?.({
+        stage: 'verifying',
+        completed: index + 1,
+        total: manifest.files.length,
+        downloadedBytes: archive.byteLength,
+        totalBytes: manifest.archive.size,
+        currentPath: entry.path,
+      });
+    }
+  } else {
+    await installImageFilesDirectly(manifest, cache, onProgress);
   }
 
   const installedAt = Date.now();
