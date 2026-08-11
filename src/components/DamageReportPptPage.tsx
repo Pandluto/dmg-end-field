@@ -28,7 +28,10 @@ import {
   isMobileShareEnabled,
 } from '../mobile/mobileShare';
 import { MobileReportPage } from '../mobile/pages/MobileReportPage';
-import { getCurrentTimelineSnapshotPayload } from '../utils/timelineSnapshotStorage';
+import {
+  getCurrentTimelineSnapshotPayload,
+  type TimelineSnapshotPayload,
+} from '../utils/timelineSnapshotStorage';
 import { getTimelineSessionSnapshot } from '../agentKernel/timelineRepository/timelineSession';
 import { buildDesktopWorktreeShareBundle } from './desktopTacticalShare';
 import {
@@ -817,6 +820,7 @@ export function DamageReportPptPage() {
   const [reportMode, setReportMode] = useState<'desktop' | 'mobile'>('desktop');
   const [mobileCatalog, setMobileCatalog] = useState<MobileCatalog | null>(null);
   const [mobileDraft, setMobileDraft] = useState<MobileDraft | null>(null);
+  const [mobilePresentedPayload, setMobilePresentedPayload] = useState<TimelineSnapshotPayload | null>(null);
   const [mobileReportError, setMobileReportError] = useState('');
   const snapshot = useMemo(() => buildDamageReportSnapshot(), []);
   const timelineData = useMemo(() => loadTimelineData(), []);
@@ -843,6 +847,7 @@ export function DamageReportPptPage() {
         if (cancelled) return;
         setMobileCatalog(catalog);
         setMobileDraft(draft);
+        setMobilePresentedPayload(payload);
       } catch (error) {
         if (!cancelled) {
           setMobileReportError(error instanceof Error ? error.message : '移动报表初始化失败。');
@@ -873,12 +878,17 @@ export function DamageReportPptPage() {
   }, [mobileCatalog, mobileDraft]);
 
   const createDesktopReportShare = async () => {
-    if (!mobileCatalog || !mobileDraft) throw new Error('移动报表资料尚未完成载入。');
+    if (!mobileCatalog || !mobileDraft || !mobilePresentedPayload) {
+      throw new Error('移动报表资料尚未完成载入。');
+    }
     const timelineSession = getTimelineSessionSnapshot();
     const bundle = await buildDesktopWorktreeShareBundle({
       timelineId: timelineSession.activeTimelineId,
       label: timelineSession.activeTimelineLabel,
-      presentedPayload: getCurrentTimelineSnapshotPayload(),
+      // The QR must carry the exact node projection rendered on this page.
+      // Reading runtime storage again here could make the desktop tree and the
+      // mobile projection describe two different moments.
+      presentedPayload: mobilePresentedPayload,
     });
     return createDesktopShare(
       bundle,
@@ -937,6 +947,7 @@ export function DamageReportPptPage() {
                   setMobileReportError('');
                   setMobileCatalog(null);
                   setMobileDraft(null);
+                  setMobilePresentedPayload(null);
                 }}
               >重新读取</button>
             </section>

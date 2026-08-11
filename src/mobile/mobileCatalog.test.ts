@@ -7,6 +7,11 @@ import {
   normalizeMobileDraft,
 } from './mobileDraft';
 import { buildMobileRuntimeState } from './mobileRuntime';
+import {
+  mobileDraftToTimelinePayload,
+  timelinePayloadToMobileDraft,
+} from './tacticalShareInterop';
+import { validateTimelinePayload } from '../agentKernel/timelineWorktree/validator';
 
 function readFixture(relativePath: string): unknown {
   return JSON.parse(readFileSync(new URL(`../../public/${relativePath}`, import.meta.url), 'utf8')) as unknown;
@@ -150,6 +155,22 @@ try {
   const burnCalculation = runtimeWithBurn.slotCalculations[draft.slots[0].id];
   assert.ok(burnCalculation?.specialSegments?.some((segment) => segment.compactTitle.includes('燃烧')));
   assert.ok(runtimeWithBurn.report.totalExpected > runtime.report.totalExpected);
+
+  const sharedBuff = runtime.availableBuffs[0];
+  assert.ok(sharedBuff && draft.slots[0].action);
+  draft.slots[0].action.buffs = [sharedBuff];
+  draft.slots[0].action.buffStackCounts = { [sharedBuff.id]: 2 };
+  const desktopPayload = mobileDraftToTimelinePayload(draft, catalog);
+  const persistedButton = desktopPayload.skillButtonTable['mobile-test-action'];
+  const timelineButton = desktopPayload.timelineData.staffLines[0]?.buttons[0];
+  assert.deepEqual(persistedButton.selectedBuff, [sharedBuff.id]);
+  assert.deepEqual(persistedButton.panelConfig?.selectedBuff, [sharedBuff.id]);
+  assert.deepEqual(timelineButton?.buffIds, [sharedBuff.id]);
+  assert.deepEqual(validateTimelinePayload(desktopPayload), { ok: true, issues: [] });
+
+  const restoredMobileDraft = timelinePayloadToMobileDraft(desktopPayload, catalog);
+  assert.deepEqual(restoredMobileDraft.slots[0]?.action?.buffs.map((buff) => buff.id), [sharedBuff.id]);
+  assert.equal(restoredMobileDraft.slots[0]?.action?.buffStackCounts[sharedBuff.id], 2);
 } finally {
   globalThis.fetch = originalFetch;
   if (originalWindow) {

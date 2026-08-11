@@ -2483,6 +2483,13 @@
   font-size: 12px;
 }
 
+.timeline-snapshot-modal-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
 .timeline-snapshot-empty {
   padding: 16px 0;
   color: rgba(0, 0, 0, 0.58);

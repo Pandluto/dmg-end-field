@@ -1,5 +1,9 @@
 import { createTimelineRepositoryClient } from '../agentKernel/timelineRepository/localTimelineClient';
-import { activateTimelineSession } from '../agentKernel/timelineRepository/timelineSession';
+import {
+  activateTimelineSession,
+  getTimelineSessionSnapshot,
+} from '../agentKernel/timelineRepository/timelineSession';
+import { saveTimelineCheckpoint } from '../core/services/timelineCheckpointService';
 import {
   buildTimelineBundleV2,
   getCurrentTimelineSnapshotPayload,
@@ -14,6 +18,52 @@ function snapshotSummary(payload: TimelineSnapshotPayload) {
     buttonCount: Object.keys(payload.skillButtonTable).length,
     buffCount: payload.allBuffList.length,
   };
+}
+
+function payloadButtonCount(payload: TimelineSnapshotPayload): number {
+  return Object.keys(payload.skillButtonTable).length;
+}
+
+async function checkpointCurrentWorkspaceBeforeImport(): Promise<string | null> {
+  const payload = getCurrentTimelineSnapshotPayload();
+  if (!payload) return null;
+
+  const session = getTimelineSessionSnapshot();
+  const repository = createTimelineRepositoryClient();
+  const document = (await repository.listDocuments())
+    .find((candidate) => candidate.id === session.activeTimelineId);
+
+  if (document) {
+    const exported = await repository.exportDocumentBundle(document.id);
+    const checkout = exported.checkoutRef;
+    const checkoutPayload = checkout?.targetType === 'work-node'
+      ? exported.workNodes.find((node) => node.id === checkout.targetId)?.workingPayload
+      : checkout?.targetType === 'snapshot'
+        ? exported.snapshots.find((snapshot) => snapshot.id === checkout.targetId)?.payload
+        : null;
+
+    if (
+      checkoutPayload
+      && JSON.stringify(checkoutPayload.selectedCharacters) !== JSON.stringify(payload.selectedCharacters)
+    ) {
+      throw new Error('当前页面投影与 SQLite checkout 的干员不一致，为防止覆盖已有工作区，本次导入已取消。');
+    }
+    if (
+      checkoutPayload
+      && payloadButtonCount(checkoutPayload) > 0
+      && payloadButtonCount(payload) === 0
+    ) {
+      throw new Error('检测到当前页面投影突然变为空排轴，但 SQLite checkout 仍有内容。未写入空白自动存档，请返回工作台确认后再导入。');
+    }
+  }
+
+  await saveTimelineCheckpoint({
+    timelineId: session.activeTimelineId,
+    timelineLabel: session.activeTimelineLabel,
+    payload,
+    reason: '在导入战术分享前，自动保存当前工作区。',
+  });
+  return session.activeTimelineId;
 }
 
 export async function buildDesktopWorktreeShareBundle(input: {
@@ -95,22 +145,40 @@ export async function importTacticalShareIntoDesktop(input: {
   bundle: TimelineBundleV2;
 }) {
   const repository = createTimelineRepositoryClient();
-  const imported = await repository.importLegacyTimelineBundle({
-    bundle: input.bundle,
-    sourceName: `tactical-share-${input.shareId}`,
-    dedupeByBundle: input.source === 'desktop',
-  });
-  const converted = await repository.convertTimelineArchive({
-    source: 'local',
-    archiveId: imported.archive.archiveId,
-    payloadOnly: input.source === 'mobile',
-    label: input.label,
-    updatedAt: Date.now(),
-  });
-  activateTimelineSession({
-    document: converted.document,
-    checkoutRef: converted.checkoutRef,
-    workingPayload: converted.payload,
-  });
-  return { imported, converted };
+  const previousTimelineId = await checkpointCurrentWorkspaceBeforeImport();
+  try {
+    const imported = await repository.importLegacyTimelineBundle({
+      bundle: input.bundle,
+      sourceName: `tactical-share-${input.shareId}`,
+      dedupeByBundle: input.source === 'desktop',
+    });
+    const converted = await repository.convertTimelineArchive({
+      source: 'local',
+      archiveId: imported.archive.archiveId,
+      payloadOnly: input.source === 'mobile',
+      label: input.label,
+      updatedAt: Date.now(),
+    });
+    activateTimelineSession({
+      document: converted.document,
+      checkoutRef: converted.checkoutRef,
+      workingPayload: converted.payload,
+    });
+    return { imported, converted };
+  } catch (error) {
+    if (!previousTimelineId) throw error;
+    try {
+      const restored = await repository.applySqliteWorkspace(previousTimelineId, Date.now());
+      activateTimelineSession({
+        document: restored.document,
+        checkoutRef: restored.checkoutRef,
+        workingPayload: restored.payload,
+      });
+    } catch (restoreError) {
+      const cause = error instanceof Error ? error.message : String(error);
+      const restoreCause = restoreError instanceof Error ? restoreError.message : String(restoreError);
+      throw new Error(`${cause}；原工作区自动恢复失败：${restoreCause}`);
+    }
+    throw error;
+  }
 }

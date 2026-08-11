@@ -178,6 +178,9 @@ export function parseMobileShareId(value: string): string | null {
     const url = new URL(trimmed, currentOrigin() || TACTICAL_SHARE_NODE_ORIGINS[1]);
     const pathMatch = url.pathname.match(/^\/share\/([A-Za-z0-9_-]{16})\/?$/);
     if (pathMatch) return pathMatch[1];
+    const hashPath = url.hash.replace(/^#/, '').split('?')[0];
+    const hashMatch = hashPath.match(/^\/share\/([A-Za-z0-9_-]{16})\/?$/);
+    if (hashMatch) return hashMatch[1];
     const shareId = url.searchParams.get('share') || '';
     return SHARE_ID_PATTERN.test(shareId) ? shareId : null;
   } catch {

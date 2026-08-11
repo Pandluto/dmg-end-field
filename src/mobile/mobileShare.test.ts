@@ -40,6 +40,7 @@ test('uses a neutral share route while retaining legacy QR parsing', () => {
   assert.equal(url, `https://dmgendfield.online/share/${SHARE_ID}`);
   assert.equal(parseMobileShareId(url), SHARE_ID);
   assert.equal(parseMobileShareId(`https://example.test/mobile?share=${SHARE_ID}`), SHARE_ID);
+  assert.equal(parseMobileShareId(`https://example.test/#/share/${SHARE_ID}`), SHARE_ID);
   assert.equal(parseMobileShareId(`DEFMS1:${SHARE_ID}`), SHARE_ID);
 });
 

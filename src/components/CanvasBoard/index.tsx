@@ -123,6 +123,7 @@ import { useTimelineSession } from '../../agentKernel/timelineRepository/useTime
 import { shouldHydrateTimelineCheckoutOnCanvasMount } from '../../agentKernel/timelineRepository/timelineSession';
 import { runTimelineArchiveConversionForReload } from './timelineArchiveConversionFlow';
 import { hasTimelineCheckpointPayloadChanged } from '../../core/services/timelineCheckpointService';
+import { decodeMobileShareIdFromImage } from '../../mobile/mobileShare';
 
 function getLegacySnapshotTimelineId(snapshotId: string): string {
   return `timeline-document-${snapshotId}`;
@@ -511,6 +512,7 @@ export function CanvasBoard({
   const [workNodeSaveNotice, setWorkNodeSaveNotice] = useState('');
   const [pendingWorkNodeCheckoutId, setPendingWorkNodeCheckoutId] = useState('');
   const [isRefreshingAvailableCandidates, setIsRefreshingAvailableCandidates] = useState(false);
+  const [isDecodingTacticalShare, setIsDecodingTacticalShare] = useState(false);
   const [isBatchResistanceModalOpen, setIsBatchResistanceModalOpen] = useState(false);
   const [batchTargetResistance, setBatchTargetResistance] = useState<Required<HitResistanceInput>>(
     EMPTY_BATCH_TARGET_RESISTANCE
@@ -537,6 +539,7 @@ export function CanvasBoard({
     refreshActiveDocument,
   } = useTimelineSession();
   const shareImportInputRef = useRef<HTMLInputElement>(null);
+  const tacticalShareImageInputRef = useRef<HTMLInputElement>(null);
   const isProcessingWorkbenchCommandRef = useRef(false);
   const isCheckoutMutationPendingRef = useRef(false);
   const checkoutBootstrapIdentityRef = useRef<string | null>(null);
@@ -3738,6 +3741,23 @@ export function CanvasBoard({
     setIsSnapshotModalOpen(false);
   };
 
+  const handleTacticalShareImageSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    if (!file || isDecodingTacticalShare) return;
+    setIsDecodingTacticalShare(true);
+    try {
+      const shareId = await decodeMobileShareIdFromImage(file);
+      setIsSnapshotModalOpen(false);
+      navigateToAppPath(`${APP_ROUTE_PATHS.tacticalShare}/${shareId}`);
+    } catch (error) {
+      alert(`二维码识别失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      input.value = '';
+      setIsDecodingTacticalShare(false);
+    }
+  };
+
   const handleConvertTimelineArchive = async (archive: TimelineArchiveSummary, payloadOnly = false) => {
     const repository = createTimelineRepositoryClient();
     const outcome = await runTimelineArchiveConversionForReload({
@@ -4247,10 +4267,28 @@ export function CanvasBoard({
                 <h3>恢复排轴</h3>
                 <p>存档不是可直接应用的状态：先转换为 SQLite 工作区；只有 SQLite 工作区可以直接应用。节点树仅显示数量。</p>
               </div>
-              <button type="button" className="modal-close-btn" onClick={handleCloseSnapshotModal}>
-                关闭
-              </button>
+              <div className="timeline-snapshot-modal-head-actions">
+                <button
+                  type="button"
+                  className="btn-save"
+                  disabled={isDecodingTacticalShare}
+                  onClick={() => tacticalShareImageInputRef.current?.click()}
+                >
+                  {isDecodingTacticalShare ? '正在识别…' : '扫码导入'}
+                </button>
+                <button type="button" className="modal-close-btn" onClick={handleCloseSnapshotModal}>
+                  关闭
+                </button>
+              </div>
             </div>
+
+            <input
+              ref={tacticalShareImageInputRef}
+              className="timeline-share-file-input"
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/*"
+              onChange={(event) => void handleTacticalShareImageSelected(event)}
+            />
 
             <div className="timeline-restore-tabs" role="tablist" aria-label="恢复来源">
               {([
