@@ -9,8 +9,20 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const publicRoot = path.join(projectRoot, 'public');
 const manifestPath = path.join(publicRoot, 'web-image-manifest.json');
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-const resourceOrigin = (process.env.DMG_RESOURCE_ORIGIN || 'https://dmgendfield.online')
-  .replace(/\/+$/, '');
+const configuredOrigins = (
+  process.env.DMG_RESOURCE_ORIGINS
+  || process.env.DMG_RESOURCE_ORIGIN
+  || 'http://150.158.133.176,https://dmgendfield.online'
+);
+const resourceOrigins = [...new Set(
+  configuredOrigins
+    .split(',')
+    .map((origin) => origin.trim().replace(/\/+$/, ''))
+    .filter(Boolean),
+)];
+if (resourceOrigins.length === 0) {
+  throw new Error('没有可用的服务器资源源站。');
+}
 
 function hash(bytes) {
   return crypto.createHash('sha256').update(bytes).digest('hex');
@@ -22,18 +34,28 @@ async function ensurePart(part) {
   if (existing && existing.byteLength === part.size && hash(existing) === part.sha256) {
     return existing;
   }
-  const resourceUrl = new URL(part.path, `${resourceOrigin}/`).href;
-  const response = await fetch(resourceUrl, { cache: 'no-store', redirect: 'follow' });
-  if (!response.ok) {
-    throw new Error(`服务器资源分片下载失败：${part.path}（HTTP ${response.status}）`);
+  const failures = [];
+  for (const resourceOrigin of resourceOrigins) {
+    const resourceUrl = new URL(part.path, `${resourceOrigin}/`).href;
+    try {
+      const response = await fetch(resourceUrl, { cache: 'no-store', redirect: 'follow' });
+      if (!response.ok) {
+        failures.push(`${resourceOrigin} HTTP ${response.status}`);
+        continue;
+      }
+      const bytes = Buffer.from(await response.arrayBuffer());
+      if (bytes.byteLength !== part.size || hash(bytes) !== part.sha256) {
+        failures.push(`${resourceOrigin} 校验失败`);
+        continue;
+      }
+      fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+      fs.writeFileSync(outputPath, bytes);
+      return bytes;
+    } catch (error) {
+      failures.push(`${resourceOrigin} ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (bytes.byteLength !== part.size || hash(bytes) !== part.sha256) {
-    throw new Error(`服务器资源分片校验失败：${part.path}`);
-  }
-  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-  fs.writeFileSync(outputPath, bytes);
-  return bytes;
+  throw new Error(`服务器资源分片下载失败：${part.path}（${failures.join('；')}）`);
 }
 
 if (!Array.isArray(manifest.archive?.parts) || manifest.archive.parts.length === 0) {

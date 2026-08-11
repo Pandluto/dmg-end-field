@@ -42,7 +42,7 @@
     "audit:dependencies": "npm audit --audit-level=high",
     "check": "npm run version:web-check && npm run check:repo && npm run audit:dependencies && npm run typecheck && npm test && npm run smoke:timeline-bundle && npm run build:local && npm run check:offline-shell && npm run check:offline-workspace",
     "release:verify": "node scripts/check-release-version.mjs",
-    "build": "npm run typecheck && npm run build:web",
+    "build": "npm run typecheck && npm run build:sites",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
