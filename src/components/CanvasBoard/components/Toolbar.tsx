@@ -20,7 +20,7 @@ interface ToolbarProps {
   onAddGroup: () => void;
   /** 减少干员组按钮点击事件 */
   onRemoveGroup: () => void;
-  /** 保存按钮点击事件 */
+  /** 导出本地存档按钮点击事件 */
   onSave?: () => void;
   /** 恢复按钮点击事件 */
   onRestore?: () => void;
@@ -82,7 +82,13 @@ export function Toolbar({
 
       {/* 右侧：保存和伤害计算按钮 */}
       <div className="toolbar-right">
-        <button className="btn-save" onClick={onSave}>保存</button>
+        <button
+          className="btn-save"
+          onClick={onSave}
+          title="先保存当前工作节点，再导出本地存档"
+        >
+          本地存档
+        </button>
         <button className="btn-save" onClick={onRestore}>恢复</button>
         <button className="btn-save" onClick={onShare}>导出</button>
         <button className="btn-calculate" onClick={onCalculate}>计算伤害</button>
