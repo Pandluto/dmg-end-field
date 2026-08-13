@@ -17,6 +17,7 @@
 - [Buff 计算链路重构](./buff-calculation-pipeline-refactor/spec.md)
 - [抗性区](./resistance-zone/spec.md)
 - [RDPS 归因分析与报表图 3/图 4](./rdps-attribution/spec.md)
+- [RDPS 归因 Phase 2：旧数据来源恢复与真实数据闭环](./rdps-attribution-phase2/spec.md)
 
 ## 资源与运行时
 
