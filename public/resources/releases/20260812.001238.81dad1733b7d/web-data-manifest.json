@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "packageId": "dmg-end-field-core-data",
-  "version": "20260809.b205d8e9",
-  "releaseVersion": "20260809.81dad1733b7d",
-  "generatedAt": "2026-08-09T03:06:12.585Z",
+  "version": "20260812.001238.b205d8e9",
+  "releaseVersion": "20260812.001238.81dad1733b7d",
+  "generatedAt": "2026-08-11T16:12:38.621Z",
   "summary": {
     "operators": 31,
     "weapons": 76,
@@ -14,7 +14,7 @@
       "path": "data/default-local-data.json",
       "sha256": "b205d8e9421bd33f5dfbd80e2861b3d673135617e764cf944b3a0348650a3e8a",
       "size": 2574309,
-      "downloadPath": "resources/releases/20260809.81dad1733b7d/data/default-local-data.json"
+      "downloadPath": "resources/releases/20260812.001238.81dad1733b7d/data/default-local-data.json"
     }
   ],
   "totalBytes": 2574309

@@ -20,6 +20,7 @@ import { StartPage } from './components/WebApp/StartPage';
 import {
   APP_ROUTE_PATHS,
   getCurrentAppPath,
+  getTacticalShareId,
   getTimelineSkillDetailButtonId,
 } from './utils/appRoute';
 import './styles/global.css';
@@ -30,6 +31,7 @@ const loadBuffDraftPage = () => import('./components/BuffDraftPage');
 const loadWeaponDraftPage = () => import('./components/WeaponDraftPage');
 const loadEquipmentSheetPage = () => import('./components/EquipmentSheetPage');
 const loadDamageReportPptPage = () => import('./components/DamageReportPptPage');
+const loadDesktopTacticalSharePage = () => import('./components/DesktopTacticalSharePage');
 const loadImageManagerPage = () => import('./components/ImageManagerPage');
 const loadOperatorConfigPage = () => import('./components/OperatorConfigPage');
 
@@ -50,6 +52,9 @@ const EquipmentSheetPage = lazy(async () => ({
 }));
 const DamageReportPptPage = lazy(async () => ({
   default: (await loadDamageReportPptPage()).DamageReportPptPage,
+}));
+const DesktopTacticalSharePage = lazy(async () => ({
+  default: (await loadDesktopTacticalSharePage()).DesktopTacticalSharePage,
 }));
 const ImageManagerPage = lazy(async () => ({
   default: (await loadImageManagerPage()).ImageManagerPage,
@@ -225,6 +230,8 @@ function App() {
     page = <EquipmentSheetPage />;
   } else if (currentPath === APP_ROUTE_PATHS.damageReportPpt) {
     page = <DamageReportPptPage />;
+  } else if (getTacticalShareId(currentPath)) {
+    page = <DesktopTacticalSharePage />;
   } else if (currentPath === APP_ROUTE_PATHS.imageManager) {
     page = <ImageManagerPage />;
   } else if (currentPath === APP_ROUTE_PATHS.operatorConfig) {

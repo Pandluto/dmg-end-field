@@ -197,7 +197,7 @@ export function ResourcePackagerPage() {
           <div>
             <p>Resource Release Builder</p>
             <h1>完整资源发包</h1>
-            <span>选择图片目录和一份 Share Data，版本号与校验值会自动生成。</span>
+            <span>选择图片目录和一份 Share Data，版本号按当前北京时间与内容哈希自动生成。</span>
           </div>
           <em>仅本机运行 · 不上传文件</em>
         </header>

@@ -45,6 +45,16 @@ assert.equal(mobileResponse.headers.get('Cache-Control'), 'no-store, no-cache, m
 assert.deepEqual(requestedPaths, ['/'])
 
 requestedPaths.length = 0
+const shareResponse = await sitesWorker.fetch(
+  new Request('https://dmgendfield.online/share/AbCdEfGhIjKlMn01'),
+  env,
+)
+assert.equal(shareResponse.status, 200)
+assert.equal(await shareResponse.text(), '<main>mobile shell</main>')
+assert.equal(shareResponse.headers.get('Cache-Control'), 'no-store, no-cache, must-revalidate')
+assert.deepEqual(requestedPaths, ['/'])
+
+requestedPaths.length = 0
 const unrelatedResponse = await sitesWorker.fetch(
   new Request('https://dmgendfield.online/not-a-client-route'),
   env,

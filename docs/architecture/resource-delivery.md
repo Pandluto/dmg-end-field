@@ -24,7 +24,7 @@
 2. 只提取干员、武器、装备、Buff 正式资料库和共享排轴；
 3. 校验资料中的图片引用；
 4. 为数据、每张图片和图片 ZIP 计算 SHA-256；
-5. 根据 Share Data 日期与内容根哈希生成确定性版本号；
+5. 根据实际打包时的北京时间与内容根哈希生成版本号；
 6. 下载一个 `dmg-resource-release-<version>.zip`。
 
 发布 ZIP 只包含 `resource-release-manifest.json`、`data/default-local-data.json` 和一个完整图片 ZIP。把这一个文件交给 Codex 即可。
@@ -46,5 +46,7 @@ npm run resource:materialize -- --bundle .runtime/resource-releases/dmg-resource
 - 云端重建：Sites 从源码构建时，先按版本清单从国内源站取得不可变分片并校验 SHA-256，再生成海外逐图产物；不读取 GitHub Release，也不会接受错版本内容。
 
 ## 发布与回滚
+
+版本格式固定为 `YYYYMMDD.HHmmss.<内容哈希>`。日期和时间必须来自本次实际打包时的北京时间；Share Data 的 `exportedAt` 只作为来源记录，不得用于对外版本命名。内容根 SHA-256 继续负责完整性校验和内容判重。
 
 资源物化后随同一个源码提交构建国内、海外产物。两个站点都通过原子版本切换上线；任何一路失败，就保留或恢复旧站点版本。旧 Sites 版本和国内时间戳目录是回滚点，用户 SQLite 与 Share Data 不参与静态发布。

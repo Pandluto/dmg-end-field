@@ -144,6 +144,10 @@ export function MobileApp({ catalog, updateAvailable, onReloadLatest }: MobileAp
     setShareImportOpen(false);
     setInitialShareId(null);
     const url = new URL(window.location.href);
+    if (/^\/share\/[A-Za-z0-9_-]{16}\/?$/.test(url.pathname)) {
+      window.history.replaceState(null, '', '/mobile');
+      return;
+    }
     if (url.searchParams.has('share')) {
       url.searchParams.delete('share');
       window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);

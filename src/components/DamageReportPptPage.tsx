@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { buildDamageReportSnapshot, DamageReportButtonRow, DamageReportCharacterRow } from '../core/services/damageReportService';
 import { loadTimelineData } from '../core/repositories';
@@ -20,6 +20,21 @@ import { getSelectedCharacterIds } from '../utils/storage';
 import type { Character, SkillButtonData, TimelineData } from '../types';
 import type { ConfigSnapshot } from '../core/calculators/operatorPanelCalculator';
 import { RdpsOverviewChart, RdpsCharacterSplitChart } from './DamageReportRdpsCharts';
+import { loadMobileCatalog } from '../mobile/mobileCatalog';
+import { timelinePayloadToMobileDraft } from '../mobile/tacticalShareInterop';
+import { buildMobileRuntimeState } from '../mobile/mobileRuntime';
+import type { MobileCatalog, MobileDraft } from '../mobile/model';
+import {
+  createDesktopShare,
+  isMobileShareEnabled,
+} from '../mobile/mobileShare';
+import { MobileReportPage } from '../mobile/pages/MobileReportPage';
+import {
+  getCurrentTimelineSnapshotPayload,
+  type TimelineSnapshotPayload,
+} from '../utils/timelineSnapshotStorage';
+import { getTimelineSessionSnapshot } from '../agentKernel/timelineRepository/timelineSession';
+import { buildDesktopWorktreeShareBundle } from './desktopTacticalShare';
 import {
   handleReportImageError,
   ReportLevelRows,
@@ -805,6 +820,11 @@ function ChartSlide({
 
 export function DamageReportPptPage() {
   const { state } = useAppContext();
+  const [reportMode, setReportMode] = useState<'desktop' | 'mobile'>('desktop');
+  const [mobileCatalog, setMobileCatalog] = useState<MobileCatalog | null>(null);
+  const [mobileDraft, setMobileDraft] = useState<MobileDraft | null>(null);
+  const [mobilePresentedPayload, setMobilePresentedPayload] = useState<TimelineSnapshotPayload | null>(null);
+  const [mobileReportError, setMobileReportError] = useState('');
   const snapshot = useMemo(() => buildDamageReportSnapshot({ includeRdps: true }), []);
   const timelineData = useMemo(() => loadTimelineData(), []);
   const weaponLibrary = useMemo(() => loadReportWeaponLibrary(), []);
@@ -818,33 +838,150 @@ export function DamageReportPptPage() {
   const chartPageIndex = 2 + timelinePages.length;
   const totalPages = chartPageIndex;
 
+  useEffect(() => {
+    if (reportMode !== 'mobile' || mobileCatalog || mobileReportError) return;
+    let cancelled = false;
+    const initialize = async () => {
+      try {
+        const payload = getCurrentTimelineSnapshotPayload();
+        if (!payload) throw new Error('当前 SQLite 工作区没有可用于移动报表的 checkout。');
+        const catalog = await loadMobileCatalog();
+        const draft = timelinePayloadToMobileDraft(payload, catalog);
+        if (cancelled) return;
+        setMobileCatalog(catalog);
+        setMobileDraft(draft);
+        setMobilePresentedPayload(payload);
+      } catch (error) {
+        if (!cancelled) {
+          setMobileReportError(error instanceof Error ? error.message : '移动报表初始化失败。');
+        }
+      }
+    };
+    void initialize();
+    return () => {
+      cancelled = true;
+    };
+  }, [mobileCatalog, mobileReportError, reportMode]);
+
+  const mobileRuntime = useMemo(() => {
+    if (!mobileCatalog || !mobileDraft) return null;
+    try {
+      return { value: buildMobileRuntimeState(mobileDraft, mobileCatalog), error: '' };
+    } catch (error) {
+      return { value: null, error: error instanceof Error ? error.message : String(error) };
+    }
+  }, [mobileCatalog, mobileDraft]);
+  const mobileOperators = useMemo(() => {
+    if (!mobileCatalog || !mobileDraft) return [];
+    const byId = new Map(mobileCatalog.characters.map((character) => [character.id, character]));
+    return mobileDraft.selectedOperatorIds.flatMap((operatorId) => {
+      const operator = byId.get(operatorId);
+      return operator ? [operator] : [];
+    });
+  }, [mobileCatalog, mobileDraft]);
+
+  const createDesktopReportShare = async () => {
+    if (!mobileCatalog || !mobileDraft || !mobilePresentedPayload) {
+      throw new Error('移动报表资料尚未完成载入。');
+    }
+    const timelineSession = getTimelineSessionSnapshot();
+    const bundle = await buildDesktopWorktreeShareBundle({
+      timelineId: timelineSession.activeTimelineId,
+      label: timelineSession.activeTimelineLabel,
+      // The QR must carry the exact node projection rendered on this page.
+      // Reading runtime storage again here could make the desktop tree and the
+      // mobile projection describe two different moments.
+      presentedPayload: mobilePresentedPayload,
+    });
+    return createDesktopShare(
+      bundle,
+      mobileDraft,
+      mobileCatalog.dataVersion,
+      mobileCatalog.imageVersion,
+    );
+  };
+
   return (
     <main className="report-ppt-page">
       <div className="report-ppt-toolbar">
         <button type="button" onClick={() => navigateToAppPath(APP_ROUTE_PATHS.home)}>返回</button>
+        <button
+          type="button"
+          className="report-ppt-mode-toggle"
+          onClick={() => setReportMode((current) => current === 'desktop' ? 'mobile' : 'desktop')}
+        >
+          {reportMode === 'desktop' ? '切换到手机版' : '切换到桌面版'}
+        </button>
         <div>
-          <strong>伤害报表 PPT</strong>
-          <span>{REPORT_PPT_PATH} / {totalPages} 页 / 总伤害 {formatInteger(snapshot.totalExpected)}</span>
+          <strong>{reportMode === 'desktop' ? '伤害报表 PPT' : '手机版战术报告'}</strong>
+          <span>{reportMode === 'desktop'
+            ? `${REPORT_PPT_PATH} / ${totalPages} 页 / 总伤害 ${formatInteger(snapshot.totalExpected)}`
+            : '与手机版共用同一套报表、PNG 与二维码渲染'}</span>
         </div>
       </div>
-      <div className="report-ppt-scroll">
-        <TeamSlide
-          characters={reportOperators}
-          reportCharacters={snapshot.characters}
-          weaponLibrary={weaponLibrary}
-          equipmentImages={equipmentImages}
-        />
-        {timelinePages.map((groupIndices, index) => (
-          <TimelineGroupSlide
-            key={`timeline-page-${index}`}
-            pageIndex={index + 2}
-            groupIndices={groupIndices}
-            timelineData={timelineData}
+      {reportMode === 'desktop' ? (
+        <div className="report-ppt-scroll">
+          <TeamSlide
             characters={reportOperators}
+            reportCharacters={snapshot.characters}
+            weaponLibrary={weaponLibrary}
+            equipmentImages={equipmentImages}
           />
-        ))}
-        <ChartSlide pageIndex={chartPageIndex} snapshot={snapshot} />
-      </div>
+          {timelinePages.map((groupIndices, index) => (
+            <TimelineGroupSlide
+              key={`timeline-page-${index}`}
+              pageIndex={index + 2}
+              groupIndices={groupIndices}
+              timelineData={timelineData}
+              characters={reportOperators}
+            />
+          ))}
+          <ChartSlide pageIndex={chartPageIndex} snapshot={snapshot} />
+        </div>
+      ) : (
+        <div className="report-ppt-mobile-scroll">
+          {mobileReportError || mobileRuntime?.error ? (
+            <section className="report-ppt-mobile-state is-error" role="alert">
+              <strong>手机版报表没有载入</strong>
+              <p>{mobileReportError || mobileRuntime?.error}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileReportError('');
+                  setMobileCatalog(null);
+                  setMobileDraft(null);
+                  setMobilePresentedPayload(null);
+                }}
+              >重新读取</button>
+            </section>
+          ) : !mobileCatalog || !mobileDraft || !mobileRuntime?.value ? (
+            <section className="report-ppt-mobile-state" aria-live="polite">
+              <span aria-hidden="true" />
+              <strong>正在复用手机版报表代码</strong>
+            </section>
+          ) : (
+            <MobileReportPage
+              report={mobileRuntime.value.report}
+              operators={mobileOperators}
+              operatorConfigs={mobileDraft.operatorConfigs}
+              operatorSnapshots={mobileRuntime.value.operatorSnapshots}
+              weapons={mobileCatalog.weapons}
+              equipment={mobileCatalog.equipment}
+              slots={mobileDraft.slots}
+              slotCalculations={mobileRuntime.value.slotCalculations}
+              draft={mobileDraft}
+              dataVersion={mobileCatalog.dataVersion}
+              imageVersion={mobileCatalog.imageVersion}
+              shareEnabled={isMobileShareEnabled()}
+              onCreateShare={createDesktopReportShare}
+              timelineNotes={mobileDraft.reportNotes}
+              onTimelineNotesChange={(reportNotes) => setMobileDraft((current) => (
+                current ? { ...current, reportNotes, updatedAt: Date.now() } : current
+              ))}
+            />
+          )}
+        </div>
+      )}
     </main>
   );
 }

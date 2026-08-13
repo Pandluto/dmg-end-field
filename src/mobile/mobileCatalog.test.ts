@@ -1,8 +1,17 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { loadMobileCatalog, versionMobileImageUrl } from './mobileCatalog';
-import { createDefaultMobileOperatorConfig, createEmptyMobileDraft } from './mobileDraft';
+import {
+  createDefaultMobileOperatorConfig,
+  createEmptyMobileDraft,
+  normalizeMobileDraft,
+} from './mobileDraft';
 import { buildMobileRuntimeState } from './mobileRuntime';
+import {
+  mobileDraftToTimelinePayload,
+  timelinePayloadToMobileDraft,
+} from './tacticalShareInterop';
+import { validateTimelinePayload } from '../agentKernel/timelineWorktree/validator';
 
 function readFixture(relativePath: string): unknown {
   return JSON.parse(readFileSync(new URL(`../../public/${relativePath}`, import.meta.url), 'utf8')) as unknown;
@@ -111,6 +120,22 @@ try {
   assert.ok(runtime.slotCalculations[draft.slots[0].id]?.result.hits.length > 0);
   assert.ok(runtime.availableBuffs.some((buff) => buff.ownerCharacterId === character.id));
 
+  draft.slots[0].action.customHits = [{
+    key: 'frozen-hit',
+    displayName: '分享快照伤害段',
+    multiplier: 0.01,
+    levels: { M3: 0.02 },
+    element: character.element,
+    skillType: skill.buttonType,
+  }];
+  const frozenRuntime = buildMobileRuntimeState(normalizeMobileDraft(draft), catalog);
+  assert.deepEqual(
+    frozenRuntime.slotCalculations[draft.slots[0].id]?.result.hits.map((hit) => hit.hit.key),
+    ['frozen-hit'],
+  );
+  assert.notEqual(frozenRuntime.report.totalExpected, runtime.report.totalExpected);
+  delete draft.slots[0].action.customHits;
+
   draft.slots[0].action.anomalyDamages = [{
     id: 'mobile-test-burn',
     key: 'burn',
@@ -130,6 +155,22 @@ try {
   const burnCalculation = runtimeWithBurn.slotCalculations[draft.slots[0].id];
   assert.ok(burnCalculation?.specialSegments?.some((segment) => segment.compactTitle.includes('燃烧')));
   assert.ok(runtimeWithBurn.report.totalExpected > runtime.report.totalExpected);
+
+  const sharedBuff = runtime.availableBuffs[0];
+  assert.ok(sharedBuff && draft.slots[0].action);
+  draft.slots[0].action.buffs = [sharedBuff];
+  draft.slots[0].action.buffStackCounts = { [sharedBuff.id]: 2 };
+  const desktopPayload = mobileDraftToTimelinePayload(draft, catalog);
+  const persistedButton = desktopPayload.skillButtonTable['mobile-test-action'];
+  const timelineButton = desktopPayload.timelineData.staffLines[0]?.buttons[0];
+  assert.deepEqual(persistedButton.selectedBuff, [sharedBuff.id]);
+  assert.deepEqual(persistedButton.panelConfig?.selectedBuff, [sharedBuff.id]);
+  assert.deepEqual(timelineButton?.buffIds, [sharedBuff.id]);
+  assert.deepEqual(validateTimelinePayload(desktopPayload), { ok: true, issues: [] });
+
+  const restoredMobileDraft = timelinePayloadToMobileDraft(desktopPayload, catalog);
+  assert.deepEqual(restoredMobileDraft.slots[0]?.action?.buffs.map((buff) => buff.id), [sharedBuff.id]);
+  assert.equal(restoredMobileDraft.slots[0]?.action?.buffStackCounts[sharedBuff.id], 2);
 
   const sourceCandidate = runtimeWithBurn.availableBuffs.find((buff) => (
     buff.ownerCharacterId === character.id

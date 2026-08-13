@@ -1,11 +1,13 @@
 ---
 name: dmg-dual-deploy
-description: "Publish the DMG Endfield web app to both production routes: the overseas OpenAI Sites project and custom domain, plus the domestic Caddy/Nginx static server. Use when the user asks to deploy, publish, go live, redeploy, refresh production, or push a web build online. A general deployment updates both routes by default; do not use this skill for GitHub Release or data-package publishing unless website deployment is also requested."
+description: "Publish the DMG Endfield web app or unified server resource package to both production routes: the overseas OpenAI Sites project and custom domain, plus the domestic Caddy/Nginx static server. Use when the user asks to deploy, publish, go live, redeploy, refresh production, push a web build online, or publish/update a data or resource package. A general deployment updates both routes by default; GitHub Release publishing is outside this route."
 ---
 
 # DMG Dual Deploy
 
 Treat one production release as one source commit deployed to both overseas and domestic routes. Only deploy one route when the user explicitly says to deploy only that route.
+
+For a unified server resource-package release, generate and verify the resource ZIP, materialize it into `public/`, then follow the same commit, dual-build, dual-deploy, and rollback workflow. Resource versions must use the actual package-generation time in China Standard Time as `YYYYMMDD.HHmmss.<content-hash>`; never reuse Share Data `exportedAt` as the public release timestamp.
 
 Before acting, read [references/targets.md](references/targets.md). It contains the production URLs, server layout, protocol limitations, and cache contract.
 

@@ -2,7 +2,7 @@ import type { ConfigSnapshot } from '../core/calculators/operatorPanelCalculator
 import type { SkillDamageCalcResultV2 } from '../core/calculators/skillDamage.types';
 import type { EquipmentLibrary } from '../core/services/operatorEquipmentLibrary';
 import type { RdpsAttributionSummary } from '../core/services/rdpsAttribution.types';
-import type { Character, SkillType } from '../types';
+import type { Character, SandboxSkillHit, SkillType } from '../types';
 import type {
   AnomalyStateSnapshot,
   HitResistanceInput,
@@ -50,6 +50,8 @@ export interface MobileTimelineAction {
   runtimeSkillId: string;
   skillName: string;
   skillIconUrl?: string;
+  /** Frozen hit template used by imported snapshots when catalog skills later change. */
+  customHits?: SandboxSkillHit[];
   buffs: SkillButtonBuff[];
   buffStackCounts: Record<string, number>;
   buffStackCountsByHitKey: Record<string, Record<string, number>>;

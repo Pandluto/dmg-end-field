@@ -2,6 +2,9 @@ import { createLogger, defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { sites } from './build/sites-vite-plugin'
+import hostingConfig from './.openai/hosting.json'
+
+const SITE_CREATOR_PLACEHOLDER_DATABASE_ID = '00000000-0000-4000-8000-000000000000'
 
 const logger = createLogger()
 const loggerWarn = logger.warn
@@ -25,7 +28,7 @@ export default defineConfig(async () => {
   const sitesBuild = process.env.SITES_BUILD === '1'
   const mobileShareEnabled = process.env.DEF_MOBILE_SHARE_ENABLED
     ? process.env.DEF_MOBILE_SHARE_ENABLED === '1'
-    : !sitesBuild
+    : true
   const plugins = [
     react(),
     tailwindcss(),
@@ -70,6 +73,19 @@ export default defineConfig(async () => {
         main: './worker/index.ts',
         compatibility_date: '2026-07-29',
         compatibility_flags: ['nodejs_compat'],
+        d1_databases: hostingConfig.d1
+          ? [{
+            binding: hostingConfig.d1,
+            database_name: 'site-creator-d1',
+            database_id: SITE_CREATOR_PLACEHOLDER_DATABASE_ID,
+          }]
+          : [],
+        r2_buckets: hostingConfig.r2
+          ? [{
+            binding: hostingConfig.r2,
+            bucket_name: 'site-creator-r2',
+          }]
+          : [],
         assets: {
           binding: 'ASSETS',
           not_found_handling: 'single-page-application',
@@ -78,6 +94,9 @@ export default defineConfig(async () => {
             '/index.html',
             '/mobile',
             '/mobile/*',
+            '/share/*',
+            '/api/mobile-shares',
+            '/api/mobile-shares/*',
             '/cache-recovery.html',
             '/sw.js',
             '/version.json',
