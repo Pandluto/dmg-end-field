@@ -130,6 +130,27 @@ try {
   const burnCalculation = runtimeWithBurn.slotCalculations[draft.slots[0].id];
   assert.ok(burnCalculation?.specialSegments?.some((segment) => segment.compactTitle.includes('燃烧')));
   assert.ok(runtimeWithBurn.report.totalExpected > runtime.report.totalExpected);
+
+  const sourceCandidate = runtimeWithBurn.availableBuffs.find((buff) => (
+    buff.ownerCharacterId === character.id
+    && (buff.ownerBuffDomain === 'operator' || buff.ownerBuffDomain === 'weapon' || buff.ownerBuffDomain === 'equipment')
+    && buff.effectKind !== 'extraHit'
+  ));
+  assert.ok(sourceCandidate);
+  draft.slots[0].action.buffs = [{
+    ...sourceCandidate,
+    ownerCharacterId: undefined,
+    ownerBuffDomain: undefined,
+    ownerBuffGroup: undefined,
+  }];
+  draft.activePage = 'report';
+  draft.updatedAt += 1;
+  const runtimeWithRdps = buildMobileRuntimeState(draft, catalog);
+  assert.ok(runtimeWithRdps.report.rdps);
+  assert.equal(runtimeWithRdps.report.rdps.characters[0]?.characterId, character.id);
+  assert.ok(runtimeWithRdps.report.rdps.sources.some((source) => source.characterId === character.id));
+  assert.ok(runtimeWithRdps.report.rdps.diagnostics.resolvedLegacyDefinitionCount > 0);
+  assert.ok(runtimeWithRdps.report.rdps.accountingError < 1e-6);
 } finally {
   globalThis.fetch = originalFetch;
   if (originalWindow) {

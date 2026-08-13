@@ -16,9 +16,22 @@ import {
   buildAnomalyStateDerivedBuffs,
   buildAnomalyStateSnapshotBuffs,
 } from '../core/services/anomalyStateBuffs';
+import type { DamageReportSourceFilter, RdpsSourceKey } from '../core/services/rdpsAttribution.types';
+import { buildRdpsSourceKey, parseRdpsSourceKey } from '../core/services/rdpsAttribution.types';
+import {
+  computeRdpsAttributionFromApplications,
+  type RdpsAttributableApplication,
+} from '../core/services/rdpsContributionService';
+import {
+  buffApplicationKeyOf,
+  buildRdpsResolutionContext,
+  sourceKeyFromSidecar,
+  type RdpsResolutionContext,
+} from '../core/services/rdpsSourceResolutionContext';
+import type { RdpsSourceSidecar } from '../core/services/rdpsSourceResolution.types';
 import { buildAnomalyDamageSegments } from '../components/CanvasBoard/skillButtonAnomalyDamage';
 import type { Character, Skill, SkillType } from '../types';
-import type { DamageBonusSnapshot, SkillButtonBuff } from '../types/storage';
+import type { DamageBonusSnapshot, PersistedSkillButton, SkillButtonBuff } from '../types/storage';
 import type {
   MobileCatalog,
   MobileDamageReport,
@@ -234,6 +247,38 @@ function buildPanelBase(snapshot: ConfigSnapshot): SkillDamagePanelBase {
   };
 }
 
+function explicitMobileSourceKey(buff: SkillButtonBuff): RdpsSourceKey | null {
+  if (typeof buff.ownerCharacterId !== 'string' || !buff.ownerCharacterId.trim()) return null;
+  const domain = buff.ownerBuffDomain;
+  if (domain !== 'operator' && domain !== 'weapon' && domain !== 'equipment') return null;
+  return buildRdpsSourceKey(buff.ownerCharacterId, domain);
+}
+
+function mobileSourceKeyOf(
+  actionId: string,
+  buff: SkillButtonBuff,
+  sidecar?: RdpsSourceSidecar,
+): RdpsSourceKey | null {
+  return (sidecar
+    ? sourceKeyFromSidecar(sidecar, buffApplicationKeyOf(actionId, buff))
+    : null) ?? explicitMobileSourceKey(buff);
+}
+
+function applyMobileSourceFilter(
+  actionId: string,
+  buffs: SkillButtonBuff[],
+  filter?: DamageReportSourceFilter,
+  sidecar?: RdpsSourceSidecar,
+): SkillButtonBuff[] {
+  if (!filter) return buffs;
+  return buffs.filter((buff) => {
+    if (filter.imbalanceEnabled === false && buff.type === 'imbalanceDmgBonus') return false;
+    if (filter.enabledSourceKeys === undefined || filter.enabledSourceKeys === null) return true;
+    const sourceKey = filter.sourceKeyOf?.(buff) ?? mobileSourceKeyOf(actionId, buff, sidecar);
+    return sourceKey === null || filter.enabledSourceKeys.has(sourceKey);
+  });
+}
+
 function calculateMobileSlot(
   slotId: string,
   action: MobileTimelineAction,
@@ -241,21 +286,37 @@ function calculateMobileSlot(
   config: MobileOperatorConfig,
   snapshot: ConfigSnapshot,
   operatorSnapshots: Record<string, ConfigSnapshot>,
+  sourceFilter?: DamageReportSourceFilter,
+  sourceSidecar?: RdpsSourceSidecar,
 ): MobileSlotCalculation | null {
   const character = getCharacterById(catalog, action.operatorId);
   if (!character) return null;
   const template = resolveMobileSkillTemplate(character, config, action);
   if (template.hits.length === 0) return null;
   const globallyDisabled = new Set(action.globallyDisabledBuffIds);
-  const enabledBuffs = action.buffs.filter((buff) => !globallyDisabled.has(buff.id));
+  const enabledBuffs = applyMobileSourceFilter(action.id, action.buffs, sourceFilter, sourceSidecar)
+    .filter((buff) => !globallyDisabled.has(buff.id));
   const modifierBuffs = enabledBuffs.filter((buff) => buff.effectKind !== 'extraHit');
   const extraHitBuffs = enabledBuffs.filter((buff): buff is SkillButtonBuff & {
     effectKind: 'extraHit';
     extraHitConfig: NonNullable<SkillButtonBuff['extraHitConfig']>;
   } => buff.effectKind === 'extraHit' && Boolean(buff.extraHitConfig));
-  const stateDerivedBuffs = buildAnomalyStateDerivedBuffs(action.anomalyStatuses ?? [], action.skillType);
-  const anomalyStateBuffs = buildAnomalyStateSnapshotBuffs(action.anomalyStateSnapshots ?? []);
+  const stateDerivedBuffs = applyMobileSourceFilter(
+    action.id,
+    buildAnomalyStateDerivedBuffs(action.anomalyStatuses ?? [], action.skillType),
+    sourceFilter,
+    sourceSidecar,
+  );
+  const anomalyStateBuffs = applyMobileSourceFilter(
+    action.id,
+    buildAnomalyStateSnapshotBuffs(action.anomalyStateSnapshots ?? []),
+    sourceFilter,
+    sourceSidecar,
+  );
   const combinedModifierBuffs = [...modifierBuffs, ...stateDerivedBuffs, ...anomalyStateBuffs];
+  const effectiveDamageBonus = sourceFilter?.imbalanceEnabled === false
+    ? { ...(snapshot.panel.display.damageBonus ?? EMPTY_DAMAGE_BONUS), imbalanceDmgBonus: 0 }
+    : snapshot.panel.display.damageBonus ?? EMPTY_DAMAGE_BONUS;
   const result = calculateSkillButtonDamageV2({
     buttonId: action.id,
     characterId: character.id,
@@ -272,7 +333,7 @@ function calculateMobileSlot(
     panelBase: buildPanelBase(snapshot),
     disabledBuffIdsByHitKey: action.disabledBuffIdsByHitKey,
     disabledHitKeys: action.disabledHitKeys,
-    damageBonus: snapshot.panel.display.damageBonus ?? EMPTY_DAMAGE_BONUS,
+    damageBonus: effectiveDamageBonus,
     targetResistance: action.targetResistance,
   });
   const specialSegments = buildAnomalyDamageSegments({
@@ -289,7 +350,7 @@ function calculateMobileSlot(
     selectedAnomalyDamages: action.anomalyDamages ?? [],
     buttonCharacterId: character.id,
     element: character.element,
-    damageBonus: snapshot.panel.display.damageBonus ?? EMPTY_DAMAGE_BONUS,
+    damageBonus: effectiveDamageBonus,
     targetResistance: action.targetResistance,
     fullCombinedModifierBuffList: combinedModifierBuffs,
     extraHitBuffList: extraHitBuffs,
@@ -482,6 +543,121 @@ function buildAvailableBuffs(
   });
 }
 
+function buildMobileRdpsResolution(
+  draft: MobileDraft,
+  catalog: MobileCatalog,
+  operatorSnapshots: Record<string, ConfigSnapshot>,
+  availableBuffs: SkillButtonBuff[],
+): RdpsResolutionContext {
+  const teamIndexById = new Map(draft.selectedOperatorIds.map((characterId, index) => [characterId, index]));
+  const characterNameById = new Map(catalog.characters.map((character) => [character.id, character.name]));
+  const buttons: PersistedSkillButton[] = [];
+  const anomalyStatusesByButton: Record<string, NonNullable<MobileTimelineAction['anomalyStatuses']>> = {};
+  const anomalySnapshotsByButton: Record<string, NonNullable<MobileTimelineAction['anomalyStateSnapshots']>> = {};
+  const allAnomalySnapshots: NonNullable<MobileTimelineAction['anomalyStateSnapshots']> = [];
+  const allBuffs: SkillButtonBuff[] = [];
+
+  draft.slots.forEach((slot, nodeIndex) => {
+    const action = slot.action;
+    if (!action) return;
+    const staffIndex = teamIndexById.get(action.operatorId) ?? 0;
+    buttons.push({
+      id: action.id,
+      characterId: action.operatorId,
+      characterName: characterNameById.get(action.operatorId) ?? action.operatorId,
+      skillType: action.skillType,
+      staffIndex,
+      nodeIndex,
+      nodeNumber: nodeIndex + 1,
+      position: { x: nodeIndex, y: staffIndex },
+      runtimeSkillId: action.runtimeSkillId,
+      skillDisplayName: action.skillName,
+      selectedBuff: action.buffs.map((buff) => buff.id),
+    });
+    anomalyStatusesByButton[action.id] = action.anomalyStatuses ?? [];
+    anomalySnapshotsByButton[action.id] = action.anomalyStateSnapshots ?? [];
+    allAnomalySnapshots.push(...(action.anomalyStateSnapshots ?? []));
+    allBuffs.push(...action.buffs);
+  });
+
+  return buildRdpsResolutionContext({
+    selectedCharacterIds: draft.selectedOperatorIds,
+    staffLines: draft.selectedOperatorIds.map((characterId, staffIndex) => ({
+      staffIndex,
+      characterId,
+      characterName: characterNameById.get(characterId) ?? characterId,
+    })),
+    buttons,
+    operatorConfigCache: operatorSnapshots,
+    candidateBuffList: availableBuffs,
+    anomalyStatusesByButton,
+    anomalySnapshotsByButton,
+    allAnomalySnapshots,
+    allBuffs,
+  });
+}
+
+function collectMobileRdpsApplications(
+  draft: MobileDraft,
+  resolution: RdpsResolutionContext,
+): RdpsAttributableApplication[] {
+  const applications: RdpsAttributableApplication[] = [];
+  for (const slot of draft.slots) {
+    const action = slot.action;
+    if (!action) continue;
+    const stateBuffs = buildAnomalyStateDerivedBuffs(action.anomalyStatuses ?? [], action.skillType);
+    const snapshotBuffs = buildAnomalyStateSnapshotBuffs(action.anomalyStateSnapshots ?? []);
+    for (const buff of [...action.buffs, ...stateBuffs, ...snapshotBuffs]) {
+      const applicationKey = buffApplicationKeyOf(action.id, buff);
+      const resolved = resolution.sidecar.get(applicationKey);
+      const sourceKey = mobileSourceKeyOf(action.id, buff, resolution.sidecar);
+      if (!sourceKey) continue;
+      const parsed = parseRdpsSourceKey(sourceKey);
+      if (!parsed) continue;
+      applications.push({
+        buff,
+        applicationKey,
+        sourceKey,
+        characterId: parsed.characterId,
+        domain: parsed.domain,
+        sourceAssetName: resolved?.sourceAssetName,
+      });
+    }
+  }
+  return applications;
+}
+
+function evaluateMobileRdpsTotal(
+  draft: MobileDraft,
+  catalog: MobileCatalog,
+  operatorSnapshots: Record<string, ConfigSnapshot>,
+  sourceSidecar: RdpsSourceSidecar,
+  enabledSourceKeys: ReadonlySet<RdpsSourceKey>,
+): number {
+  const sourceFilter: DamageReportSourceFilter = {
+    enabledSourceKeys,
+    imbalanceEnabled: false,
+  };
+  return draft.slots.reduce((sum, slot) => {
+    const action = slot.action;
+    if (!action) return sum;
+    const config = draft.operatorConfigs[action.operatorId];
+    const snapshot = operatorSnapshots[action.operatorId];
+    if (!config || !snapshot) return sum;
+    const calculation = calculateMobileSlot(
+      slot.id,
+      action,
+      catalog,
+      config,
+      snapshot,
+      operatorSnapshots,
+      sourceFilter,
+      sourceSidecar,
+    );
+    return sum + (calculation?.result.summary.totalExpected ?? 0);
+  }, 0);
+}
+
 export function buildMobileRuntimeState(
   draft: MobileDraft,
   catalog: MobileCatalog,
@@ -504,10 +680,43 @@ export function buildMobileRuntimeState(
     if (calculation) slotCalculations[slot.id] = calculation;
   });
 
+  const availableBuffs = buildAvailableBuffs(catalog.buffs, operatorSnapshots);
+  const report = buildMobileDamageReport(Object.values(slotCalculations));
+  if (draft.activePage === 'report') {
+    const resolution = buildMobileRdpsResolution(draft, catalog, operatorSnapshots, availableBuffs);
+    const characterNameById = new Map(
+      catalog.characters
+        .filter((character) => draft.selectedOperatorIds.includes(character.id))
+        .map((character) => [character.id, character.name]),
+    );
+    report.rdps = computeRdpsAttributionFromApplications({
+      applications: collectMobileRdpsApplications(draft, resolution),
+      actualTotal: report.totalExpected,
+      evaluateTotal: (enabledSourceKeys) => evaluateMobileRdpsTotal(
+        draft,
+        catalog,
+        operatorSnapshots,
+        resolution.sidecar,
+        enabledSourceKeys,
+      ),
+      excludedImbalanceEffectCount: draft.slots.reduce((count, slot) => (
+        count + (slot.action
+          ? buildAnomalyStateDerivedBuffs(slot.action.anomalyStatuses ?? [], slot.action.skillType)
+              .filter((buff) => buff.type === 'imbalanceDmgBonus').length
+          : 0)
+      ), 0),
+    }, {
+      contextFingerprint: `mobile:${catalog.dataVersion}:${draft.updatedAt}`,
+      resolutionDiagnostics: resolution.diagnostics,
+      characterNameById,
+      teamCharacterIds: draft.selectedOperatorIds,
+    });
+  }
+
   return {
     operatorSnapshots,
     slotCalculations,
-    availableBuffs: buildAvailableBuffs(catalog.buffs, operatorSnapshots),
-    report: buildMobileDamageReport(Object.values(slotCalculations)),
+    availableBuffs,
+    report,
   };
 }

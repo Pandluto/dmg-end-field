@@ -9,6 +9,11 @@ import {
 import '../../components/DamageReportPptPage.css';
 import type { ConfigSnapshot } from '../../core/calculators/operatorPanelCalculator';
 import type { EquipmentItem, EquipmentLibrary } from '../../core/services/operatorEquipmentLibrary';
+import type {
+  RdpsAttributionSummary,
+  RdpsCharacterContribution,
+  RdpsDomain,
+} from '../../core/services/rdpsAttribution.types';
 import type { Character, SkillType } from '../../types';
 import {
   getElementBackgroundColor,
@@ -129,6 +134,31 @@ function formatDamage(value: number | undefined): string {
 function formatPercentage(value: number): string {
   const safeValue = Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
   return `${(safeValue * 100).toFixed(1)}%`;
+}
+
+function formatSignedDamage(value: number): string {
+  return Math.round(Number.isFinite(value) ? value : 0).toLocaleString('zh-CN');
+}
+
+function formatCompactDamage(value: number): string {
+  const safeValue = Number.isFinite(value) ? value : 0;
+  const sign = safeValue < 0 ? '-' : '';
+  const absolute = Math.abs(safeValue);
+  if (absolute >= 1_000_000_000) return `${sign}${(absolute / 1_000_000_000).toFixed(2)}B`;
+  if (absolute >= 1_000_000) return `${sign}${(absolute / 1_000_000).toFixed(2)}M`;
+  if (absolute >= 1_000) return `${sign}${(absolute / 1_000).toFixed(1)}K`;
+  return `${Math.round(safeValue)}`;
+}
+
+function formatSignedPercentage(value: number): string {
+  const safeValue = Number.isFinite(value) ? value : 0;
+  return `${(safeValue * 100).toFixed(1)}%`;
+}
+
+function rdpsDomainLabel(domain: RdpsDomain): string {
+  if (domain === 'operator') return '干员本体';
+  if (domain === 'weapon') return '武器';
+  return '装备';
 }
 
 function normalizeRows(rows: MobileDamageReportRow[] | undefined): DisplayReportRow[] {
@@ -555,6 +585,149 @@ function SkillDamageBars({ rows }: { rows: DisplayReportRow[] }) {
   );
 }
 
+function MobileRdpsOverview({ summary }: { summary: RdpsAttributionSummary | undefined }) {
+  if (!summary) return <EmptyReportState>暂无 RD 归因数据</EmptyReportState>;
+  const characters = summary.characters.slice(0, 4);
+  if (characters.length === 0) return <EmptyReportState>当前队伍没有可归因干员</EmptyReportState>;
+  const teamTotal = characters.reduce((sum, character) => sum + character.damage, 0);
+  const canRenderPie = teamTotal > 0 && characters.every((character) => character.damage >= 0);
+  const positiveCharacters = characters.filter((character) => character.damage > 0);
+  let accumulatedShare = 0;
+  const segments = positiveCharacters.map((character) => {
+    const teamIndex = characters.findIndex((candidate) => candidate.characterId === character.characterId);
+    const share = character.damage / teamTotal;
+    const segment = { ...character, teamIndex, share, offset: accumulatedShare };
+    accumulatedShare += share;
+    return segment;
+  });
+  const maxAbsolute = Math.max(...characters.map((character) => Math.abs(character.damage)), 1);
+
+  return (
+    <div className="mobile-report-rdps-overview">
+      {canRenderPie && segments.length > 0 ? (
+        <div className="mobile-report-share-layout mobile-report-rdps-share-layout">
+          <div className="mobile-report-share-chart">
+            <svg className="mobile-report-share-svg" viewBox="0 0 200 200" role="img" aria-label="四名干员总 RD 占比">
+              <circle className="mobile-report-share-track" cx="100" cy="100" r="66" pathLength="100" />
+              {segments.map((character) => (
+                <circle
+                  key={character.characterId}
+                  className="mobile-report-share-segment"
+                  cx="100"
+                  cy="100"
+                  r="66"
+                  pathLength="100"
+                  stroke={getSeriesColor(character.teamIndex)}
+                  strokeDasharray={`${character.share * 100} ${100 - character.share * 100}`}
+                  strokeDashoffset={-character.offset * 100}
+                  transform="rotate(-90 100 100)"
+                  style={{
+                    stroke: getSeriesColor(character.teamIndex),
+                    strokeDasharray: `${character.share * 100} ${100 - character.share * 100}`,
+                    strokeDashoffset: -character.offset * 100,
+                  }}
+                >
+                  <title>{character.characterName}：{formatSignedDamage(character.damage)} / {formatPercentage(character.share)}</title>
+                </circle>
+              ))}
+              <circle className="mobile-report-share-hole" cx="100" cy="100" r="46" />
+              <text className="mobile-report-share-total-label" x="100" y="92" textAnchor="middle">RD 合计</text>
+              <text className="mobile-report-share-total mobile-report-rdps-total" x="100" y="113" textAnchor="middle">
+                {formatCompactDamage(teamTotal)}
+              </text>
+            </svg>
+          </div>
+          <ol className="mobile-report-share-legend" aria-label="四名干员 RD 占比明细">
+            {characters.map((character, index) => (
+              <li key={character.characterId} className="mobile-report-legend-item">
+                <span className="mobile-report-legend-swatch" style={{ backgroundColor: getSeriesColor(index) }} aria-hidden="true" />
+                <span className="mobile-report-legend-copy">
+                  <span className="mobile-report-legend-label">{character.characterName}</span>
+                  <span className="mobile-report-legend-value">{formatSignedDamage(character.damage)}</span>
+                </span>
+                <span className="mobile-report-legend-share">
+                  {formatPercentage(teamTotal === 0 ? 0 : character.damage / teamTotal)}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ) : (
+        <div className="mobile-report-rdps-signed-notice" role="note">
+          <strong>{formatCompactDamage(teamTotal)}</strong>
+          <span>{characters.some((character) => character.damage < 0) ? '存在负贡献，改用带符号对比' : '暂无正 RD'}</span>
+        </div>
+      )}
+      <ol className="mobile-report-rdps-team-bars" aria-label="四名干员总 RD 对比">
+        {characters.map((character, index) => (
+          <li key={`${character.characterId}-bar`} className={character.damage < 0 ? 'is-negative' : undefined}>
+            <span className="mobile-report-rdps-team-bar-heading">
+              <strong>{character.characterName}</strong>
+              <em>{formatSignedDamage(character.damage)}</em>
+            </span>
+            <span className="mobile-report-rdps-team-bar-track" aria-hidden="true">
+              <span
+                style={{
+                  width: `${(Math.abs(character.damage) / maxAbsolute) * 100}%`,
+                  backgroundColor: character.damage < 0 ? undefined : getSeriesColor(index),
+                }}
+              />
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+function MobileRdpsCharacterCard({ character }: { character: RdpsCharacterContribution }) {
+  const hasNegative = character.domains.some((domain) => domain.damage < 0);
+  const maxAbsolute = Math.max(...character.domains.map((domain) => Math.abs(domain.damage)), 1);
+  return (
+    <div className="mobile-report-rdps-character-card">
+      <header>
+        <strong>{character.characterName}</strong>
+        <span>{formatSignedDamage(character.damage)} · {formatSignedPercentage(character.shareOfActual)}</span>
+      </header>
+      <div className="mobile-report-rdps-domain-list">
+        {character.domains.map((domain) => {
+          const width = hasNegative
+            ? Math.abs(domain.damage) / maxAbsolute
+            : Math.max(0, Math.min(1, domain.shareOfCharacter));
+          return (
+            <div key={domain.domain} className={`mobile-report-rdps-domain-row${domain.damage < 0 ? ' is-negative' : ''}`}>
+              <span>{rdpsDomainLabel(domain.domain)}</span>
+              <span className="mobile-report-rdps-domain-track" aria-hidden="true"><i style={{ width: `${width * 100}%` }} /></span>
+              <em>{hasNegative ? formatSignedDamage(domain.damage) : formatSignedPercentage(domain.shareOfCharacter)}</em>
+              <strong>{formatSignedDamage(domain.damage)}</strong>
+            </div>
+          );
+        })}
+      </div>
+      {hasNegative ? <small>含负贡献，比例栏按绝对值缩放</small> : null}
+    </div>
+  );
+}
+
+function MobileRdpsDomains({ summary }: { summary: RdpsAttributionSummary | undefined }) {
+  if (!summary) return <EmptyReportState>暂无 RD 来源域数据</EmptyReportState>;
+  const characters = summary.characters.slice(0, 4);
+  if (characters.length === 0) return <EmptyReportState>当前队伍没有来源域数据</EmptyReportState>;
+  const unresolvedCount = summary.diagnostics.unresolvedDefinitionCount
+    + summary.diagnostics.ambiguousDefinitionCount;
+  return (
+    <div className="mobile-report-rdps-domains">
+      {characters.map((character) => <MobileRdpsCharacterCard key={character.characterId} character={character} />)}
+      {unresolvedCount > 0 ? (
+        <p className="mobile-report-rdps-warning">{unresolvedCount} 个来源未能唯一解析，已归入自身/其他</p>
+      ) : null}
+      {summary.diagnostics.outOfTeamCharacterCount > 0 ? (
+        <p className="mobile-report-rdps-warning">队伍外来源不属于当前四人，未显示在图 3 / 图 4</p>
+      ) : null}
+    </div>
+  );
+}
+
 function ChartReportSlide({
   report,
   operatorRows,
@@ -570,7 +743,7 @@ function ChartReportSlide({
 }) {
   return (
     <section className="mobile-report-slide" aria-labelledby={titleId}>
-      <ReportSlideHeader index="03" title="伤害图表" note="复用 PPT 的占比、时序与技能明细" titleId={titleId} />
+      <ReportSlideHeader index="03" title="伤害图表" note="伤害、时序、四干员 RD 与来源域明细" titleId={titleId} />
       <div className="mobile-report-damage-strip">
         <span><small>期望</small><strong>{formatDamage(report.totalExpected)}</strong></span>
         <span><small>非暴击</small><strong>{formatDamage(report.totalNonCrit)}</strong></span>
@@ -585,7 +758,15 @@ function ChartReportSlide({
         <CumulativeDamageChart entries={entries} />
       </article>
       <article className="mobile-report-chart-card">
-        <h3><span>图 3</span>技能伤害明细</h3>
+        <h3><span>图 3</span>四干员总 RD</h3>
+        <MobileRdpsOverview summary={report.rdps} />
+      </article>
+      <article className="mobile-report-chart-card">
+        <h3><span>图 4</span>干员来源域 RD</h3>
+        <MobileRdpsDomains summary={report.rdps} />
+      </article>
+      <article className="mobile-report-chart-card">
+        <h3><span>明细</span>技能伤害</h3>
         <SkillDamageBars rows={skillRows} />
       </article>
     </section>

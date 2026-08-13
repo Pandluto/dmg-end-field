@@ -191,39 +191,40 @@ interface SourceStat {
   buffCount: number;
 }
 
+export interface RdpsAttributionOptions {
+  policyVersion?: string;
+  contextFingerprint?: string;
+  resolutionDiagnostics?: Partial<RdpsDiagnostics>;
+  characterNameById?: ReadonlyMap<string, string>;
+  teamCharacterIds?: readonly string[];
+}
+
+export interface RdpsAttributionEvaluationInput {
+  applications: readonly RdpsAttributableApplication[];
+  actualTotal: number;
+  evaluateTotal: (enabledSourceKeys: ReadonlySet<RdpsSourceKey>) => number;
+  excludedImbalanceEffectCount?: number;
+}
+
 /**
- * 计算 RDPS 归因摘要。
- * @param inputs - resolveDamageReportContext 的输出。
- * @param options - policyVersion、contextFingerprint（coalition cache key 组成）与来源解析诊断。
- * @returns 归因摘要（三误差独立输出）。
+ * 对已经解析来源、且能执行来源开关反事实计算的任意前端上下文计算 RDPS。
+ * 桌面与移动端共用这一数学入口；各端只负责提供自己的输入阶段评估器。
  */
-export function computeRdpsAttribution(
-  inputs: readonly ResolvedButtonInputs[],
-  options: {
-    policyVersion?: string;
-    contextFingerprint?: string;
-    resolutionDiagnostics?: Partial<RdpsDiagnostics>;
-    characterNameById?: ReadonlyMap<string, string>;
-    teamCharacterIds?: readonly string[];
-  } = {},
+export function computeRdpsAttributionFromApplications(
+  evaluation: RdpsAttributionEvaluationInput,
+  options: RdpsAttributionOptions = {},
 ): RdpsAttributionSummary {
   const policyVersion = options.policyVersion ?? RDPS_POLICY_VERSION;
-  const contextFingerprint = options.contextFingerprint ?? `${inputs.length}-buttons`;
+  const contextFingerprint = options.contextFingerprint ?? `${evaluation.applications.length}-applications`;
   const teamCharacterIds = Array.from(new Set(
-    (options.teamCharacterIds ?? inputs.map((input) => input.runtimeButton.characterId)).filter(Boolean),
+    (options.teamCharacterIds ?? evaluation.applications.map((application) => application.characterId)).filter(Boolean),
   ));
   const teamCharacterIdSet = new Set(teamCharacterIds);
 
   // 1. 收集可归因来源与统计
-  const attributable = collectRdpsAttributableApplications(inputs);
   const statsByKey = new Map<RdpsSourceKey, SourceStat>();
   const nameByCharacterId = new Map<string, string>(options.characterNameById ?? []);
-  for (const input of inputs) {
-    if (input.button.characterName && !nameByCharacterId.has(input.runtimeButton.characterId)) {
-      nameByCharacterId.set(input.runtimeButton.characterId, input.button.characterName);
-    }
-  }
-  for (const application of attributable) {
+  for (const application of evaluation.applications) {
     const { sourceKey, characterId, domain, sourceAssetName } = application;
     const existing = statsByKey.get(sourceKey);
     if (existing) {
@@ -285,10 +286,7 @@ export function computeRdpsAttribution(
     if (cached !== undefined) return cached;
     coalitionEvaluationCount += 1;
     const enabled = decodeMask(mask, groups);
-    const result = evaluateDamageReportContext(inputs, {
-      enabledSourceKeys: enabled,
-      imbalanceEnabled: false,
-    }).totalExpected;
+    const result = evaluation.evaluateTotal(enabled);
     cache.set(cacheKey, result);
     return result;
   };
@@ -298,7 +296,7 @@ export function computeRdpsAttribution(
   const noneMask = encodeMask(groups.map(() => 0));
 
   // 4. 基线与归因世界
-  const actualTotal = evaluateDamageReportContext(inputs, undefined).totalExpected;
+  const actualTotal = evaluation.actualTotal;
   const attributionWorldTotal = evaluateMask(allMask);
   const baselineTotal = evaluateMask(noneMask);
 
@@ -322,10 +320,7 @@ export function computeRdpsAttribution(
         .filter((stat) => stat.characterName === stat.characterId)
         .map((stat) => stat.characterId),
     ).size,
-    excludedImbalanceEffectCount: inputs.reduce((count, input) => (
-      count + buildDerived(input.anomalyStatuses, input.button.skillType)
-        .filter((buff) => buff.type === 'imbalanceDmgBonus').length
-    ), 0),
+    excludedImbalanceEffectCount: evaluation.excludedImbalanceEffectCount ?? 0,
     negativeContributionCount: 0,
     coalitionEvaluationCount,
   };
@@ -403,6 +398,42 @@ export function computeRdpsAttribution(
     characters,
     diagnostics,
   };
+}
+
+/**
+ * 计算桌面伤害报表上下文的 RDPS 归因摘要。
+ * @param inputs - resolveDamageReportContext 的输出。
+ * @param options - policyVersion、contextFingerprint（coalition cache key 组成）与来源解析诊断。
+ */
+export function computeRdpsAttribution(
+  inputs: readonly ResolvedButtonInputs[],
+  options: RdpsAttributionOptions = {},
+): RdpsAttributionSummary {
+  const nameByCharacterId = new Map<string, string>(options.characterNameById ?? []);
+  for (const input of inputs) {
+    if (input.button.characterName && !nameByCharacterId.has(input.runtimeButton.characterId)) {
+      nameByCharacterId.set(input.runtimeButton.characterId, input.button.characterName);
+    }
+  }
+  const teamCharacterIds = options.teamCharacterIds
+    ?? inputs.map((input) => input.runtimeButton.characterId).filter(Boolean);
+  return computeRdpsAttributionFromApplications({
+    applications: collectRdpsAttributableApplications(inputs),
+    actualTotal: evaluateDamageReportContext(inputs, undefined).totalExpected,
+    evaluateTotal: (enabledSourceKeys) => evaluateDamageReportContext(inputs, {
+      enabledSourceKeys,
+      imbalanceEnabled: false,
+    }).totalExpected,
+    excludedImbalanceEffectCount: inputs.reduce((count, input) => (
+      count + buildDerived(input.anomalyStatuses, input.button.skillType)
+        .filter((buff) => buff.type === 'imbalanceDmgBonus').length
+    ), 0),
+  }, {
+    ...options,
+    characterNameById: nameByCharacterId,
+    teamCharacterIds,
+    contextFingerprint: options.contextFingerprint ?? `${inputs.length}-buttons`,
+  });
 }
 
 /** 将"启用的来源 key 集合"编码为掩码（未列出的来源关闭）。 */

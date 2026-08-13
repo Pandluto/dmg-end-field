@@ -1,6 +1,7 @@
 import type { ConfigSnapshot } from '../core/calculators/operatorPanelCalculator';
 import type { SkillDamageCalcResultV2 } from '../core/calculators/skillDamage.types';
 import type { EquipmentLibrary } from '../core/services/operatorEquipmentLibrary';
+import type { RdpsAttributionSummary } from '../core/services/rdpsAttribution.types';
 import type { Character, SkillType } from '../types';
 import type {
   AnomalyStateSnapshot,
@@ -120,6 +121,7 @@ export interface MobileDamageReport {
   slotCount: number;
   byOperator: MobileDamageReportRow[];
   bySkill: MobileDamageReportRow[];
+  rdps?: RdpsAttributionSummary;
 }
 
 export interface MobileRuntimeState {
