@@ -948,14 +948,6 @@
   fill: currentColor;
 }
 
-.rdps-overview-series.is-attributed {
-  color: rgba(31, 90, 200, 0.82);
-}
-
-.rdps-overview-series.is-residual {
-  color: #c8cbd1;
-}
-
 .rdps-overview-pie .rdps-overview-series {
   stroke: #ffffff;
   stroke-width: 1.4;

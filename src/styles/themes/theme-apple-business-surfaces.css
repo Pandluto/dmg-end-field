@@ -3842,8 +3842,6 @@
 :root[data-theme="apple-midnight"] :is(.rdps-overview-panel h3 span, .rdps-overview-legend-row em, .rdps-overview-legend-row small) { color: var(--theme-text-muted); }
 :root[data-theme="apple-midnight"] .rdps-overview-pie-panel { border-right-color: var(--theme-line-regular); }
 :root[data-theme="apple-midnight"] .rdps-overview-total { color: var(--theme-text-title); border-top-color: var(--theme-line-regular); }
-:root[data-theme="apple-midnight"] .rdps-overview-series.is-attributed { color: var(--theme-accent, rgba(10, 132, 255, 0.86)); }
-:root[data-theme="apple-midnight"] .rdps-overview-series.is-residual { color: var(--theme-line-strong); }
 :root[data-theme="apple-midnight"] .rdps-overview-pie .rdps-overview-series { stroke: var(--theme-surface-regular); }
 :root[data-theme="apple-midnight"] .rdps-overview-axis { stroke: var(--theme-line-regular); }
 :root[data-theme="apple-midnight"] .rdps-overview-bar { fill: var(--theme-accent, rgba(10, 132, 255, 0.82)); }

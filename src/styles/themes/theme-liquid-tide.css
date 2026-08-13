@@ -3312,8 +3312,6 @@
 :root[data-theme="liquid-tide"] :is(.rdps-overview-panel h3 span, .rdps-overview-legend-row em, .rdps-overview-legend-row small) { color: var(--liquid-tide-ink-soft, rgba(31, 41, 55, 0.56)); }
 :root[data-theme="liquid-tide"] .rdps-overview-pie-panel { border-right-color: rgba(31, 41, 55, 0.16); }
 :root[data-theme="liquid-tide"] .rdps-overview-total { border-top-color: rgba(31, 41, 55, 0.16); }
-:root[data-theme="liquid-tide"] .rdps-overview-series.is-attributed { color: rgba(60, 110, 220, 0.84); }
-:root[data-theme="liquid-tide"] .rdps-overview-series.is-residual { color: rgba(31, 41, 55, 0.18); }
 :root[data-theme="liquid-tide"] .rdps-overview-pie .rdps-overview-series { stroke: rgba(248, 251, 255, 0.86); }
 :root[data-theme="liquid-tide"] .rdps-overview-axis { stroke: rgba(31, 41, 55, 0.2); }
 :root[data-theme="liquid-tide"] .rdps-overview-bar { fill: rgba(60, 110, 220, 0.82); }

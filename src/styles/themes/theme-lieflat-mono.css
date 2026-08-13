@@ -1523,8 +1523,6 @@
 :root[data-theme="lieflat-mono"] :is(.rdps-overview-panel h3, .rdps-overview-legend, .rdps-overview-total, .rdps-overview-pie-fallback) { color: var(--ink-body); }
 :root[data-theme="lieflat-mono"] :is(.rdps-overview-panel h3 span, .rdps-overview-legend-row em, .rdps-overview-legend-row small) { color: var(--ink-muted); }
 :root[data-theme="lieflat-mono"] .rdps-overview-total { border-top-color: var(--ink-outline-soft); }
-:root[data-theme="lieflat-mono"] .rdps-overview-series.is-attributed { color: var(--ink-seal); }
-:root[data-theme="lieflat-mono"] .rdps-overview-series.is-residual { color: var(--ink-outline-soft); }
 :root[data-theme="lieflat-mono"] .rdps-overview-pie .rdps-overview-series { stroke: var(--ink-paper-deep); }
 :root[data-theme="lieflat-mono"] .rdps-overview-axis { stroke: var(--ink-outline-soft); }
 :root[data-theme="lieflat-mono"] .rdps-overview-bar { fill: var(--ink-charcoal); }
