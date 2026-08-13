@@ -69,7 +69,9 @@ function decodeMask(mask: string, groups: readonly OwenGroup[]): Set<RdpsSourceK
     const bits = mask.slice(index * 3, index * 3 + 3);
     const group = groups[index];
     if (group.singleDomain) {
-      if (bits === '001') enabled.add(group.leaves[0]);
+      if (parseInt(bits, 2) !== 0) {
+        for (const leaf of group.leaves) enabled.add(leaf);
+      }
       continue;
     }
     const bitValue = parseInt(bits, 2);
@@ -111,28 +113,39 @@ export function computeOwenValues(
       ? [group.leaves]
       : permutations(group.leaves)
   ));
-  const denominator = groupPermutations.length * (innerPermutationsByGroup[0]?.length ?? 1);
+  // 每组用自己的内层排列数归一化（不同组叶子数量可以不同）。
+  const denominatorByGroup = groups.map(
+    (_, groupIndex) => groupPermutations.length * (innerPermutationsByGroup[groupIndex]?.length ?? 1),
+  );
 
   for (const outerPerm of groupPermutations) {
     const beforeOuter = new Set<RdpsSourceKey>();
     for (const groupIndex of outerPerm) {
       const group = groups[groupIndex];
+      const denominator = denominatorByGroup[groupIndex];
       const innerPerms = innerPermutationsByGroup[groupIndex];
       for (const innerPerm of innerPerms) {
         const beforeInner = new Set(beforeOuter);
+        if (group.singleDomain) {
+          // 聚合单元（队伍外虚拟来源）：全部底层叶子一次性加入，单元边际组内等分。
+          const vBefore = valueOfMask(maskOfSet(beforeInner, groups));
+          const vWith = valueOfMask(maskOfSet(new Set([...beforeInner, ...innerPerm]), groups));
+          const marginal = vWith - vBefore;
+          for (const leaf of innerPerm) {
+            contributionByKey.set(leaf, (contributionByKey.get(leaf) ?? 0) + marginal / innerPerm.length / denominator);
+          }
+          continue;
+        }
         for (const leaf of innerPerm) {
           const vBefore = valueOfMask(maskOfSet(beforeInner, groups));
           const vWith = valueOfMask(maskOfSet(new Set([...beforeInner, leaf]), groups));
           const marginal = vWith - vBefore;
-          contributionByKey.set(leaf, (contributionByKey.get(leaf) ?? 0) + marginal);
+          contributionByKey.set(leaf, (contributionByKey.get(leaf) ?? 0) + marginal / denominator);
           beforeInner.add(leaf);
         }
       }
       for (const leaf of group.leaves) beforeOuter.add(leaf);
     }
-  }
-  for (const key of contributionByKey.keys()) {
-    contributionByKey.set(key, (contributionByKey.get(key) ?? 0) / denominator);
   }
   return contributionByKey;
 }
@@ -149,13 +162,19 @@ interface SourceStat {
 /**
  * 计算 RDPS 归因摘要。
  * @param inputs - resolveDamageReportContext 的输出。
- * @returns 归因摘要（actualTotal 严格对账）。
+ * @param options - policyVersion、contextFingerprint（coalition cache key 组成）与来源解析诊断。
+ * @returns 归因摘要（三误差独立输出）。
  */
 export function computeRdpsAttribution(
   inputs: readonly ResolvedButtonInputs[],
-  options: { policyVersion?: string } = {},
+  options: {
+    policyVersion?: string;
+    contextFingerprint?: string;
+    resolutionDiagnostics?: Partial<RdpsDiagnostics>;
+  } = {},
 ): RdpsAttributionSummary {
   const policyVersion = options.policyVersion ?? RDPS_POLICY_VERSION;
+  const contextFingerprint = options.contextFingerprint ?? `${inputs.length}-buttons`;
   const teamCharacterIds = Array.from(new Set(
     inputs.map((input) => input.runtimeButton.characterId).filter(Boolean),
   ));
@@ -216,7 +235,7 @@ export function computeRdpsAttribution(
   const cache = new Map<string, number>();
   let coalitionEvaluationCount = 0;
   const evaluateMask = (mask: string): number => {
-    const cacheKey = buildCoalitionCacheKey(policyVersion, inputs.length === 0 ? 'empty' : `${inputs.length}-buttons`, mask);
+    const cacheKey = buildCoalitionCacheKey(policyVersion, contextFingerprint, mask);
     const cached = cache.get(cacheKey);
     if (cached !== undefined) return cached;
     coalitionEvaluationCount += 1;
@@ -241,11 +260,15 @@ export function computeRdpsAttribution(
 
   // 6. 组装结果
   const diagnostics: RdpsDiagnostics = {
-    unknownOwnerCount: attributable.length - statsByKey.size,
-    outOfTeamSourceCount: outGroupLeaves.length,
-    excludedImbalanceCount: attributable.filter((buff) => buff.type === 'imbalanceDmgBonus').length,
+    resolvedExplicitDefinitionCount: options.resolutionDiagnostics?.resolvedExplicitDefinitionCount ?? 0,
+    resolvedLegacyDefinitionCount: options.resolutionDiagnostics?.resolvedLegacyDefinitionCount ?? 0,
+    unresolvedDefinitionCount: options.resolutionDiagnostics?.unresolvedDefinitionCount ?? 0,
+    ambiguousDefinitionCount: options.resolutionDiagnostics?.ambiguousDefinitionCount ?? 0,
+    unresolvedApplicationCount: options.resolutionDiagnostics?.unresolvedApplicationCount ?? 0,
+    outOfTeamCharacterCount: options.resolutionDiagnostics?.outOfTeamCharacterCount ?? outGroupLeaves.length,
+    unresolvedDisplayNameCount: options.resolutionDiagnostics?.unresolvedDisplayNameCount ?? 0,
+    excludedImbalanceEffectCount: attributable.filter((buff) => buff.type === 'imbalanceDmgBonus').length,
     negativeContributionCount: 0,
-    skippedHitCount: 0,
     coalitionEvaluationCount,
   };
 
@@ -296,7 +319,17 @@ export function computeRdpsAttribution(
 
   const attributedTotal = sources.reduce((sum, item) => sum + item.damage, 0);
   const residualTotal = actualTotal - attributedTotal;
-  const reconciliationError = Math.abs(actualTotal - attributedTotal - residualTotal);
+  const accountingError = Math.abs(actualTotal - attributedTotal - residualTotal);
+  const owenEfficiencyError = Math.abs(attributedTotal - (attributionWorldTotal - baselineTotal));
+  const teamSourceSum = sources
+    .filter((item) => item.characterId !== undefined && teamCharacterIds.includes(item.characterId))
+    .reduce((sum, item) => sum + item.damage, 0);
+  const hierarchyError = Math.abs(
+    characters.reduce(
+      (sum, character) => sum + character.domains.reduce((inner, domain) => inner + domain.damage, 0),
+      0,
+    ) - teamSourceSum,
+  );
 
   return {
     policyVersion,
@@ -305,7 +338,9 @@ export function computeRdpsAttribution(
     baselineTotal,
     attributedTotal,
     residualTotal,
-    reconciliationError,
+    accountingError,
+    owenEfficiencyError,
+    hierarchyError,
     sources,
     characters,
     diagnostics,

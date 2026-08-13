@@ -1,7 +1,7 @@
 /**
- * RDPS 归因图表组件：图 3 RD 总表与图 4 四干员域拆分。
- * 使用语义 class（is-rdps-table / is-rdps-character-split），不依赖图卡
- * 的 child 顺序表达语义；负值保留符号，不伪造 100% 正向占比。
+ * RDPS 归因图表组件（v2）：图 3 RD 总表与图 4 四干员域拆分。
+ * 使用语义 class；域显示中文；独立展示 Owen 效率误差、层级误差与总账误差；
+ * legacy-resolved 不显示为缺失来源；负值保留符号。
  */
 
 import type {
@@ -27,6 +27,17 @@ function formatSignedPercent(value: number): string {
   return `${value >= 0 ? '+' : ''}${formatPercent(value)}`;
 }
 
+function domainLabel(domain: 'operator' | 'weapon' | 'equipment'): string {
+  if (domain === 'operator') return '干员本体';
+  if (domain === 'weapon') return '武器';
+  return '装备';
+}
+
+function isOwenSound(summary: RdpsAttributionSummary): boolean {
+  const threshold = 1e-6 * Math.max(1, Math.abs(summary.attributionWorldTotal - summary.baselineTotal));
+  return summary.owenEfficiencyError <= threshold;
+}
+
 /** 图 3：RD 总表。 */
 export function RdpsTableChart({ summary }: { summary: RdpsAttributionSummary | undefined }) {
   if (!summary) {
@@ -35,10 +46,14 @@ export function RdpsTableChart({ summary }: { summary: RdpsAttributionSummary | 
   const rows = [...summary.sources].sort((left, right) => Math.abs(right.damage) - Math.abs(left.damage));
   const diagnostics = summary.diagnostics;
   const warnings: string[] = [];
-  if (diagnostics.unknownOwnerCount > 0) warnings.push(`${diagnostics.unknownOwnerCount} 个 Buff 缺少来源，已计入自身/其他`);
-  if (diagnostics.outOfTeamSourceCount > 0) warnings.push(`${diagnostics.outOfTeamSourceCount} 个队伍外来源（仅图 3 对账）`);
-  if (diagnostics.excludedImbalanceCount > 0) warnings.push(`${diagnostics.excludedImbalanceCount} 个失衡效果已严格排除`);
+  if (diagnostics.unresolvedDefinitionCount > 0 || diagnostics.unresolvedApplicationCount > 0) {
+    warnings.push(`${diagnostics.unresolvedDefinitionCount} 个来源无法解析（${diagnostics.unresolvedApplicationCount} 处应用），已计入自身/其他`);
+  }
+  if (diagnostics.ambiguousDefinitionCount > 0) warnings.push(`${diagnostics.ambiguousDefinitionCount} 个来源存在歧义，已计入自身/其他`);
+  if (diagnostics.outOfTeamCharacterCount > 0) warnings.push(`${diagnostics.outOfTeamCharacterCount} 个队伍外来源（仅图 3 对账）`);
+  if (diagnostics.excludedImbalanceEffectCount > 0) warnings.push(`${diagnostics.excludedImbalanceEffectCount} 个失衡效果已严格排除`);
   if (diagnostics.negativeContributionCount > 0) warnings.push(`${diagnostics.negativeContributionCount} 个负贡献来源（保留符号）`);
+  if (diagnostics.unresolvedDisplayNameCount > 0) warnings.push(`${diagnostics.unresolvedDisplayNameCount} 个干员显示名未解析`);
 
   return (
     <div className="is-rdps-table">
@@ -46,9 +61,6 @@ export function RdpsTableChart({ summary }: { summary: RdpsAttributionSummary | 
         <span>总损伤 <strong>{formatInteger(summary.actualTotal)}</strong></span>
         <span>来源合计 <strong>{formatInteger(summary.attributedTotal)}</strong></span>
         <span>自身/其他 <strong>{formatInteger(summary.residualTotal)}</strong></span>
-        <span className={summary.reconciliationError > 1e-6 * Math.max(1, Math.abs(summary.actualTotal))
-          ? 'rdps-warn'
-          : ''}>对账误差 <strong>{formatInteger(summary.reconciliationError)}</strong></span>
       </div>
       <table className="rdps-table">
         <thead>
@@ -63,7 +75,7 @@ export function RdpsTableChart({ summary }: { summary: RdpsAttributionSummary | 
           {rows.map((row) => (
             <tr key={row.key} className={row.negative ? 'rdps-negative' : undefined}>
               <td>{row.label}</td>
-              <td>{row.domain ?? '—'}</td>
+              <td>{row.domain ? domainLabel(row.domain) : '—'}</td>
               <td className="rdps-num">{formatInteger(row.damage)}</td>
               <td className="rdps-num">{formatSignedPercent(row.shareOfActual)}</td>
             </tr>
@@ -76,6 +88,11 @@ export function RdpsTableChart({ summary }: { summary: RdpsAttributionSummary | 
           </tr>
         </tbody>
       </table>
+      <div className="rdps-error-row">
+        <span>Owen 效率误差 <strong className={isOwenSound(summary) ? '' : 'rdps-error-strong'}>{formatInteger(summary.owenEfficiencyError)}</strong></span>
+        <span>层级误差 <strong>{formatInteger(summary.hierarchyError)}</strong></span>
+        <span>总账误差 <strong>{formatInteger(summary.accountingError)}</strong></span>
+      </div>
       {warnings.length > 0 && (
         <div className="rdps-diagnostics">
           {warnings.map((warning) => <div key={warning}>⚠ {warning}</div>)}
@@ -131,12 +148,6 @@ function CharacterDomainCard({ character }: { character: RdpsCharacterContributi
   );
 }
 
-function domainLabel(domain: 'operator' | 'weapon' | 'equipment'): string {
-  if (domain === 'operator') return '干员本体';
-  if (domain === 'weapon') return '武器';
-  return '装备';
-}
-
 /** 图 4：四干员域拆分。 */
 export function RdpsCharacterSplitChart({ summary }: { summary: RdpsAttributionSummary | undefined }) {
   if (!summary) {
@@ -153,7 +164,7 @@ export function RdpsCharacterSplitChart({ summary }: { summary: RdpsAttributionS
           <CharacterDomainCard key={character.characterId} character={character} />
         ))}
       </div>
-      {summary.diagnostics.outOfTeamSourceCount > 0 && (
+      {summary.diagnostics.outOfTeamCharacterCount > 0 && (
         <div className="rdps-warn">队伍外来源已计入图 3 对账，未显示在本图</div>
       )}
     </div>

@@ -3,6 +3,17 @@ import type { DamageBonusSnapshot, PersistedAnomalyCard, PersistedSkillButton, S
 import type { DamageReportSourceFilter, RdpsAttributionSummary } from './rdpsAttribution.types';
 import { buildRdpsSourceKey } from './rdpsAttribution.types';
 import { computeRdpsAttribution } from './rdpsContributionService';
+import { getSelectedCharacterIds } from '../../utils/storage';
+import { getCandidateBuffList } from '../repositories/candidateBuffRepository';
+import { getOperatorConfigPageCache } from '../repositories/operatorConfigRepository';
+import {
+  buffApplicationKeyOf,
+  buildRdpsResolutionContext,
+  sourceKeyFromSidecar,
+  type RdpsResolutionContext,
+} from './rdpsSourceResolutionContext';
+import type { RdpsSourceSidecar } from './rdpsSourceResolution.types';
+import type { AnomalyStateSnapshot } from '../../types/storage';
 import { getCharacterComputed, getCharacterConfig, getCharacterInput, getRuntimeOperatorTemplateById } from '../../utils/storage';
 import { getBuffById, getSkillButtonById, loadTimelineData } from '../repositories';
 import { resolveSkillDamageTemplate } from './skillDamageTemplateResolver';
@@ -917,12 +928,15 @@ export interface ResolvedButtonInputs {
   anomalyStateSnapshots: ReturnType<typeof getAnomalyStateSnapshotsByIds>;
   /** buff.id → 展示用 traceId（resolve 阶段预计算，反事实循环不重解析）。 */
   traceIds: Map<string, string>;
+  /** RDPS 只读来源 sidecar（应用键 → 解析来源）。 */
+  resolvedSourceSidecar: RdpsSourceSidecar;
 }
 
 /** Resolve 阶段：读取并固化一个按钮的全部计算输入。 */
 function resolveButtonInputs(
   button: PersistedSkillButton,
-  orderIndex: number
+  orderIndex: number,
+  resolution?: RdpsResolutionContext
 ): ResolvedButtonInputs {
   const runtimeButton = buildRuntimeButton(button);
   const resolvedTemplate = resolveSkillDamageTemplate(runtimeButton);
@@ -976,6 +990,17 @@ function resolveButtonInputs(
     anomalyStatuses,
     anomalyStateSnapshots,
     traceIds,
+    resolvedSourceSidecar: resolution?.sidecar ?? newSidecar(),
+  };
+}
+
+/** 空 sidecar（未启用 RDPS 解析时的降级）。 */
+function newSidecar(): RdpsSourceSidecar {
+  const map = new Map<string, import('./rdpsSourceResolution.types').RdpsResolvedSource>();
+  return {
+    get: (key) => map.get(key),
+    set: (key, source) => { map.set(key, source); },
+    entries: () => map.entries(),
   };
 }
 
@@ -1001,22 +1026,37 @@ function evaluateButtonReportRow(
     anomalyStatuses,
     anomalyStateSnapshots,
     traceIds,
+    resolvedSourceSidecar,
   } = inputs;
-  const filteredAllBuffs = applySourceFilter(allBuffs, filter);
+  // 来源过滤消费只读 sidecar（v2）：普通 Buff 与异常派生 Buff 都按解析结果归属。
+  const sidecarFilter: DamageReportSourceFilter | undefined = filter
+    ? {
+        ...filter,
+        sourceKeyOf: (buff) => (
+          filter.sourceKeyOf?.(buff)
+          ?? sourceKeyFromSidecar(resolvedSourceSidecar, buffApplicationKeyOf(button.id, buff))
+          ?? defaultSourceKeyOf(buff)
+        ),
+      }
+    : undefined;
+  const filteredAllBuffs = applySourceFilter(allBuffs, sidecarFilter);
   const modifierBuffList = filteredAllBuffs.filter((buff) => isModifierBuff(buff) && !globallyDisabledBuffIds.has(buff.id));
   const stateDerivedBuffList = applySourceFilter(
     buildAnomalyStateDerivedBuffs(anomalyStatuses, button.skillType),
-    filter,
+    sidecarFilter,
   );
   const stateSnapshotBuffList = applySourceFilter(
     buildAnomalyStateSnapshotBuffs(anomalyStateSnapshots),
-    filter,
+    sidecarFilter,
   );
   const combinedModifierBuffList = [...modifierBuffList, ...stateDerivedBuffList, ...stateSnapshotBuffList];
   const extraHitBuffList = filteredAllBuffs
     .filter(isExtraHitBuff)
     .filter((buff) => !globallyDisabledBuffIds.has(buff.id));
 
+  const effectiveDamageBonus = filter?.imbalanceEnabled === false
+    ? { ...damageBonus, imbalanceDmgBonus: 0 }
+    : damageBonus;
   const normalHits = resolvedTemplate
     ? calculateSkillButtonDamageV2({
         buttonId: button.id,
@@ -1031,7 +1071,7 @@ function evaluateButtonReportRow(
         disabledBuffIdsByHitKey,
         disabledHitKeys,
         targetResistance: button.resistanceConfig?.targetResistance,
-        damageBonus,
+        damageBonus: effectiveDamageBonus,
       }).hits.map((hit, index) => ({
         id: `normal-${button.id}-${hit.hit.key}-${index}`,
         title: `${index + 1}段 · ${hit.hit.displayName}`,
@@ -1057,7 +1097,7 @@ function evaluateButtonReportRow(
 
   const anomalyHits = buildAnomalyReportHits(
     button,
-    damageBonus,
+    effectiveDamageBonus,
     panel,
     panelBase,
     disabledBuffIdsBySegmentKey,
@@ -1127,6 +1167,7 @@ function buildCharacterReportRow(characterId: string, fallbackName: string): Dam
 export function resolveDamageReportContext(options: DamageReportSnapshotOptions = {}): {
   inputs: ResolvedButtonInputs[];
   fingerprint: string;
+  resolution?: RdpsResolutionContext;
 } {
   const timelineData = loadTimelineData();
   if (!timelineData || !Array.isArray(timelineData.staffLines)) {
@@ -1150,33 +1191,90 @@ export function resolveDamageReportContext(options: DamageReportSnapshotOptions 
     }
     return (left.timelineButton.nodeIndex ?? 0) - (right.timelineButton.nodeIndex ?? 0);
   });
-  const inputs: ResolvedButtonInputs[] = [];
-  const orderedIds: string[] = [];
+
+  const persistedButtons: Array<{ persisted: PersistedSkillButton; orderIndex: number }> = [];
   sorted.forEach(({ timelineButton, staffIndex }, orderIndex) => {
     if (allowedButtonIds && !allowedButtonIds.has(timelineButton.id)) {
       return;
     }
-    const persisted = getSkillButtonById(timelineButton.id);
-    inputs.push(resolveButtonInputs(persisted ?? {
-      id: timelineButton.id,
-      characterId: timelineButton.characterId || timelineButton.characterName,
-      characterName: timelineButton.characterName,
-      skillType: timelineButton.skillType,
-      staffIndex,
-      nodeIndex: timelineButton.nodeIndex,
-      nodeNumber: timelineButton.nodeNumber,
-      position: timelineButton.position,
-      runtimeSkillId: timelineButton.runtimeSkillId,
-      skillDisplayName: timelineButton.skillDisplayName,
-      skillIconUrl: timelineButton.skillIconUrl,
-      customHits: timelineButton.customHits,
-      selectedBuff: [],
-      panelConfig: { selectedBuff: [] },
-      runtimeSnapshot: null,
-    }, orderIndex));
-    orderedIds.push(timelineButton.id);
+    persistedButtons.push({
+      persisted: getSkillButtonById(timelineButton.id) ?? {
+        id: timelineButton.id,
+        characterId: timelineButton.characterId || timelineButton.characterName,
+        characterName: timelineButton.characterName,
+        skillType: timelineButton.skillType,
+        staffIndex,
+        nodeIndex: timelineButton.nodeIndex,
+        nodeNumber: timelineButton.nodeNumber,
+        position: timelineButton.position,
+        runtimeSkillId: timelineButton.runtimeSkillId,
+        skillDisplayName: timelineButton.skillDisplayName,
+        skillIconUrl: timelineButton.skillIconUrl,
+        customHits: timelineButton.customHits,
+        selectedBuff: [],
+        panelConfig: { selectedBuff: [] },
+        runtimeSnapshot: null,
+      },
+      orderIndex,
+    });
   });
-  return { inputs, fingerprint: orderedIds.join('|') };
+
+  // ── RDPS 来源解析上下文（只读，本次计算内） ─────────────────────────────
+  const selectedCharacterIds = getSelectedCharacterIds();
+  const operatorConfigCache = getOperatorConfigPageCache() ?? {};
+  const candidateBuffList = getCandidateBuffList();
+  const allBuffIds = Array.from(new Set(
+    persistedButtons.flatMap(({ persisted }) => persisted.selectedBuff ?? []),
+  ));
+  const allBuffs = allBuffIds
+    .map((buffId) => getBuffById(buffId))
+    .filter((buff): buff is SkillButtonBuff => Boolean(buff));
+  const anomalySnapshotsByButton: Record<string, AnomalyStateSnapshot[]> = {};
+  const allAnomalySnapshots: AnomalyStateSnapshot[] = [];
+  for (const { persisted } of persistedButtons) {
+    const snapshots = getAnomalyStateSnapshotsByIds(persisted.anomalyConfig?.selectedStateSnapshotIds ?? []);
+    anomalySnapshotsByButton[persisted.id] = snapshots;
+    for (const snapshot of snapshots) {
+      if (!allAnomalySnapshots.some((existing) => existing.id === snapshot.id)) {
+        allAnomalySnapshots.push(snapshot);
+      }
+    }
+  }
+  const anomalyStatusesByButton: Record<string, PersistedAnomalyCard[]> = Object.fromEntries(
+    persistedButtons.map(({ persisted }) => [persisted.id, persisted.anomalyConfig?.selectedStatuses ?? []]),
+  );
+  const resolution = buildRdpsResolutionContext({
+    selectedCharacterIds,
+    staffLines: timelineData.staffLines,
+    buttons: persistedButtons.map(({ persisted }) => persisted),
+    operatorConfigCache: operatorConfigCache as never,
+    candidateBuffList: candidateBuffList as never,
+    anomalyStatusesByButton,
+    anomalySnapshotsByButton,
+    allAnomalySnapshots,
+    allBuffs,
+  });
+
+  const inputs = persistedButtons.map(({ persisted, orderIndex }) =>
+    resolveButtonInputs(persisted, orderIndex, resolution),
+  );
+  const fingerprint = buildContextFingerprint(inputs);
+  return { inputs, fingerprint, resolution };
+}
+
+/** 内容指纹：至少受按钮、Buff、层数、禁用项、异常与来源解析结果影响。 */
+function buildContextFingerprint(inputs: readonly ResolvedButtonInputs[]): string {
+  const parts = inputs.map((input) => {
+    const buffFingerprints = input.allBuffs.map((buff) => {
+      const key = buffApplicationKeyOf(input.button.id, buff);
+      const source = sourceKeyFromSidecar(input.resolvedSourceSidecar, key);
+      return `${buff.id}:${buff.name ?? ''}:${String(buff.value ?? '')}:${buff.category ?? ''}:${source ?? 'unresolved'}`;
+    }).join(',');
+    const anomalyFingerprints = input.anomalyStatuses.map((card) => `${card.id}:${card.key}:${String(card.sourceCharacterId ?? '')}`).join(',');
+    const snapshotFingerprints = input.anomalyStateSnapshots.map((snapshot) => `${snapshot.id}:${snapshot.key}:${String(snapshot.sourceCharacterId ?? '')}`).join(',');
+    return `${input.button.id}[${buffFingerprints}][${anomalyFingerprints}][${snapshotFingerprints}][${JSON.stringify(input.button.buffStackCounts ?? {})}][${JSON.stringify(input.button.panelConfig?.globallyDisabledBuffIds ?? [])}]`;
+  });
+  return parts.join('|');
 }
 
 /**
@@ -1215,7 +1313,8 @@ export function buildDamageReportSnapshot(options: DamageReportSnapshotOptions =
   }
 
   const allowedButtonIds = options.buttonIds ? new Set(options.buttonIds) : null;
-  const inputs = resolveDamageReportContext({ buttonIds: options.buttonIds }).inputs;
+  const context = resolveDamageReportContext({ buttonIds: options.buttonIds });
+  const inputs = context.inputs;
   const buttons: DamageReportButtonRow[] = [];
   for (const input of inputs) {
     if (allowedButtonIds && !allowedButtonIds.has(input.button.id)) {
@@ -1241,7 +1340,10 @@ export function buildDamageReportSnapshot(options: DamageReportSnapshotOptions =
   });
 
   const rdps = options.includeRdps === true
-    ? computeRdpsAttribution(inputs)
+    ? computeRdpsAttribution(inputs, {
+        contextFingerprint: context.fingerprint,
+        resolutionDiagnostics: context.resolution?.diagnostics,
+      })
     : undefined;
 
   return {

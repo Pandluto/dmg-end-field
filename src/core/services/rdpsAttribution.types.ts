@@ -48,16 +48,24 @@ export interface RdpsCharacterContribution {
 
 /** 归因诊断统计（图表不得依赖它计算，但可显示警告）。 */
 export interface RdpsDiagnostics {
-  /** 缺少稳定 owner 而进入 Residual 的 Buff 数量。 */
-  unknownOwnerCount: number;
-  /** 有效 owner 但不在当前四人报表队伍中的来源数量。 */
-  outOfTeamSourceCount: number;
-  /** 严格排除的失衡相关 Buff 数量。 */
-  excludedImbalanceCount: number;
+  /** 通过显式 owner 字段解析的来源定义数（唯一 Buff 定义/稳定 ID 计数）。 */
+  resolvedExplicitDefinitionCount: number;
+  /** 通过 legacy projection / 规范路径恢复的来源定义数。 */
+  resolvedLegacyDefinitionCount: number;
+  /** 所有确定性路径都失败的来源定义数。 */
+  unresolvedDefinitionCount: number;
+  /** 多个不同 owner 精确命中的来源定义数。 */
+  ambiguousDefinitionCount: number;
+  /** 按按钮/状态实际应用计数的未解析应用数（与 definition 计数不同单位）。 */
+  unresolvedApplicationCount: number;
+  /** 队伍外干员数量（有稳定 ID 但不在当前四人）。 */
+  outOfTeamCharacterCount: number;
+  /** 未能解析展示名而回退原始 ID 的计数。 */
+  unresolvedDisplayNameCount: number;
+  /** 严格排除的失衡效果数（Buff 与面板失衡加成）。 */
+  excludedImbalanceEffectCount: number;
   /** 负贡献来源数量。 */
   negativeContributionCount: number;
-  /** 无效或跳过的 Hit 数量。 */
-  skippedHitCount: number;
   /** coalition 评估次数（性能与缓存验收）。 */
   coalitionEvaluationCount: number;
 }
@@ -75,15 +83,19 @@ export interface RdpsAttributionSummary {
   attributedTotal: number;
   /** actualTotal - attributedTotal。 */
   residualTotal: number;
-  /** 对账误差：abs(actualTotal - attributedTotal - residualTotal)。 */
-  reconciliationError: number;
+  /** 总账误差：abs(actualTotal - attributedTotal - residualTotal)。 */
+  accountingError: number;
+  /** Owen 效率误差：abs(sum(source.damage) - (attributionWorldTotal - baselineTotal))。 */
+  owenEfficiencyError: number;
+  /** 层级求和误差：abs(sum(character.domain.damage) - sum(team source.damage))。 */
+  hierarchyError: number;
   sources: RdpsSourceContribution[];
   characters: RdpsCharacterContribution[];
   diagnostics: RdpsDiagnostics;
 }
 
 /** 归因策略版本。任何改变来源归属、失衡处理、静态面板口径或负值展示规则的修改都必须提升。 */
-export const RDPS_POLICY_VERSION = 'rdps-v1-owen-buff-only-strict-imbalance' as const;
+export const RDPS_POLICY_VERSION = 'rdps-v2-owen-runtime-provenance-strict-imbalance' as const;
 
 /**
  * 反事实来源过滤器：按来源 key 开关普通 Buff、异常状态 Buff、连击 Buff

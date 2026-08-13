@@ -937,6 +937,24 @@
   color: #9a6700;
 }
 
+.rdps-error-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.55);
+}
+
+.rdps-error-row strong {
+  margin-left: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rdps-error-row .rdps-error-strong {
+  color: #c0392b;
+}
+
 .rdps-warn {
   font-size: 11px;
   color: #9a6700;

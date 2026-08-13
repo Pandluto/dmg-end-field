@@ -2,7 +2,7 @@
 
 ## Status
 
-待实施。
+实现中：RDPS2-0 至 RDPS2-3 已完成（金样 fixture、解析合同、legacy/combo/anomaly resolver、角色目录、Owen 修正、resolve/evaluate 集成、parity 测试）；RDPS2-4 真实浏览器验收与 RDPS2-5 收口待执行。
 
 本轮只完成第二轮规格与任务拆分，代码尚未开始。第一轮“页面可渲染且 accountingError 为 0”的结果不视为验收通过。
 

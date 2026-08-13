@@ -1,5 +1,7 @@
 import {
   assertFullReconciliation,
+  assertHierarchy,
+  assertOwenEfficiency,
   assertReconciliation,
   assertSourcesSumToAttributed,
   buildEmptySummaryFixture,
@@ -56,6 +58,10 @@ assertFullReconciliation(buildEmptySummaryFixture());
 // 四人无队伍外的 fixture 还必须满足 characters 求和（图 4 数据合同）
 import { assertCharactersSumToAttributed } from './rdpsTestFixtures';
 assertCharactersSumToAttributed(buildFourCharacterSummaryFixture());
+// 独立三误差断言
+assertOwenEfficiency(buildFourCharacterSummaryFixture());
+assertHierarchy(buildFourCharacterSummaryFixture());
+assertHierarchy(buildNegativeAndOutOfTeamSummaryFixture());
 
 // 对账断言 helper：负例必须抛错
 let caught = false;

@@ -1,5 +1,5 @@
 import { computeOwenValues } from './rdpsContributionService';
-import { createTwoCharacterInteractionWorld } from './rdpsTestFixtures';
+import { createTwoCharacterInteractionWorld, createUnevenGroupWorld } from './rdpsTestFixtures';
 import { buildRdpsSourceKey } from './rdpsAttribution.types';
 
 function assertClose(actual: number, expected: number, message: string): void {
@@ -80,5 +80,62 @@ const singleGroup = [
 ];
 const singleResult = computeOwenValues(singleGroup, (mask) => (mask === '001' ? 7 : 0));
 assertClose(singleResult.get('out::operator') ?? 0, 7, 'single-domain group takes full value');
+
+// 不均匀组：A 3 叶 + B 1 叶（队伍外聚合形态），效率性质仍成立
+const uneven = createUnevenGroupWorld();
+const unevenGroups = [
+  { characterId: 'A', characterName: 'A', leaves: ['A1', 'A2', 'A3'], singleDomain: false },
+  { characterId: 'B', characterName: 'B', leaves: ['B1'], singleDomain: true },
+];
+const unevenValue = (mask: string): number => {
+  const enabled = new Set<string>();
+  unevenGroups.forEach((g, gi) => {
+    const bitValue = parseInt(mask.slice(gi * 3, gi * 3 + 3), 2);
+    if (g.singleDomain) {
+      if (bitValue !== 0) g.leaves.forEach((leaf) => enabled.add(leaf));
+      return;
+    }
+    g.leaves.forEach((leaf, li) => {
+      if (((bitValue >> li) & 1) === 1) enabled.add(leaf);
+    });
+  });
+  return uneven.valueOfCoalition(enabled);
+};
+const unevenResult = computeOwenValues(unevenGroups, unevenValue);
+const unevenTotal = [...unevenResult.values()].reduce((sum, value) => sum + value, 0);
+assertClose(unevenTotal, uneven.valueOfCoalition(new Set(['A1', 'A2', 'A3', 'B1'])), 'uneven groups keep Owen efficiency');
+// 对称性：A3（无交互）Owen = base(A3) = 2；B1（单叶组）Owen = base(B1) + 交互分配
+assertClose(unevenResult.get('A3') ?? 0, 2, 'A3 Owen = base only in uneven world');
+
+// 队伍外聚合：singleDomain 组开启时全部底层叶子进入评估
+const outGroup = [
+  { characterId: 'c1', characterName: 'C1', leaves: ['c1::operator'], singleDomain: false },
+  { characterId: 'out', characterName: '队伍外', leaves: ['out1::operator', 'out2::weapon'], singleDomain: true },
+];
+let outLeafCount = 0;
+const outValue = (mask: string): number => {
+  const enabled = new Set<string>();
+  outGroup.forEach((g, gi) => {
+    const bitValue = parseInt(mask.slice(gi * 3, gi * 3 + 3), 2);
+    if (g.singleDomain) {
+      if (bitValue !== 0) g.leaves.forEach((leaf) => enabled.add(leaf));
+      return;
+    }
+    g.leaves.forEach((leaf, li) => {
+      if (((bitValue >> li) & 1) === 1) enabled.add(leaf);
+    });
+  });
+  return enabled.size;
+};
+const outResult = computeOwenValues(outGroup, (mask) => {
+  outLeafCount += 1;
+  return outValue(mask);
+});
+// 效率：v(full) = 3 叶
+const outTotal = [...outResult.values()].reduce((sum, value) => sum + value, 0);
+assertClose(outTotal, 3, 'out-of-team aggregation enables all underlying leaves');
+assertClose(outResult.get('out1::operator') ?? 0, 1, 'out leaf 1 shares aggregate');
+assertClose(outResult.get('out2::weapon') ?? 0, 1, 'out leaf 2 shares aggregate');
+void outLeafCount;
 
 void worldKeyOf;

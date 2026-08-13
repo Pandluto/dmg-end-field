@@ -9,7 +9,7 @@ import type {
   RdpsDomainContribution,
   RdpsSourceContribution,
 } from './rdpsAttribution.types';
-import { buildRdpsSourceKey, parseRdpsSourceKey } from './rdpsAttribution.types';
+import { buildRdpsSourceKey, parseRdpsSourceKey, RDPS_POLICY_VERSION } from './rdpsAttribution.types';
 
 // ── 来源键 fixture ──────────────────────────────────────────────────────────
 
@@ -41,14 +41,10 @@ export const SOURCE_KEY_FIXTURE_CASES = [
 ];
 
 // ── Owen 数学 fixture ────────────────────────────────────────────────────────
-// 一个 2 角色 × 2 域的简化世界：角色 A 有域 A1/A2，角色 B 有域 B1/B2。
-// V(S) 由手工构造的加性+交互项组成，期望 Owen 值可解析计算。
 
 export interface OwenFixtureWorld {
   leafNames: string[];
-  /** 叶子 → 角色分组（角色名 → 叶子名列表）。 */
   characterGroups: Array<{ character: string; leaves: string[] }>;
-  /** coalition（叶子名字符串集合）→ 收益。 */
   valueOfCoalition(leaves: Set<string>): number;
 }
 
@@ -62,6 +58,25 @@ export function createTwoCharacterInteractionWorld(): OwenFixtureWorld {
     characterGroups: [
       { character: 'A', leaves: ['A1', 'A2'] },
       { character: 'B', leaves: ['B1', 'B2'] },
+    ],
+    valueOfCoalition(leavesSet: Set<string>): number {
+      let total = 0;
+      for (const leaf of leavesSet) total += base[leaf] ?? 0;
+      if (leavesSet.has(pair.a) && leavesSet.has(pair.b)) total += pair.value;
+      return total;
+    },
+  };
+}
+
+/** 不同组叶子数量不同的世界：A 组 3 叶、B 组 1 叶（队伍外聚合形态）。 */
+export function createUnevenGroupWorld(): OwenFixtureWorld {
+  const base: Record<string, number> = { A1: 10, A2: 4, A3: 2, B1: 6 };
+  const pair = { a: 'A1', b: 'B1', value: 12 };
+  return {
+    leafNames: ['A1', 'A2', 'A3', 'B1'],
+    characterGroups: [
+      { character: 'A', leaves: ['A1', 'A2', 'A3'] },
+      { character: 'B', leaves: ['B1'] },
     ],
     valueOfCoalition(leavesSet: Set<string>): number {
       let total = 0;
@@ -100,6 +115,20 @@ const characterContribution = (partial: RdpsCharacterContribution): RdpsCharacte
   domains: partial.domains,
 });
 
+const v2Diagnostics = (partial: Partial<RdpsAttributionSummary['diagnostics']> = {}): RdpsAttributionSummary['diagnostics'] => ({
+  resolvedExplicitDefinitionCount: 0,
+  resolvedLegacyDefinitionCount: 0,
+  unresolvedDefinitionCount: 0,
+  ambiguousDefinitionCount: 0,
+  unresolvedApplicationCount: 0,
+  outOfTeamCharacterCount: 0,
+  unresolvedDisplayNameCount: 0,
+  excludedImbalanceEffectCount: 0,
+  negativeContributionCount: 0,
+  coalitionEvaluationCount: 0,
+  ...partial,
+});
+
 /** 四人完整、正贡献为主的 summary。 */
 export function buildFourCharacterSummaryFixture(): RdpsAttributionSummary {
   const actualTotal = 1000;
@@ -118,13 +147,15 @@ export function buildFourCharacterSummaryFixture(): RdpsAttributionSummary {
   const attributedTotal = sources.reduce((sum, item) => sum + item.damage, 0);
   const residualTotal = actualTotal - attributedTotal;
   return {
-    policyVersion: 'rdps-v1-owen-buff-only-strict-imbalance',
+    policyVersion: RDPS_POLICY_VERSION,
     actualTotal,
-    attributionWorldTotal: actualTotal - residualTotal * 0.4,
-    baselineTotal: 400,
+    attributionWorldTotal: 870,
+    baselineTotal: 0,
     attributedTotal,
     residualTotal,
-    reconciliationError: 0,
+    accountingError: 0,
+    owenEfficiencyError: 0,
+    hierarchyError: 0,
     sources,
     characters: [
       characterContribution({ characterId: 'c1', characterName: '干员一', damage: 480, shareOfActual: 0.48, domains: [
@@ -146,14 +177,7 @@ export function buildFourCharacterSummaryFixture(): RdpsAttributionSummary {
         domainContribution({ domain: 'equipment', damage: 10, shareOfCharacter: 0.16666666666666666 }),
       ] }),
     ],
-    diagnostics: {
-      unknownOwnerCount: 0,
-      outOfTeamSourceCount: 0,
-      excludedImbalanceCount: 1,
-      negativeContributionCount: 0,
-      skippedHitCount: 0,
-      coalitionEvaluationCount: 256,
-    },
+    diagnostics: v2Diagnostics({ resolvedExplicitDefinitionCount: 10, excludedImbalanceEffectCount: 1, coalitionEvaluationCount: 256 }),
   };
 }
 
@@ -168,13 +192,15 @@ export function buildNegativeAndOutOfTeamSummaryFixture(): RdpsAttributionSummar
   const attributedTotal = sources.reduce((sum, item) => sum + item.damage, 0);
   const residualTotal = actualTotal - attributedTotal;
   return {
-    policyVersion: 'rdps-v1-owen-buff-only-strict-imbalance',
+    policyVersion: RDPS_POLICY_VERSION,
     actualTotal,
-    attributionWorldTotal: 700,
+    attributionWorldTotal: 680,
     baselineTotal: 350,
     attributedTotal,
     residualTotal,
-    reconciliationError: 0,
+    accountingError: 0,
+    owenEfficiencyError: 0,
+    hierarchyError: 0,
     sources,
     characters: [
       characterContribution({ characterId: 'c1', characterName: '干员一', damage: 230, shareOfActual: 0.2875, domains: [
@@ -182,37 +208,33 @@ export function buildNegativeAndOutOfTeamSummaryFixture(): RdpsAttributionSummar
         domainContribution({ domain: 'weapon', damage: -30, shareOfCharacter: -0.13043478260869565 }),
       ] }),
     ],
-    diagnostics: {
-      unknownOwnerCount: 2,
-      outOfTeamSourceCount: 1,
-      excludedImbalanceCount: 1,
+    diagnostics: v2Diagnostics({
+      resolvedExplicitDefinitionCount: 1,
+      unresolvedDefinitionCount: 2,
+      unresolvedApplicationCount: 2,
+      outOfTeamCharacterCount: 1,
+      excludedImbalanceEffectCount: 1,
       negativeContributionCount: 1,
-      skippedHitCount: 0,
       coalitionEvaluationCount: 32,
-    },
+    }),
   };
 }
 
 /** 空队伍（无干员）summary。 */
 export function buildEmptySummaryFixture(): RdpsAttributionSummary {
   return {
-    policyVersion: 'rdps-v1-owen-buff-only-strict-imbalance',
+    policyVersion: RDPS_POLICY_VERSION,
     actualTotal: 0,
     attributionWorldTotal: 0,
     baselineTotal: 0,
     attributedTotal: 0,
     residualTotal: 0,
-    reconciliationError: 0,
+    accountingError: 0,
+    owenEfficiencyError: 0,
+    hierarchyError: 0,
     sources: [],
     characters: [],
-    diagnostics: {
-      unknownOwnerCount: 0,
-      outOfTeamSourceCount: 0,
-      excludedImbalanceCount: 0,
-      negativeContributionCount: 0,
-      skippedHitCount: 0,
-      coalitionEvaluationCount: 0,
-    },
+    diagnostics: v2Diagnostics(),
   };
 }
 
@@ -220,7 +242,7 @@ export function buildEmptySummaryFixture(): RdpsAttributionSummary {
 
 export const RECONCILIATION_TOLERANCE = 1e-6;
 
-/** 断言 actualTotal = attributedTotal + residualTotal（规格误差内）。 */
+/** 断言 actualTotal = attributedTotal + residualTotal（总账误差在规格误差内）。 */
 export function assertReconciliation(summary: RdpsAttributionSummary, tolerance = RECONCILIATION_TOLERANCE): void {
   const actual = summary.actualTotal;
   const left = summary.attributedTotal + summary.residualTotal;
@@ -230,8 +252,40 @@ export function assertReconciliation(summary: RdpsAttributionSummary, tolerance 
       `reconciliation failed: actual=${actual} attributed+residual=${left} (allowed ${allowed})`,
     );
   }
-  if (Math.abs(summary.reconciliationError - Math.abs(actual - left)) > allowed) {
-    throw new Error('reconciliationError field does not match the actual residual gap');
+  if (Math.abs(summary.accountingError - Math.abs(actual - left)) > allowed) {
+    throw new Error('accountingError field does not match the actual residual gap');
+  }
+}
+
+/** 断言 Owen 效率误差：sum(source.damage) ≈ attributionWorldTotal - baselineTotal。 */
+export function assertOwenEfficiency(summary: RdpsAttributionSummary, tolerance = RECONCILIATION_TOLERANCE): void {
+  const sum = summary.sources.reduce((total, item) => total + item.damage, 0);
+  const world = summary.attributionWorldTotal - summary.baselineTotal;
+  const allowed = tolerance * Math.max(1, Math.abs(world));
+  if (Math.abs(sum - world) > allowed) {
+    throw new Error(
+      `owen efficiency failed: sum(sources)=${sum} worldDelta=${world} (allowed ${allowed})`,
+    );
+  }
+  if (Math.abs(summary.owenEfficiencyError - Math.abs(sum - world)) > allowed) {
+    throw new Error('owenEfficiencyError field does not match the computed gap');
+  }
+}
+
+/** 断言层级求和：characters 的域贡献之和 = 队伍来源贡献之和。 */
+export function assertHierarchy(summary: RdpsAttributionSummary, tolerance = RECONCILIATION_TOLERANCE): void {
+  const teamSourceSum = summary.sources
+    .filter((item) => item.characterId !== undefined && summary.characters.some((c) => c.characterId === item.characterId))
+    .reduce((total, item) => total + item.damage, 0);
+  const characterDomainSum = summary.characters.reduce(
+    (total, character) => total + character.domains.reduce((inner, domain) => inner + domain.damage, 0),
+    0,
+  );
+  const allowed = tolerance * Math.max(1, Math.abs(characterDomainSum));
+  if (Math.abs(characterDomainSum - teamSourceSum) > allowed) {
+    throw new Error(
+      `hierarchy failed: characters=${characterDomainSum} teamSources=${teamSourceSum} (allowed ${allowed})`,
+    );
   }
 }
 
@@ -259,7 +313,7 @@ export function assertDomainsSumToCharacter(summary: RdpsAttributionSummary, tol
   }
 }
 
-/** 断言干员贡献之和等于 attributedTotal（图 3 对账前提）。 */
+/** 断言干员贡献之和等于 attributedTotal（图 4 数据合同；仅适用于无队伍外 fixture）。 */
 export function assertCharactersSumToAttributed(summary: RdpsAttributionSummary, tolerance = RECONCILIATION_TOLERANCE): void {
   const sum = summary.characters.reduce((total, item) => total + item.damage, 0);
   const allowed = tolerance * Math.max(1, Math.abs(summary.attributedTotal));
@@ -270,31 +324,28 @@ export function assertCharactersSumToAttributed(summary: RdpsAttributionSummary,
   }
 }
 
-/**
- * 全套对账断言（图 3 / 图 4 数据合同）。
- * 注意：characters 只覆盖当前报表四人；队伍外来源与未知 owner 只出现在
- * sources / Residual，不要求 characters 求和等于 attributedTotal。
- */
+/** 全套对账断言（图 3 / 图 4 数据合同）。characters 只覆盖当前四人。 */
 export function assertFullReconciliation(summary: RdpsAttributionSummary): void {
   assertReconciliation(summary);
   assertSourcesSumToAttributed(summary);
   assertDomainsSumToCharacter(summary);
+  assertOwenEfficiency(summary);
 }
 
 // ── coalition cache key fixture ──────────────────────────────────────────────
 
 export const COALITION_CACHE_KEY_CASES = [
   {
-    policyVersion: 'rdps-v1-owen-buff-only-strict-imbalance',
+    policyVersion: RDPS_POLICY_VERSION,
     fingerprint: 'btn-1|btn-2',
     mask: '0b010101',
-    expected: 'rdps-v1-owen-buff-only-strict-imbalance|btn-1|btn-2|0b010101',
+    expected: `${RDPS_POLICY_VERSION}|btn-1|btn-2|0b010101`,
   },
   {
-    policyVersion: 'rdps-v1-owen-buff-only-strict-imbalance',
+    policyVersion: RDPS_POLICY_VERSION,
     fingerprint: 'empty',
     mask: '0b000000',
-    expected: 'rdps-v1-owen-buff-only-strict-imbalance|empty|0b000000',
+    expected: `${RDPS_POLICY_VERSION}|empty|0b000000`,
   },
 ];
 
