@@ -17,7 +17,7 @@
 | 装备 | `def.equipment-sheet.draft.v1` | `def.equipment-sheet.library.v1` |
 | 干员 | —（库即草稿集合） | `def.operator-editor.library.v1` |
 
-官方库四键即资源通道 `OFFICIAL_LIBRARY_KEYS`，资源打包只提取这四键。
+官方库四键即资源通道 `OFFICIAL_LIBRARY_KEYS`；资源打包提取这四键之外，还包含共享排轴（`timelineArchives`），见[服务器资源通道](./resource-delivery-channel/spec.md)。
 
 ## Repository 契约
 

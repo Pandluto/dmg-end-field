@@ -24,7 +24,10 @@
 
 ## 干员与配置
 
-- [Operator Studio](./operator-studio/spec1.md)
+- [Operator Studio](./operator-studio/spec1.md)（页面职责概述）
+- [Operator Studio Spec 2](./operator-studio/spec2.md)（干员自带 Buff 内联编辑）
+- [Operator Studio Spec 3](./operator-studio/spec3.md)（来源值派生 Buff）
+- [Operator Studio Spec 4](./operator-studio/spec4.md)（技能 ID 类型化命名与列表筛选）
 - [OperatorConfigPage 替换 Phase 1](./operator-config-page-replacement/spec.md)
 - [OperatorConfigPage 替换 Phase 2](./operator-config-page-replacement-phase2/spec.md)
 - [OperatorConfigPage 替换 Phase 3](./operator-config-page-replacement-phase3/spec.md)

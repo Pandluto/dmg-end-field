@@ -38,7 +38,7 @@ web-data-manifest.json  web-image-manifest.json  data/default-local-data.json
 - 只提取四个官方资料库：`def.operator-editor.library.v1`、`def.weapon-sheet.library.v1`、`def.equipment-sheet.library.v1`、`def.buff-editor.library.v1` 与共享排轴。
 - 干员 ≥ 30、武器 ≥ 75 才视为完整；缺库直接失败。
 - 图片路径归一化：支持 `assets/images/`、`images/`、直接根三种目录形态；旧 `assets/avatars/`、`user-images/`、`public/images/` 引用会被重映射或拒绝（废弃路径直接报错）。
-- 每个数据文件与每张图片计算 SHA-256；版本号由 Share Data 日期与内容根哈希确定性生成（`YYYYMMDD.HHmmss.<rootHash 前缀>` 形态，见 resourceReleasePackager）。
+- 每个数据文件与每张图片计算 SHA-256；版本号由 Share Data 导出日期与内容根哈希确定性生成，均为 `YYYYMMDD.<hash 前缀>` 形态（无时分秒）：`releaseVersion = <exportedAt 日期>.<rootSha256 前 12 位>`、`dataVersion = <日期>.<dataSha256 前 8 位>`、`imageVersion = <日期>.<imageIndexSha256 前 12 位>`（见 resourceReleasePackager）。
 - 产物：`dmg-resource-release-<version>.zip`（仅含 manifest、`data/default-local-data.json` 与完整图片 ZIP）。
 - 命令行入口：`npm run resource:build -- --share-data <json> --images <dir> --output <dir>`；构建后强制 `resource:verify` 自校验。浏览器入口：本地 `#/settings/resource-packager`。
 
