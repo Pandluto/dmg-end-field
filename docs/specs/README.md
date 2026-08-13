@@ -7,15 +7,20 @@
 - [Web 数据生命周期](../architecture/data-lifecycle.md)
 - [Timeline 数据生命周期](./timeline-data-lifecycle-phase5/spec.md)
 - [Timeline Worktree · Web 合同](./ai-timeline-worktree/spec.md)
+- [数据层持久化与分享边界](./data-persistence-share-boundary/spec.md)
 - [主界面](./main-workbench/spec.md)
 - [主界面下一阶段](./main-workbench-next-phase/spec.md)
 - [主界面 Buff 计层](./main-workbench-buff-countable-phase/spec.md)
 
-## 计算与导出
+## 计算
 
 - [Buff 计算链路重构](./buff-calculation-pipeline-refactor/spec.md)
 - [抗性区](./resistance-zone/spec.md)
-- [伤害 Excel 导出](./damage-excel-export/spec.md)
+
+## 资源与运行时
+
+- [服务器资源通道](./resource-delivery-channel/spec.md)
+- [Web 页面更新策略与缓存恢复](./web-page-update-recovery/spec.md)
 
 ## 干员与配置
 
@@ -23,6 +28,12 @@
 - [OperatorConfigPage 替换 Phase 1](./operator-config-page-replacement/spec.md)
 - [OperatorConfigPage 替换 Phase 2](./operator-config-page-replacement-phase2/spec.md)
 - [OperatorConfigPage 替换 Phase 3](./operator-config-page-replacement-phase3/spec.md)
+
+## 移动端
+
+- [手机版竖屏工作台 Spec](./mobile-portrait-workbench/spec.md)（首版产品定位）
+- [移动端工作台运行时合同](./mobile-portrait-workbench/mobile-workbench-runtime.md)（存档、报表、桌面适配）
+- [移动端 QR 战术分享与分享服务](./mobile-qr-share/spec.md)
 
 ## 装备、武器与 Buff 编辑
 
@@ -35,6 +46,10 @@
 ## 图片
 
 - [浏览器图片管理架构](./image-manager/architecture.md)
+
+## 已退役（历史存档）
+
+- [伤害 Excel 导出](./damage-excel-export/spec.md)：Damage Sheet、XLSX 导出与 ExcelJS 已整体退役，仅作历史设计证据，不参与验收。
 
 ## 目录内文件约定
 

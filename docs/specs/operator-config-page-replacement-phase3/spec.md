@@ -1,5 +1,11 @@
 # OperatorConfigPage 面板数据显示与计算逻辑 Phase 3 Spec
 
+## Status
+
+已实现（文中引用的旧 `src/components/CanvasBoard/components/OperatorConfigPanel.tsx` 已删除，相关规则已由独立计算服务承接）。
+
+> **现行状态说明（2026-08-14）：** 本 spec 描述的能力已按代码现状实现并保持有效；下文需求文字保留为历史设计记录。实现现状以代码与相关运行时合同为准，历史文字不得用于重新引入已退役行为。
+
 ## Why
 
 Phase 2 已让 `OperatorConfigPage` 接入主界面角色上下文、`operator-studio` 本地角色数据、武器数据、装备数据和技能详情数据。
