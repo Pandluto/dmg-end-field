@@ -19,6 +19,7 @@ import {
 import { getSelectedCharacterIds } from '../utils/storage';
 import type { Character, SkillButtonData, TimelineData } from '../types';
 import type { ConfigSnapshot } from '../core/calculators/operatorPanelCalculator';
+import { RdpsTableChart, RdpsCharacterSplitChart } from './DamageReportRdpsCharts';
 import {
   handleReportImageError,
   ReportLevelRows,
@@ -788,11 +789,13 @@ function ChartSlide({
             <h2>图 2 / 伤害过程时序</h2>
             <LineChart buttons={snapshot.buttons} />
           </article>
-          <article className="report-ppt-chart-card is-placeholder">
-            <h2>图 3</h2>
+          <article className="report-ppt-chart-card">
+            <h2>图 3 / RD 归因总表</h2>
+            <RdpsTableChart summary={snapshot.rdps} />
           </article>
-          <article className="report-ppt-chart-card is-placeholder">
-            <h2>图 4</h2>
+          <article className="report-ppt-chart-card">
+            <h2>图 4 / 干员来源域 RD 占比</h2>
+            <RdpsCharacterSplitChart summary={snapshot.rdps} />
           </article>
         </div>
       </div>
@@ -802,7 +805,7 @@ function ChartSlide({
 
 export function DamageReportPptPage() {
   const { state } = useAppContext();
-  const snapshot = useMemo(() => buildDamageReportSnapshot(), []);
+  const snapshot = useMemo(() => buildDamageReportSnapshot({ includeRdps: true }), []);
   const timelineData = useMemo(() => loadTimelineData(), []);
   const weaponLibrary = useMemo(() => loadReportWeaponLibrary(), []);
   const equipmentImages = useMemo(() => loadReportEquipmentImages(), []);

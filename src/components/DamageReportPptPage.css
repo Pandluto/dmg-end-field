@@ -868,6 +868,184 @@
   align-items: flex-start;
 }
 
+/* ── RDPS 图 3 / 图 4（语义 class，不依赖 child 顺序） ─────────────────────── */
+
+.rdps-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 80px;
+  color: rgba(0, 0, 0, 0.42);
+  font-size: 13px;
+}
+
+.rdps-table-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.rdps-table-summary strong {
+  margin-left: 4px;
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.rdps-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.rdps-table th {
+  text-align: left;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.55);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.18);
+  padding: 2px 6px;
+}
+
+.rdps-table td {
+  padding: 2px 6px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.rdps-table .rdps-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.rdps-table .rdps-negative td {
+  color: #c0392b;
+}
+
+.rdps-table .rdps-residual-row td {
+  border-top: 1px solid rgba(0, 0, 0, 0.25);
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.7);
+}
+
+.rdps-diagnostics {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #9a6700;
+}
+
+.rdps-warn {
+  font-size: 11px;
+  color: #9a6700;
+}
+
+.rdps-character-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  height: 100%;
+}
+
+.rdps-character-card {
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 8px;
+  padding: 8px 10px;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rdps-character-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.rdps-character-heading strong {
+  font-size: 13px;
+}
+
+.rdps-character-heading span {
+  color: rgba(0, 0, 0, 0.55);
+  font-variant-numeric: tabular-nums;
+}
+
+.rdps-domain-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-height: 0;
+}
+
+.rdps-domain-row {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) 52px 48px;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.rdps-domain-label {
+  color: rgba(0, 0, 0, 0.6);
+  white-space: nowrap;
+}
+
+.rdps-domain-bar-track {
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+.rdps-domain-bar {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: rgba(31, 90, 200, 0.75);
+}
+
+.rdps-domain-raw {
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.rdps-character-total {
+  margin-top: auto;
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.55);
+  text-align: right;
+}
+
+.rdps-signed-fallback {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.rdps-signed-fallback > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.rdps-signed-fallback .rdps-negative {
+  color: #c0392b;
+}
+
+.rdps-num {
+  font-variant-numeric: tabular-nums;
+}
+
+
 @media (max-width: 1180px) {
   .report-ppt-slide-inner {
     width: calc(100vw - 56px);

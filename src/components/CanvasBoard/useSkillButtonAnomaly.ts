@@ -42,11 +42,15 @@ function buildMockAnomalyCard(
   level: number,
   sourceName?: string,
   burnDamageMode: BurnDamageMode = 'initialOnly',
-  durationSeconds?: number
+  durationSeconds?: number,
+  sourceCharacterId?: string
 ): SelectedAnomalyCard {
   if (option.key === 'combo-state' || option.key === 'imbalance-state') {
     const comboSkillBonus = [30, 45, 60, 75][level - 1] ?? 30;
     const comboUltimateBonus = [20, 30, 40, 50][level - 1] ?? 20;
+    const comboSourceText = option.key === 'combo-state' && sourceName
+      ? ` · 来源 ${sourceName}`
+      : '';
     return {
       id: createAnomalyCardId(option.key),
       key: option.key,
@@ -54,7 +58,11 @@ function buildMockAnomalyCard(
       kind: option.kind,
       category: option.category,
       level,
-      primaryText: option.label,
+      sourceName: option.key === 'combo-state' ? sourceName : undefined,
+      sourceCharacterId: option.key === 'combo-state' ? sourceCharacterId : undefined,
+      primaryText: option.key === 'combo-state'
+        ? `${option.label} Lv${level}${comboSourceText}`
+        : option.label,
       secondaryText: option.key === 'combo-state'
         ? `战技 +${comboSkillBonus}% / 终结技 +${comboUltimateBonus}%`
         : '状态区 +30%',
@@ -453,13 +461,15 @@ export function useSkillButtonAnomaly({
 
   const handleApplyActiveAnomaly = useCallback(() => {
     if (!activeAnomaly) return;
-    const sourceName = sourceCharacters.find((character) => character.id === activeAnomalySourceId)?.name;
+    const activeSourceCharacter = sourceCharacters.find((character) => character.id === activeAnomalySourceId);
+    const sourceName = activeSourceCharacter?.name;
     const nextCard = buildMockAnomalyCard(
       activeAnomaly,
       activeAnomalyLevel,
       sourceName,
       burnDamageMode,
-      activeDurationSeconds
+      activeDurationSeconds,
+      activeAnomaly.supportsSource ? activeAnomalySourceId ?? undefined : undefined
     );
 
     if (activeAnomaly.kind === 'state') {

@@ -202,6 +202,7 @@ export function MobileBuffCatalogSheet({
   const [burnDamageMode, setBurnDamageMode] = useState<MobileBurnDamageMode>('dotOnly');
   const [activeStateKey, setActiveStateKey] = useState('combo-state');
   const [stateLevel, setStateLevel] = useState(1);
+  const [stateSourceId, setStateSourceId] = useState(action.operatorId || operators[0]?.id || '');
   const [activeAnomalyStateKey, setActiveAnomalyStateKey] = useState<MobileAnomalyStateOption['key']>('conductive');
   const [anomalyStateLevel, setAnomalyStateLevel] = useState(1);
   const [anomalyStateDuration, setAnomalyStateDuration] = useState(0);
@@ -251,6 +252,7 @@ export function MobileBuffCatalogSheet({
     const existing = (action.anomalyStatuses ?? []).find((card) => card.key === option.key);
     setActiveStateKey(option.key);
     setStateLevel(existing?.level ?? option.levelOptions[0] ?? 1);
+    if (existing?.sourceCharacterId) setStateSourceId(existing.sourceCharacterId);
   };
 
   const applyAnomaly = () => {
@@ -271,7 +273,17 @@ export function MobileBuffCatalogSheet({
   };
 
   const applyFixedState = () => {
-    const nextCard = buildMobileAnomalyCard({ option: activeFixedState, level: stateLevel });
+    const sourceCharacter = activeFixedState.key === 'combo-state'
+      ? operators.find((operator) => operator.id === stateSourceId)
+        ?? operators.find((operator) => operator.id === action.operatorId)
+        ?? operators[0]
+      : undefined;
+    const nextCard = buildMobileAnomalyCard({
+      option: activeFixedState,
+      level: stateLevel,
+      sourceCharacterId: sourceCharacter?.id,
+      sourceName: sourceCharacter?.name,
+    });
     onActionChange({
       ...action,
       anomalyStatuses: [
@@ -646,6 +658,23 @@ export function MobileBuffCatalogSheet({
             />
           </div>
         ) : <p className="mobile-buff-sheet-static-copy">失衡状态固定进入独立失衡区，当前效果为 +30%。</p>}
+        {activeFixedState.key === 'combo-state' ? (
+          <div className="mobile-buff-sheet-field">
+            <span>来源干员</span>
+            <div className="mobile-buff-sheet-source-operators">
+              {operators.map((operator) => (
+                <button
+                  key={operator.id}
+                  type="button"
+                  className={stateSourceId === operator.id ? 'is-active' : ''}
+                  onClick={() => setStateSourceId(operator.id)}
+                >
+                  <span><strong>{operator.name}</strong></span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
         <button type="button" className="mobile-buff-sheet-primary" onClick={applyFixedState}>
           {selectedStateKeys.has(activeFixedState.key) ? '更新状态区' : '启用状态区'}
         </button>

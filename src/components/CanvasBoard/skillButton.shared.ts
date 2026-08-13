@@ -33,6 +33,8 @@ export interface SelectedAnomalyCard {
   category: AnomalyCategory;
   level: number;
   sourceName?: string;
+  /** 施加干员 ID（RDPS 归因用）；连击等可归属状态写入。 */
+  sourceCharacterId?: string;
   includeDotInTotal?: boolean;
   burnDamageMode?: BurnDamageMode;
   durationSeconds?: number;
@@ -191,7 +193,7 @@ export const ANOMALY_STATE_OPTIONS: Array<{ key: 'conductive' | 'corrosion' | 'a
 ];
 
 export const FIXED_STATE_OPTIONS: AnomalyOption[] = [
-  { key: 'combo-state', label: '连击', kind: 'state', category: 'physical', supportsSource: false, levelOptions: [1, 2, 3, 4] },
+  { key: 'combo-state', label: '连击', kind: 'state', category: 'physical', supportsSource: true, levelOptions: [1, 2, 3, 4] },
   { key: 'imbalance-state', label: '失衡', kind: 'state', category: 'physical', supportsSource: false, usesAnomalyLevel: false, levelOptions: [1] },
 ];
 
@@ -203,6 +205,9 @@ export const ALL_ANOMALY_OPTIONS: AnomalyOption[] = [
 export function normalizePersistedAnomalyCard(card: PersistedAnomalyCard): SelectedAnomalyCard {
   return {
     ...card,
+    sourceCharacterId: typeof card.sourceCharacterId === 'string' && card.sourceCharacterId.trim()
+      ? card.sourceCharacterId
+      : undefined,
     selectedBuffIds: Array.isArray(card.selectedBuffIds) ? card.selectedBuffIds : [],
   };
 }

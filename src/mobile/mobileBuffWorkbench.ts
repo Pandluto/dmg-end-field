@@ -127,12 +127,15 @@ export function buildMobileAnomalyCard(input: {
   level: number;
   durationSeconds?: number;
   burnDamageMode?: MobileBurnDamageMode;
+  sourceCharacterId?: string;
+  sourceName?: string;
 }): PersistedAnomalyCard {
   const { option } = input;
   const level = option.usesAnomalyLevel === false ? 1 : Math.min(Math.max(Math.round(input.level), 1), 4);
   if (option.key === 'combo-state') {
     const skillBonus = [30, 45, 60, 75][level - 1] ?? 30;
     const ultimateBonus = [20, 30, 40, 50][level - 1] ?? 20;
+    const sourceText = input.sourceName ? ` · 来源 ${input.sourceName}` : '';
     return {
       id: createMobileId(option.key),
       key: option.key,
@@ -140,7 +143,11 @@ export function buildMobileAnomalyCard(input: {
       kind: 'state',
       category: option.category,
       level,
-      primaryText: `${option.label} ${level} 层`,
+      sourceName: input.sourceName,
+      sourceCharacterId: typeof input.sourceCharacterId === 'string' && input.sourceCharacterId.trim()
+        ? input.sourceCharacterId
+        : undefined,
+      primaryText: `${option.label} ${level} 层${sourceText}`,
       secondaryText: `战技 +${skillBonus}% / 终结技 +${ultimateBonus}%`,
       tertiaryText: '独立连击区',
       selectedBuffIds: [],

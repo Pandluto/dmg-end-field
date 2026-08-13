@@ -3836,3 +3836,13 @@
     backdrop-filter: none;
   }
 }
+
+/* ── RDPS 图 3 / 图 4（apple-midnight 等 apple 主题） ─────────────────────── */
+:root[data-theme="apple-midnight"] :is(.rdps-table-summary, .rdps-table, .rdps-empty, .rdps-diagnostics, .rdps-warn, .rdps-character-heading span, .rdps-domain-label, .rdps-domain-raw, .rdps-character-total) { color: var(--theme-text-body); }
+:root[data-theme="apple-midnight"] .rdps-table-summary strong, :root[data-theme="apple-midnight"] .rdps-character-heading strong { color: var(--theme-text-title); }
+:root[data-theme="apple-midnight"] .rdps-table th { color: var(--theme-text-title); border-bottom-color: var(--theme-line-regular); }
+:root[data-theme="apple-midnight"] .rdps-table td { border-bottom-color: var(--theme-line-regular); }
+:root[data-theme="apple-midnight"] .rdps-table .rdps-residual-row td { border-top-color: var(--theme-line-regular); }
+:root[data-theme="apple-midnight"] .rdps-character-card { border-color: var(--theme-line-regular); background: var(--theme-surface-regular); }
+:root[data-theme="apple-midnight"] .rdps-domain-bar-track { background: var(--theme-line-regular); }
+:root[data-theme="apple-midnight"] .rdps-domain-bar { background: var(--theme-accent, rgba(31, 90, 200, 0.75)); }

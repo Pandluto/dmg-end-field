@@ -2,7 +2,7 @@
 
 ## Status
 
-未实现。
+已实现（2026-08-15 依据 spec 完成 RDPS-0 至 RDPS-4 的主体实现；RDPS-5 的 E2E 与真实数据浏览器验收待环境就绪后执行）。
 
 本文件按“共享契约串行、消费端分包并行、最后统一集成”的方式拆分。标有 `[Sub-agent 可独立]` 的任务应当能够交给一个 sub agent 独立完成；任务完成后只提交该任务声明的文件范围，避免多个 agent 同时修改同一核心文件。
 
@@ -40,16 +40,16 @@ RDPS-2C 可以在 RDPS-1 完成后使用 mock `rdps` 数据并行开发，但必
 
 ## RDPS-0: 口径冻结（串行）
 
-- [ ] 确认 RDPS v1 的基准为 `totalExpected`，图 3 的占比分母为实际期望总伤害。
-- [ ] 确认武器/装备只归因其运行时实际生效的 Buff，不归因基础攻击和静态面板。
-- [ ] 确认来源键为 `ownerCharacterId + ownerBuffDomain`，展示名不参与分组。
-- [ ] 确认导电、腐蚀、碎甲快照归入施加者 `operator` 域。
-- [ ] 确认有来源 ID 的连击归入施加者 `operator` 域；无来源旧连击进入 Residual。
-- [ ] 确认失衡及其交互全部进入 Residual。
-- [ ] 确认队伍外有效 owner 在图 3显示为“队伍外来源”，图 4只显示当前四人。
-- [ ] 确认负贡献显示策略：保留数值和符号，必要时从环图切换为 signed table/bar 表达。
-- [ ] 确认 `policyVersion = rdps-v1-owen-buff-only-strict-imbalance` 并写入结果合同。
-- [ ] 确认若后续要求真正按秒的 DPS 归因，另开 spec，不在本阶段扩展时间模型。
+- [x] 确认 RDPS v1 的基准为 `totalExpected`，图 3 的占比分母为实际期望总伤害。
+- [x] 确认武器/装备只归因其运行时实际生效的 Buff，不归因基础攻击和静态面板。
+- [x] 确认来源键为 `ownerCharacterId + ownerBuffDomain`，展示名不参与分组。
+- [x] 确认导电、腐蚀、碎甲快照归入施加者 `operator` 域。
+- [x] 确认有来源 ID 的连击归入施加者 `operator` 域；无来源旧连击进入 Residual。
+- [x] 确认失衡及其交互全部进入 Residual。
+- [x] 确认队伍外有效 owner 在图 3显示为“队伍外来源”，图 4只显示当前四人。
+- [x] 确认负贡献显示策略：保留数值和符号，必要时从环图切换为 signed table/bar 表达。
+- [x] 确认 `policyVersion = rdps-v1-owen-buff-only-strict-imbalance` 并写入结果合同。
+- [x] 确认若后续要求真正按秒的 DPS 归因，另开 spec，不在本阶段扩展时间模型。
 
 ## RDPS-1: 共享类型与计算接口（串行前置）
 
