@@ -880,79 +880,197 @@
   font-size: 13px;
 }
 
-.rdps-table-summary {
+.is-rdps-overview {
+  height: calc(100% - 24px);
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+  gap: 12px;
+}
+
+.rdps-overview-panel {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.rdps-overview-pie-panel {
+  padding-right: 12px;
+  border-right: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.rdps-overview-panel h3 {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px 16px;
-  margin-bottom: 8px;
-  font-size: 12px;
-  color: rgba(0, 0, 0, 0.6);
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 6px;
+  color: rgba(0, 0, 0, 0.72);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
 }
 
-.rdps-table-summary strong {
-  margin-left: 4px;
-  font-size: 13px;
-  color: rgba(0, 0, 0, 0.85);
+.rdps-overview-panel h3 span {
+  color: rgba(0, 0, 0, 0.48);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
 }
 
-.rdps-table {
+.rdps-overview-pie-layout {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 104px;
+  align-items: center;
+  gap: 8px;
+}
+
+.rdps-overview-pie-stage {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+
+.rdps-overview-pie {
   width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-  line-height: 1.5;
+  height: 100%;
+  max-width: 148px;
+  max-height: 148px;
+  display: block;
+  overflow: visible;
 }
 
-.rdps-table th {
-  text-align: left;
-  font-weight: 600;
-  color: rgba(0, 0, 0, 0.55);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.18);
-  padding: 2px 6px;
+.rdps-overview-series {
+  fill: currentColor;
 }
 
-.rdps-table td {
-  padding: 2px 6px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+.rdps-overview-series.is-attributed {
+  color: rgba(31, 90, 200, 0.82);
 }
 
-.rdps-table .rdps-num {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+.rdps-overview-series.is-residual {
+  color: #c8cbd1;
 }
 
-.rdps-table .rdps-negative td {
-  color: #c0392b;
+.rdps-overview-pie .rdps-overview-series {
+  stroke: #ffffff;
+  stroke-width: 1.4;
+  vector-effect: non-scaling-stroke;
 }
 
-.rdps-table .rdps-residual-row td {
-  border-top: 1px solid rgba(0, 0, 0, 0.25);
-  font-weight: 600;
-  color: rgba(0, 0, 0, 0.7);
-}
-
-.rdps-diagnostics {
-  margin-top: 6px;
-  font-size: 11px;
-  line-height: 1.5;
-  color: #9a6700;
-}
-
-.rdps-error-row {
+.rdps-overview-legend {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  margin-top: 6px;
-  font-size: 11px;
-  color: rgba(0, 0, 0, 0.55);
+  flex-direction: column;
+  gap: 8px;
+  color: rgba(0, 0, 0, 0.68);
 }
 
-.rdps-error-row strong {
-  margin-left: 3px;
+.rdps-overview-legend-row {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  gap: 2px 6px;
+  align-items: center;
+  font-size: 10px;
+  line-height: 1.15;
+}
+
+.rdps-overview-legend-swatch {
+  width: 8px;
+  height: 8px;
+  grid-row: 1 / span 2;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.rdps-overview-legend-row strong {
+  grid-column: 2 / 4;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rdps-overview-legend-row em,
+.rdps-overview-legend-row small {
+  color: rgba(0, 0, 0, 0.48);
+  font-style: normal;
+  font-size: 9.5px;
   font-variant-numeric: tabular-nums;
 }
 
-.rdps-error-row .rdps-error-strong {
-  color: #c0392b;
+.rdps-overview-legend-row em {
+  grid-column: 2;
+}
+
+.rdps-overview-legend-row small {
+  grid-column: 3;
+  justify-self: end;
+  grid-row: 2;
+}
+
+.rdps-overview-total {
+  padding-top: 6px;
+  border-top: 1px solid rgba(0, 0, 0, 0.14);
+  color: rgba(0, 0, 0, 0.72);
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.rdps-overview-pie-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: rgba(0, 0, 0, 0.5);
+  font-size: 10px;
+  text-align: center;
+}
+
+.rdps-overview-pie-fallback strong {
+  color: rgba(0, 0, 0, 0.8);
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rdps-overview-bar-chart {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: block;
+  overflow: visible;
+}
+
+.rdps-overview-axis {
+  stroke: rgba(0, 0, 0, 0.22);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.rdps-overview-bar {
+  fill: rgba(31, 90, 200, 0.78);
+}
+
+.rdps-overview-bar.is-negative {
+  fill: #c0392b;
+}
+
+.rdps-overview-bar-value {
+  fill: rgba(0, 0, 0, 0.72);
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.rdps-overview-bar-label {
+  fill: rgba(0, 0, 0, 0.58);
+  font-size: 10px;
+  font-weight: 600;
 }
 
 .rdps-warn {

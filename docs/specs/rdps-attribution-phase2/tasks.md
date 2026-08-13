@@ -6,7 +6,9 @@
 
 真实报表结果：总伤害 1,874,655，来源合计 1.27M，Residual 602.9K；莱万汀 597.0K、狼卫 133.4K、艾尔黛拉 336.2K、卡缪 192.1K，四人均有来源贡献；队伍外 `chr_0019_karin` 正确显示为“秋栗”并仅进入图 3；装备资产显示为“动火用 / 长息 / 拓荒”；Owen 效率误差、层级误差、总账误差均为 0。桌面端“状态区 → 连击”已显示四人来源选择器，验收时只展开候选，未写回用户工作区。
 
-验证已通过：`npm run typecheck`、`npm test`、RDPS 定向测试、`npx vite build`、`git diff --check`，真实页面控制台无 error。RDPS2-4 中三套主题的逐套 1280×720 专项检查与分阶段性能计时尚未单独记录，因此 Phase 2 暂不标记为全量完成。
+验证已通过：`npm run typecheck`、`npm test`、RDPS 定向测试、`npx vite build`、`git diff --check`，真实页面控制台无 error。RDPS2-4 的分阶段性能计时尚未单独记录，因此 Phase 2 暂不标记为全量完成。
+
+2026-08-14 视觉收口：图 3 已按反馈改为“左侧总伤 RD 构成饼图 + 右侧各干员总 RD 柱状图”，移除逐来源/域/资产表格；图 4 继续承担四名干员三域明细。已用同一真实轴验证明亮白、apple-midnight、lieflat-mono、liquid-tide，原用户主题已恢复。
 
 标有 `[Sub-agent 可独立]` 的任务可以交给 sub-agent 独立完成。每个 sub-agent 只能修改任务声明的文件范围，并提交单一职责 commit；共享合同和最终接线由主 agent 串行处理。
 
@@ -272,12 +274,12 @@ RDPS2-2A/2B/2C 可以在共享合同完成后并行。RDPS2-2D 只修改算法�
 
 任务：
 
-- [ ] domain 显示中文，不直接显示 operator/weapon/equipment。
-- [ ] 支持“干员 · 域（资产名）”展示。
-- [ ] 分开展示 Owen 效率误差、层级误差和总账误差。
-- [ ] 诊断区区分 legacy-resolved、missing、ambiguous、display-name fallback。
-- [ ] legacy-resolved 不显示为缺失来源。
-- [ ] 队伍外来源显示正确名称。
+- [ ] 图 3 左侧仅显示“来源 RD / 自身与其他”的总伤构成饼图。
+- [ ] 图 3 右侧仅显示按干员聚合后的总 RD 柱状图，不重复域、武器、装备和单 Buff 明细。
+- [ ] 图 3 队伍外来源使用正确名称追加为独立柱，不得静默丢失。
+- [ ] 图 3 正常聚合值与 `actualTotal / attributedTotal / residualTotal` 对账；负聚合值不伪造饼图。
+- [ ] summary 中继续保留 Owen 效率误差、层级误差、总账误差及解析诊断，但不占用图 3 可视区域。
+- [ ] 图 4 domain 显示中文，不直接显示 operator/weapon/equipment。
 - [ ] 四名干员卡使用真实三域数据。
 - [ ] 零值、负值、正负混合和长资产名可读。
 - [ ] 修复 1280×720 下图 4 内容高度超过卡片的问题。
@@ -285,8 +287,8 @@ RDPS2-2A/2B/2C 可以在共享合同完成后并行。RDPS2-2D 只修改算法�
 
 验收：
 
-- mock v2 summary 下无原始英文域。
-- 所有诊断文案与计数单位一致。
+- 图 3 只有一张饼图和一张柱状图，无来源明细表。
+- 图 3 与图 4 不重复展示域明细；mock v2 summary 下无原始英文域。
 - 2×2 图格无溢出。
 
 ## RDPS2-2F：旧/新数据 Parity 与金样夹具 `[Sub-agent 可独立]`

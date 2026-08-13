@@ -19,7 +19,7 @@ import {
 import { getSelectedCharacterIds } from '../utils/storage';
 import type { Character, SkillButtonData, TimelineData } from '../types';
 import type { ConfigSnapshot } from '../core/calculators/operatorPanelCalculator';
-import { RdpsTableChart, RdpsCharacterSplitChart } from './DamageReportRdpsCharts';
+import { RdpsOverviewChart, RdpsCharacterSplitChart } from './DamageReportRdpsCharts';
 import {
   handleReportImageError,
   ReportLevelRows,
@@ -790,8 +790,8 @@ function ChartSlide({
             <LineChart buttons={snapshot.buttons} />
           </article>
           <article className="report-ppt-chart-card">
-            <h2>图 3 / RD 归因总表</h2>
-            <RdpsTableChart summary={snapshot.rdps} />
+            <h2>图 3 / 总 RD 概览</h2>
+            <RdpsOverviewChart summary={snapshot.rdps} />
           </article>
           <article className="report-ppt-chart-card">
             <h2>图 4 / 干员来源域 RD 占比</h2>

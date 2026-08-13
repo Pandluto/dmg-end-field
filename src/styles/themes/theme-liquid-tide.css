@@ -3308,10 +3308,18 @@
 }
 
 /* ── RDPS 图 3 / 图 4（liquid-tide） ──────────────────────────────────────── */
-:root[data-theme="liquid-tide"] :is(.rdps-table-summary, .rdps-table, .rdps-empty, .rdps-diagnostics, .rdps-warn, .rdps-character-heading span, .rdps-domain-label, .rdps-domain-raw, .rdps-character-total) { color: var(--liquid-tide-ink, rgba(31, 41, 55, 0.8)); }
-:root[data-theme="liquid-tide"] .rdps-table-summary strong, :root[data-theme="liquid-tide"] .rdps-character-heading strong { color: var(--liquid-tide-ink, #1f2937); }
-:root[data-theme="liquid-tide"] .rdps-table th { color: var(--liquid-tide-ink, #1f2937); border-bottom-color: rgba(31, 41, 55, 0.2); }
-:root[data-theme="liquid-tide"] .rdps-table td { border-bottom-color: rgba(31, 41, 55, 0.1); }
+:root[data-theme="liquid-tide"] :is(.rdps-overview-panel h3, .rdps-overview-legend, .rdps-overview-total, .rdps-overview-pie-fallback, .rdps-empty, .rdps-warn, .rdps-character-heading span, .rdps-domain-label, .rdps-domain-raw, .rdps-character-total) { color: var(--liquid-tide-ink, rgba(31, 41, 55, 0.8)); }
+:root[data-theme="liquid-tide"] :is(.rdps-overview-panel h3 span, .rdps-overview-legend-row em, .rdps-overview-legend-row small) { color: var(--liquid-tide-ink-soft, rgba(31, 41, 55, 0.56)); }
+:root[data-theme="liquid-tide"] .rdps-overview-pie-panel { border-right-color: rgba(31, 41, 55, 0.16); }
+:root[data-theme="liquid-tide"] .rdps-overview-total { border-top-color: rgba(31, 41, 55, 0.16); }
+:root[data-theme="liquid-tide"] .rdps-overview-series.is-attributed { color: rgba(60, 110, 220, 0.84); }
+:root[data-theme="liquid-tide"] .rdps-overview-series.is-residual { color: rgba(31, 41, 55, 0.18); }
+:root[data-theme="liquid-tide"] .rdps-overview-pie .rdps-overview-series { stroke: rgba(248, 251, 255, 0.86); }
+:root[data-theme="liquid-tide"] .rdps-overview-axis { stroke: rgba(31, 41, 55, 0.2); }
+:root[data-theme="liquid-tide"] .rdps-overview-bar { fill: rgba(60, 110, 220, 0.82); }
+:root[data-theme="liquid-tide"] .rdps-overview-bar-value { fill: var(--liquid-tide-ink, #1f2937); }
+:root[data-theme="liquid-tide"] .rdps-overview-bar-label { fill: var(--liquid-tide-ink-soft, rgba(31, 41, 55, 0.68)); }
+:root[data-theme="liquid-tide"] .rdps-character-heading strong { color: var(--liquid-tide-ink, #1f2937); }
 :root[data-theme="liquid-tide"] .rdps-character-card { border-color: rgba(31, 41, 55, 0.18); background: rgba(238, 244, 255, 0.7); }
 :root[data-theme="liquid-tide"] .rdps-domain-bar-track { background: rgba(31, 41, 55, 0.12); }
 :root[data-theme="liquid-tide"] .rdps-domain-bar { background: rgba(60, 110, 220, 0.8); }

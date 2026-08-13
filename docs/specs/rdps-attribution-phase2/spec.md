@@ -286,12 +286,13 @@ Definition count 按唯一 Buff 定义/稳定 ID 计数；application count 按�
 
 ### Chart 3
 
-- 域显示中文“干员本体 / 武器 / 装备”，不得直接显示 `operator`。
-- 干员名称使用统一角色目录。
-- 可选显示来源资产名，但不得以资产名替代干员归属。
-- 分开展示来源合计、Residual、Owen 效率误差和总账误差。
-- 只有真正 unresolved 的旧数据才显示“无法解析来源”。
-- 不得把成功从旧数据恢复的 Buff 计入缺失警告。
+- 图 3 保持左下位置，但不再展示逐来源表格、域或资产明细；本节覆盖第一轮的“RD total table”要求。
+- 图 3 只包含两张图：左侧饼图展示“来源 RD / 自身与其他”的总伤构成，右侧柱状图展示按干员聚合后的 RD 总量。
+- 柱状图使用统一角色目录中的名称，当前队伍按队伍顺序展示，队伍外来源追加展示且不得丢失。
+- 图 3 的来源 RD 合计必须与 `attributedTotal` 一致，饼图两项必须与 `actualTotal = attributedTotal + residualTotal` 一致。
+- 图 3 不重复图 4 的 operator/weapon/equipment 域拆分，也不显示武器、装备或单 Buff 名称。
+- 负贡献在柱状图中保留符号；若来源 RD 或 Residual 的聚合值为负，不得伪造饼图比例，应显示不适用空态。
+- 解析诊断、Owen 效率误差和总账误差继续保留在 summary/测试合同中，但不占用图 3 的可视区域。
 
 ### Chart 4
 
