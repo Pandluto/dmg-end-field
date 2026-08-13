@@ -85,6 +85,23 @@ assertEqual(resolvedNoOwner.characterId, 'kamiao', 'owner-stripped buff recovers
 assertEqual(resolvedNoOwner.domain, 'operator', 'owner-stripped buff recovers operator domain');
 assertEqual(resolvedNoOwner.method, 'canonical-path', 'owner-stripped buff resolves via canonical path');
 
+const equipmentBuff: SkillButtonBuff = {
+  id: 'buff-equipment',
+  name: 'operator-config-snapshot:kamiao:equipment:gear-set-tuo-huang:buff1',
+  displayName: '拓荒·全队伤害+16%',
+  sourceName: '拓荒',
+  source: '拓荒',
+  type: 'allDmgBonus',
+  value: 0.16,
+  category: 'condition',
+  effectKind: 'modifier',
+  refCount: 1,
+};
+const resolvedEquipment = resolveLegacyBuffSource(equipmentBuff, index);
+assertEqual(resolvedEquipment.characterId, 'kamiao', 'equipment canonical path owner');
+assertEqual(resolvedEquipment.domain, 'equipment', 'equipment canonical path domain');
+assertEqual(resolvedEquipment.sourceAssetName, '拓荒', 'equipment id resolves to display asset name');
+
 // candidate-exact：候选 Buff 列表提供非 canonical name 的条目时唯一匹配
 const libraryIndex = buildRdpsCandidateProvenanceIndex(configCache, [{
   name: 'buff-lib:effect-x',

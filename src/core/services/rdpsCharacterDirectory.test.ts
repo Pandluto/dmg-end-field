@@ -62,3 +62,16 @@ const conflictDirectory = buildRdpsCharacterDirectory({
   anomalySnapshots: [],
 });
 assertEqual(conflictDirectory.conflicts.some((c) => c.includes('同名干员')), true, 'duplicate display name recorded as conflict');
+
+// 配置快照是最高优先级，低优先级时间轴/按钮/异常文本不得把秋栗覆盖回 raw ID。
+const priorityDirectory = buildRdpsCharacterDirectory({
+  selectedCharacterIds: [],
+  staffLines: [{ staffIndex: 0, characterId: 'chr_0019_karin', characterName: '旧时间轴名称' }],
+  buttons: [{ id: 'karin-button', characterId: 'chr_0019_karin', characterName: 'chr_0019_karin', staffIndex: 0 }],
+  operatorConfigCache: {
+    chr_0019_karin: { operator: { id: 'chr_0019_karin', name: '秋栗' } },
+  },
+  anomalySnapshots: [{ sourceCharacterId: 'chr_0019_karin', sourceCharacterName: '旧异常名称' }],
+});
+assertEqual(priorityDirectory.nameByCharacterId.get('chr_0019_karin'), '秋栗', 'operator config name keeps highest priority');
+assertEqual(priorityDirectory.unresolvedDisplayNameCount, 0, 'resolved Karin name is not counted as raw id fallback');

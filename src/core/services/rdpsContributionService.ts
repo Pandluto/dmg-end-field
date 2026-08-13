@@ -14,11 +14,12 @@ import type {
   RdpsSourceContribution,
   RdpsSourceKey,
 } from './rdpsAttribution.types';
-import { buildCoalitionCacheKey, buildRdpsSourceKey, RDPS_POLICY_VERSION } from './rdpsAttribution.types';
+import { buildCoalitionCacheKey, buildRdpsSourceKey, parseRdpsSourceKey, RDPS_POLICY_VERSION } from './rdpsAttribution.types';
 import { buildAnomalyStateDerivedBuffs as buildDerived, buildAnomalyStateSnapshotBuffs as buildSnapshots } from './anomalyStateBuffs';
 import type { ResolvedButtonInputs } from './damageReportService';
 import { evaluateDamageReportContext } from './damageReportService';
 import type { SkillButtonBuff } from '../../types/storage';
+import { buffApplicationKeyOf } from './rdpsSourceResolutionContext';
 
 const DOMAINS: readonly RdpsDomain[] = ['operator', 'weapon', 'equipment'];
 
@@ -30,18 +31,48 @@ function sourceKeyOf(buff: SkillButtonBuff): RdpsSourceKey | null {
   return buildRdpsSourceKey(buff.ownerCharacterId, domain);
 }
 
-/** 收集一个按钮输入里的全部可归因 Buff（含异常派生）。 */
-function collectAttributableBuffs(inputs: readonly ResolvedButtonInputs[]): SkillButtonBuff[] {
-  const buffs: SkillButtonBuff[] = [];
+export interface RdpsAttributableApplication {
+  buff: SkillButtonBuff;
+  applicationKey: string;
+  sourceKey: RdpsSourceKey;
+  characterId: string;
+  domain: RdpsDomain;
+  sourceAssetName?: string;
+}
+
+/**
+ * 收集全部可归因应用（普通 Buff、extra-hit、异常快照与连击）。来源判定必须
+ * 与 evaluate 路径一致：优先消费运行时 sidecar，仅在 sidecar 没有可用结果时
+ * 兼容显式 owner。旧数据不能因为 Buff 本体没有 owner 字段而漏出 Owen 世界。
+ */
+export function collectRdpsAttributableApplications(
+  inputs: readonly ResolvedButtonInputs[],
+): RdpsAttributableApplication[] {
+  const applications: RdpsAttributableApplication[] = [];
   for (const input of inputs) {
     const derived = buildDerived(input.anomalyStatuses, input.button.skillType);
     const snapshots = buildSnapshots(input.anomalyStateSnapshots);
     for (const buff of [...input.allBuffs, ...derived, ...snapshots]) {
-      const key = sourceKeyOf(buff);
-      if (key !== null) buffs.push(buff);
+      const applicationKey = buffApplicationKeyOf(input.button.id, buff);
+      const resolved = input.resolvedSourceSidecar.get(applicationKey);
+      const sidecarKey = resolved?.method !== 'unresolved' && resolved?.characterId && resolved.domain
+        ? buildRdpsSourceKey(resolved.characterId, resolved.domain)
+        : null;
+      const sourceKey = sidecarKey ?? sourceKeyOf(buff);
+      if (sourceKey === null) continue;
+      const parsed = parseRdpsSourceKey(sourceKey);
+      if (!parsed) continue;
+      applications.push({
+        buff,
+        applicationKey,
+        sourceKey,
+        characterId: parsed.characterId,
+        domain: parsed.domain,
+        sourceAssetName: resolved?.sourceAssetName,
+      });
     }
   }
-  return buffs;
+  return applications;
 }
 
 /** 生成 [0..n) 的全排列（n ≤ 5 规模）。 */
@@ -154,7 +185,8 @@ interface SourceStat {
   key: RdpsSourceKey;
   characterId: string;
   characterName: string;
-  domain?: RdpsDomain;
+  domain: RdpsDomain;
+  sourceAssetName?: string;
   label: string;
   buffCount: number;
 }
@@ -171,48 +203,62 @@ export function computeRdpsAttribution(
     policyVersion?: string;
     contextFingerprint?: string;
     resolutionDiagnostics?: Partial<RdpsDiagnostics>;
+    characterNameById?: ReadonlyMap<string, string>;
+    teamCharacterIds?: readonly string[];
   } = {},
 ): RdpsAttributionSummary {
   const policyVersion = options.policyVersion ?? RDPS_POLICY_VERSION;
   const contextFingerprint = options.contextFingerprint ?? `${inputs.length}-buttons`;
   const teamCharacterIds = Array.from(new Set(
-    inputs.map((input) => input.runtimeButton.characterId).filter(Boolean),
+    (options.teamCharacterIds ?? inputs.map((input) => input.runtimeButton.characterId)).filter(Boolean),
   ));
+  const teamCharacterIdSet = new Set(teamCharacterIds);
 
   // 1. 收集可归因来源与统计
-  const attributable = collectAttributableBuffs(inputs);
+  const attributable = collectRdpsAttributableApplications(inputs);
   const statsByKey = new Map<RdpsSourceKey, SourceStat>();
-  const nameByCharacterId = new Map<string, string>();
+  const nameByCharacterId = new Map<string, string>(options.characterNameById ?? []);
   for (const input of inputs) {
     if (input.button.characterName && !nameByCharacterId.has(input.runtimeButton.characterId)) {
       nameByCharacterId.set(input.runtimeButton.characterId, input.button.characterName);
     }
   }
-  for (const buff of attributable) {
-    const key = sourceKeyOf(buff);
-    if (key === null) continue;
-    const domain = buff.ownerBuffDomain as RdpsDomain;
-    const characterId = buff.ownerCharacterId as string;
-    const existing = statsByKey.get(key);
+  for (const application of attributable) {
+    const { sourceKey, characterId, domain, sourceAssetName } = application;
+    const existing = statsByKey.get(sourceKey);
     if (existing) {
       existing.buffCount += 1;
+      if (!existing.sourceAssetName && sourceAssetName) {
+        existing.sourceAssetName = sourceAssetName;
+        const domainName = domain === 'operator' ? '本体' : domain === 'weapon' ? '武器' : '装备';
+        const assetSuffix = sourceAssetName !== existing.characterName ? `（${sourceAssetName}）` : '';
+        existing.label = `${existing.characterName} · ${domainName}${assetSuffix}`;
+      }
       continue;
     }
-    statsByKey.set(key, {
-      key,
+    const characterName = nameByCharacterId.get(characterId) ?? characterId;
+    const domainName = domain === 'operator' ? '本体' : domain === 'weapon' ? '武器' : '装备';
+    const assetSuffix = sourceAssetName && sourceAssetName !== characterName
+      ? `（${sourceAssetName}）`
+      : '';
+    statsByKey.set(sourceKey, {
+      key: sourceKey,
       characterId,
-      characterName: nameByCharacterId.get(characterId) ?? characterId,
+      characterName,
       domain,
-      label: `${nameByCharacterId.get(characterId) ?? characterId} · ${domain === 'operator' ? '本体' : domain === 'weapon' ? '武器' : '装备'}`,
+      sourceAssetName,
+      label: `${characterName} · ${domainName}${assetSuffix}`,
       buffCount: 1,
     });
   }
 
-  // 2. 分组：四人按三域，队伍外按单域聚合
+  // 2. 分组：当前队伍只建立实际存在的域叶；队伍外按单域聚合
   const groups: OwenGroup[] = [];
-  const groupByCharacter = new Map<string, OwenGroup>();
   for (const characterId of teamCharacterIds) {
-    const leaves = DOMAINS.map((domain) => buildRdpsSourceKey(characterId, domain));
+    const leaves = DOMAINS
+      .map((domain) => buildRdpsSourceKey(characterId, domain))
+      .filter((key) => statsByKey.has(key));
+    if (leaves.length === 0) continue;
     const group: OwenGroup = {
       characterId,
       characterName: nameByCharacterId.get(characterId) ?? characterId,
@@ -220,11 +266,10 @@ export function computeRdpsAttribution(
       singleDomain: false,
     };
     groups.push(group);
-    groupByCharacter.set(characterId, group);
   }
   const outGroupLeaves: RdpsSourceKey[] = [];
   for (const stat of statsByKey.values()) {
-    if (groupByCharacter.has(stat.characterId)) continue;
+    if (teamCharacterIdSet.has(stat.characterId)) continue;
     if (!outGroupLeaves.includes(stat.key)) outGroupLeaves.push(stat.key);
   }
   if (outGroupLeaves.length > 0) {
@@ -247,7 +292,9 @@ export function computeRdpsAttribution(
     cache.set(cacheKey, result);
     return result;
   };
-  const allMask = encodeMask(groups.map((group) => group.singleDomain ? 1 : 7));
+  const allMask = encodeMask(groups.map((group) => (
+    group.singleDomain ? 1 : (1 << group.leaves.length) - 1
+  )));
   const noneMask = encodeMask(groups.map(() => 0));
 
   // 4. 基线与归因世界
@@ -265,9 +312,20 @@ export function computeRdpsAttribution(
     unresolvedDefinitionCount: options.resolutionDiagnostics?.unresolvedDefinitionCount ?? 0,
     ambiguousDefinitionCount: options.resolutionDiagnostics?.ambiguousDefinitionCount ?? 0,
     unresolvedApplicationCount: options.resolutionDiagnostics?.unresolvedApplicationCount ?? 0,
-    outOfTeamCharacterCount: options.resolutionDiagnostics?.outOfTeamCharacterCount ?? outGroupLeaves.length,
-    unresolvedDisplayNameCount: options.resolutionDiagnostics?.unresolvedDisplayNameCount ?? 0,
-    excludedImbalanceEffectCount: attributable.filter((buff) => buff.type === 'imbalanceDmgBonus').length,
+    outOfTeamCharacterCount: new Set(
+      Array.from(statsByKey.values())
+        .filter((stat) => !teamCharacterIdSet.has(stat.characterId))
+        .map((stat) => stat.characterId),
+    ).size,
+    unresolvedDisplayNameCount: new Set(
+      Array.from(statsByKey.values())
+        .filter((stat) => stat.characterName === stat.characterId)
+        .map((stat) => stat.characterId),
+    ).size,
+    excludedImbalanceEffectCount: inputs.reduce((count, input) => (
+      count + buildDerived(input.anomalyStatuses, input.button.skillType)
+        .filter((buff) => buff.type === 'imbalanceDmgBonus').length
+    ), 0),
     negativeContributionCount: 0,
     coalitionEvaluationCount,
   };
@@ -288,7 +346,7 @@ export function computeRdpsAttribution(
       includedBuffCount: stat.buffCount,
       negative: damage < 0,
     });
-    const characterId = groupByCharacter.has(stat.characterId) ? stat.characterId : 'out-of-team';
+    const characterId = teamCharacterIdSet.has(stat.characterId) ? stat.characterId : 'out-of-team';
     const aggregate = characterAggregate.get(characterId) ?? { damage: 0, domains: new Map() };
     aggregate.damage += damage;
     if (stat.domain !== undefined) {
@@ -322,7 +380,7 @@ export function computeRdpsAttribution(
   const accountingError = Math.abs(actualTotal - attributedTotal - residualTotal);
   const owenEfficiencyError = Math.abs(attributedTotal - (attributionWorldTotal - baselineTotal));
   const teamSourceSum = sources
-    .filter((item) => item.characterId !== undefined && teamCharacterIds.includes(item.characterId))
+    .filter((item) => item.characterId !== undefined && teamCharacterIdSet.has(item.characterId))
     .reduce((sum, item) => sum + item.damage, 0);
   const hierarchyError = Math.abs(
     characters.reduce(
@@ -360,5 +418,3 @@ function maskOfSet(enabled: ReadonlySet<RdpsSourceKey>, groups: readonly OwenGro
     return bits;
   }));
 }
-
-

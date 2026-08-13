@@ -1,6 +1,8 @@
-import { computeOwenValues } from './rdpsContributionService';
+import { collectRdpsAttributableApplications, computeOwenValues } from './rdpsContributionService';
 import { createTwoCharacterInteractionWorld, createUnevenGroupWorld } from './rdpsTestFixtures';
 import { buildRdpsSourceKey } from './rdpsAttribution.types';
+import type { ResolvedButtonInputs } from './damageReportService';
+import type { SkillButtonBuff } from '../../types/storage';
 
 function assertClose(actual: number, expected: number, message: string): void {
   if (Math.abs(actual - expected) > 1e-9) {
@@ -73,6 +75,63 @@ assertEqual(JSON.stringify([...contributions.entries()]), JSON.stringify([...aga
 // 空组世界
 const emptyResult = computeOwenValues([], () => 0);
 assertEqual(emptyResult.size, 0, 'empty groups yield no contributions');
+
+// 运行时来源 sidecar 必须进入 Owen 来源建模：旧 Buff 和旧连击本体都没有 owner。
+const legacyBuff: SkillButtonBuff = {
+  id: 'legacy-buff',
+  name: 'operator-config-snapshot:langwei:equipment:gear-set-chang-xi:effect1',
+  displayName: '长息·队友伤害+16%',
+  sourceName: '长息',
+  source: '长息',
+  type: 'allDmgBonus',
+  value: 0.16,
+  category: 'condition',
+  refCount: 1,
+};
+const runtimeSources = new Map([
+  ['legacy-button:legacy-buff', {
+    characterId: 'langwei',
+    domain: 'equipment' as const,
+    sourceAssetName: '长息',
+    method: 'canonical-path' as const,
+    evidenceKey: 'legacy-buff-path',
+  }],
+  ['state:legacy-button:legacy-combo', {
+    characterId: 'laevatain',
+    domain: 'operator' as const,
+    method: 'container-button' as const,
+    evidenceKey: 'legacy-combo-button',
+  }],
+]);
+const runtimeSourceInput = {
+  button: { id: 'legacy-button', skillType: 'B' },
+  allBuffs: [legacyBuff],
+  anomalyStatuses: [{
+    id: 'legacy-combo',
+    key: 'combo-state',
+    label: '连击',
+    level: 1,
+    primaryText: '连击',
+  }],
+  anomalyStateSnapshots: [],
+  resolvedSourceSidecar: {
+    get: (key: string) => runtimeSources.get(key),
+    set: () => undefined,
+    entries: () => runtimeSources.entries(),
+  },
+} as unknown as ResolvedButtonInputs;
+const runtimeApplications = collectRdpsAttributableApplications([runtimeSourceInput]);
+assertEqual(runtimeApplications.length, 2, 'legacy Buff and combo both enter Owen source applications');
+assertEqual(
+  runtimeApplications.some((item) => item.sourceKey === 'langwei::equipment'),
+  true,
+  'legacy Buff source comes from sidecar',
+);
+assertEqual(
+  runtimeApplications.some((item) => item.sourceKey === 'laevatain::operator'),
+  true,
+  'legacy combo source comes from containing button sidecar',
+);
 
 // 单域组（队伍外聚合）
 const singleGroup = [

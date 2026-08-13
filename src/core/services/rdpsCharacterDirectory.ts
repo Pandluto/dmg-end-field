@@ -35,21 +35,33 @@ export interface RdpsCharacterDirectoryInput {
 /** 构造只读角色目录。 */
 export function buildRdpsCharacterDirectory(input: RdpsCharacterDirectoryInput): RdpsCharacterDirectory {
   const nameByCharacterId = new Map<string, string>();
+  const namePriorityByCharacterId = new Map<string, number>();
   const idByStaffIndex = new Map<number, string>();
   const idByButtonId = new Map<string, string>();
   const teamOrder = new Map<string, number>();
   const conflicts: string[] = [];
   const seenNames = new Map<string, string>();
 
+  const setDisplayName = (characterId: string, name: string, priority: number, source: string): void => {
+    const normalizedId = characterId.trim();
+    const normalizedName = name.trim();
+    if (!normalizedId || !normalizedName) return;
+    const existing = nameByCharacterId.get(normalizedId);
+    const existingPriority = namePriorityByCharacterId.get(normalizedId) ?? -1;
+    if (existing && existing !== normalizedName) {
+      conflicts.push(`${source} name conflict: ${normalizedId} has ${existing} and ${normalizedName}`);
+    }
+    if (priority >= existingPriority) {
+      nameByCharacterId.set(normalizedId, normalizedName);
+      namePriorityByCharacterId.set(normalizedId, priority);
+    }
+  };
+
   // 1. 配置缓存优先：characterId → 展示名。
   for (const [characterId, config] of Object.entries(input.operatorConfigCache)) {
     const name = config?.operator?.name;
     if (typeof name === 'string' && name.trim()) {
-      const existing = nameByCharacterId.get(characterId);
-      if (existing !== undefined && existing !== name) {
-        conflicts.push(`operator config name conflict: ${characterId} has ${existing} and ${name}`);
-      }
-      nameByCharacterId.set(characterId, name.trim());
+      setDisplayName(characterId, name, 50, 'operator config');
     }
   }
 
@@ -57,7 +69,7 @@ export function buildRdpsCharacterDirectory(input: RdpsCharacterDirectoryInput):
   input.selectedCharacterIds.forEach((characterId, staffIndex) => {
     idByStaffIndex.set(staffIndex, characterId);
     if (!teamOrder.has(characterId)) teamOrder.set(characterId, teamOrder.size);
-    if (!nameByCharacterId.has(characterId)) nameByCharacterId.set(characterId, characterId);
+    setDisplayName(characterId, characterId, 0, 'raw id');
   });
 
   // 3. staff lines：交叉校验名字（不覆盖稳定 ID 映射）。
@@ -65,7 +77,7 @@ export function buildRdpsCharacterDirectory(input: RdpsCharacterDirectoryInput):
     if (typeof line.characterId === 'string' && line.characterId.trim()) {
       idByStaffIndex.set(Number(line.staffIndex ?? 0), line.characterId);
       if (typeof line.characterName === 'string' && line.characterName.trim()) {
-        nameByCharacterId.set(line.characterId, line.characterName.trim());
+        setDisplayName(line.characterId, line.characterName, 20, 'timeline');
       }
     }
   }
@@ -81,7 +93,7 @@ export function buildRdpsCharacterDirectory(input: RdpsCharacterDirectoryInput):
     if (characterId) {
       idByButtonId.set(button.id, characterId);
       if (typeof button.characterName === 'string' && button.characterName.trim()) {
-        nameByCharacterId.set(characterId, button.characterName.trim());
+        setDisplayName(characterId, button.characterName, 30, 'button');
       }
     }
   }
@@ -90,7 +102,7 @@ export function buildRdpsCharacterDirectory(input: RdpsCharacterDirectoryInput):
   for (const snapshot of input.anomalySnapshots ?? []) {
     if (typeof snapshot.sourceCharacterId === 'string' && snapshot.sourceCharacterId.trim()) {
       if (typeof snapshot.sourceCharacterName === 'string' && snapshot.sourceCharacterName.trim()) {
-        nameByCharacterId.set(snapshot.sourceCharacterId, snapshot.sourceCharacterName.trim());
+        setDisplayName(snapshot.sourceCharacterId, snapshot.sourceCharacterName, 10, 'anomaly snapshot');
       }
     }
   }

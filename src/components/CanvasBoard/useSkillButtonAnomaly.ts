@@ -294,6 +294,7 @@ export function useSkillButtonAnomaly({
       return {
         lines: [
           '状态区入口',
+          `来源干员: ${activeSourceCharacter?.name ?? '未选择'}`,
           `连击层数: ${activeAnomalyLevel} 层`,
           `战技增伤: +${comboSkillBonus.toFixed(1)}%`,
           `终结技增伤: +${comboUltimateBonus.toFixed(1)}%`,
@@ -359,7 +360,7 @@ export function useSkillButtonAnomaly({
           : null,
       ].filter((line): line is string => Boolean(line)),
     };
-  }, [activeAnomaly, activeAnomalyLevel, activeDurationSeconds, burnDamageMode, buttonCharacterId, buttonSkillType, fullCombinedModifierBuffList, getEffectiveCharacterSourceSkillBoost]);
+  }, [activeAnomaly, activeAnomalyLevel, activeDurationSeconds, activeSourceCharacter?.name, burnDamageMode, buttonCharacterId, buttonSkillType, fullCombinedModifierBuffList, getEffectiveCharacterSourceSkillBoost]);
 
   const activeAnomalyStatePreview = useMemo(() => {
     if (!activeAnomalyStateOption) {
@@ -441,13 +442,18 @@ export function useSkillButtonAnomaly({
   }, [selectedAnomalyStateSnapshotIds]);
 
   const handleSelectAnomaly = useCallback((option: AnomalyOption) => {
+    const persistedCard = option.kind === 'state'
+      ? selectedStatusCards.find((card) => card.key === option.key)
+      : selectedAnomalyDamages.find((card) => card.key === option.key);
     setActiveAnomalyKey((prev) => (prev === option.key ? null : option.key));
-    setActiveAnomalyLevel(option.levelOptions[0] ?? 1);
+    setActiveAnomalyLevel(persistedCard?.level ?? option.levelOptions[0] ?? 1);
     const durationOptions = getAnomalyDurationOptions(option);
     setActiveDurationSeconds(durationOptions[0] ?? 0);
     setBurnDamageMode(option.key === 'burn' ? 'dotOnly' : 'initialOnly');
-    setActiveAnomalySourceId(option.supportsSource ? (sourceCharacters[0]?.id ?? buttonCharacterId) : null);
-  }, [buttonCharacterId, sourceCharacters]);
+    setActiveAnomalySourceId(option.supportsSource
+      ? (persistedCard?.sourceCharacterId ?? buttonCharacterId ?? sourceCharacters[0]?.id ?? null)
+      : null);
+  }, [buttonCharacterId, selectedAnomalyDamages, selectedStatusCards, sourceCharacters]);
 
   const handleSelectAnomalyState = useCallback((key: 'conductive' | 'corrosion' | 'armor-break') => {
     const option = ANOMALY_STATE_OPTIONS.find((item) => item.key === key) ?? null;

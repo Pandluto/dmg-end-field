@@ -1343,6 +1343,12 @@ export function buildDamageReportSnapshot(options: DamageReportSnapshotOptions =
     ? computeRdpsAttribution(inputs, {
         contextFingerprint: context.fingerprint,
         resolutionDiagnostics: context.resolution?.diagnostics,
+        characterNameById: context.resolution?.directory.nameByCharacterId,
+        teamCharacterIds: context.resolution
+          ? Array.from(context.resolution.directory.teamOrder.entries())
+              .sort((left, right) => left[1] - right[1])
+              .map(([characterId]) => characterId)
+          : undefined,
       })
     : undefined;
 

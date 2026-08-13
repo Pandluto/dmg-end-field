@@ -122,6 +122,22 @@ export function buildRdpsCandidateProvenanceIndex(
   candidateBuffs: readonly RdpsCandidateBuffLike[] = [],
 ): RdpsCandidateProvenanceIndex {
   const byIdentityKey = new Map<string, RdpsCandidateEntry[]>();
+  const canonicalAssetNameByKey = new Map<string, string>();
+
+  const assetKey = (characterId: string, domain: RdpsDomain, assetId: string): string =>
+    `${characterId}::${domain}::${assetId}`;
+
+  const rememberAssetName = (
+    characterId: string,
+    domain: RdpsDomain,
+    assetId: string | undefined,
+    assetName: string | undefined,
+  ): void => {
+    const normalizedId = assetId?.trim();
+    const normalizedName = assetName?.trim();
+    if (!normalizedId || !normalizedName) return;
+    canonicalAssetNameByKey.set(assetKey(characterId, domain, normalizedId), normalizedName);
+  };
 
   const add = (entry: RdpsCandidateEntry): void => {
     const existing = byIdentityKey.get(entry.identityKey);
@@ -167,6 +183,8 @@ export function buildRdpsCandidateProvenanceIndex(
     // 武器 skill3
     const weapon = config.weapon;
     const weaponName = weapon?.name || weapon?.id || '';
+    rememberAssetName(characterId, 'weapon', weapon?.id, weaponName);
+    rememberAssetName(characterId, 'weapon', weaponName, weaponName);
     for (const effect of weapon?.skills?.skill3?.effects ?? []) {
       const record = (effect ?? {}) as Record<string, unknown>;
       add({
@@ -193,6 +211,9 @@ export function buildRdpsCandidateProvenanceIndex(
     for (const effect of config.equipment?.setBuffs ?? []) {
       const record = (effect ?? {}) as Record<string, unknown>;
       const gearSetName = String(record.gearSetName ?? '');
+      const gearSetId = String(record.gearSetId ?? '');
+      rememberAssetName(characterId, 'equipment', gearSetId, gearSetName);
+      rememberAssetName(characterId, 'equipment', gearSetName, gearSetName);
       add({
         identityKey: projectionKeyOf({
           name: `operator-config-snapshot:${characterId}:equipment:${String(record.gearSetId ?? '')}:${String(record.effectId ?? '')}`,
@@ -222,6 +243,10 @@ export function buildRdpsCandidateProvenanceIndex(
     if (!characterId || (domain !== 'operator' && domain !== 'weapon' && domain !== 'equipment')) {
       continue;
     }
+    const canonical = typeof candidate.name === 'string' ? parseCanonicalSourcePath(candidate.name) : null;
+    if (canonical?.sourceAssetName && canonical.characterId === characterId && canonical.domain === domain) {
+      rememberAssetName(characterId, domain, canonical.sourceAssetName, candidate.sourceName);
+    }
     add({
       identityKey: projectionKeyOf(candidate),
       characterId,
@@ -232,8 +257,16 @@ export function buildRdpsCandidateProvenanceIndex(
     });
   }
 
-  const resolveCanonicalPath = (name: string): { characterId: string; domain: RdpsDomain; sourceAssetName?: string } | null =>
-    parseCanonicalSourcePath(name);
+  const resolveCanonicalPath = (name: string): { characterId: string; domain: RdpsDomain; sourceAssetName?: string } | null => {
+    const parsed = parseCanonicalSourcePath(name);
+    if (!parsed?.sourceAssetName) return parsed;
+    return {
+      ...parsed,
+      sourceAssetName: canonicalAssetNameByKey.get(
+        assetKey(parsed.characterId, parsed.domain, parsed.sourceAssetName),
+      ) ?? parsed.sourceAssetName,
+    };
+  };
 
   return { byIdentityKey, resolveCanonicalPath };
 }
@@ -257,7 +290,7 @@ export function resolveLegacyBuffSource(
   }
 
   // 2. canonical path（应用生成的规范化内部路径，白名单命名空间）。
-  const canonical = typeof buff.name === 'string' ? parseCanonicalSourcePath(buff.name) : null;
+  const canonical = typeof buff.name === 'string' ? candidateIndex.resolveCanonicalPath(buff.name) : null;
   if (canonical) {
     const explicitConflict = (
       typeof buff.ownerCharacterId === 'string' && buff.ownerCharacterId.trim()

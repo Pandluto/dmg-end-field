@@ -2,9 +2,11 @@
 
 ## Status
 
-实现中：RDPS2-0 至 RDPS2-3 已完成（金样 fixture、解析合同、legacy/combo/anomaly resolver、角色目录、Owen 修正、resolve/evaluate 集成、parity 测试）；RDPS2-4 真实浏览器验收与 RDPS2-5 收口待执行。
+核心修复已完成并于 2026-08-14 使用本机真实工作区“莱狼羊卡-热启动爆发轴”验收：旧 Buff 与旧连击均通过只读 runtime sidecar 恢复来源，不新增、不回填持久化字段；Owen 来源建模与 evaluator 现在消费同一份解析结果。
 
-本轮只完成第二轮规格与任务拆分，代码尚未开始。第一轮“页面可渲染且 accountingError 为 0”的结果不视为验收通过。
+真实报表结果：总伤害 1,874,655，来源合计 1.27M，Residual 602.9K；莱万汀 597.0K、狼卫 133.4K、艾尔黛拉 336.2K、卡缪 192.1K，四人均有来源贡献；队伍外 `chr_0019_karin` 正确显示为“秋栗”并仅进入图 3；装备资产显示为“动火用 / 长息 / 拓荒”；Owen 效率误差、层级误差、总账误差均为 0。桌面端“状态区 → 连击”已显示四人来源选择器，验收时只展开候选，未写回用户工作区。
+
+验证已通过：`npm run typecheck`、`npm test`、RDPS 定向测试、`npx vite build`、`git diff --check`，真实页面控制台无 error。RDPS2-4 中三套主题的逐套 1280×720 专项检查与分阶段性能计时尚未单独记录，因此 Phase 2 暂不标记为全量完成。
 
 标有 `[Sub-agent 可独立]` 的任务可以交给 sub-agent 独立完成。每个 sub-agent 只能修改任务声明的文件范围，并提交单一职责 commit；共享合同和最终接线由主 agent 串行处理。
 
