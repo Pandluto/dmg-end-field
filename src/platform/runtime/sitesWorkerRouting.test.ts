@@ -30,6 +30,11 @@ const env = {
           headers: { 'Content-Type': 'image/png' },
         })
       }
+      if (pathname === '/assets/mobile-report-HASH.js') {
+        return new Response('build asset', {
+          headers: { 'Content-Type': 'text/javascript; charset=utf-8' },
+        })
+      }
       return new Response('not found', { status: 404 })
     },
   },
@@ -95,3 +100,12 @@ const mobileImageResponse = await sitesWorker.fetch(
 )
 assert.equal(mobileImageResponse.headers.get('Cache-Control'), 'public, max-age=0, must-revalidate')
 assert.deepEqual(requestedPaths, ['/assets/images/example.png'])
+
+requestedPaths.length = 0
+const hashedBuildAssetResponse = await sitesWorker.fetch(
+  new Request('https://dmgendfield.online/assets/mobile-report-HASH.js'),
+  env,
+)
+assert.equal(hashedBuildAssetResponse.status, 200)
+assert.equal(hashedBuildAssetResponse.headers.get('Cache-Control'), 'public, max-age=31536000, immutable')
+assert.deepEqual(requestedPaths, ['/assets/mobile-report-HASH.js'])

@@ -31,7 +31,8 @@ export default {
     const headers = new Headers(response.headers)
     const isVersionedResource = url.pathname.startsWith('/resources/releases/')
     const isImage = url.pathname.startsWith('/assets/images/')
-    const isStaticAssetNamespace = isVersionedResource || isImage
+    const isHashedBuildAsset = url.pathname.startsWith('/assets/') && !isImage
+    const isStaticAssetNamespace = isVersionedResource || isImage || isHashedBuildAsset
     const isSpaFallback = (
       isStaticAssetNamespace
       && response.ok
@@ -50,6 +51,19 @@ export default {
     }
 
     if (isVersionedResource) {
+      headers.set(
+        'Cache-Control',
+        response.ok ? 'public, max-age=31536000, immutable' : 'no-store',
+      )
+      headers.set('X-Content-Type-Options', 'nosniff')
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      })
+    }
+
+    if (isHashedBuildAsset) {
       headers.set(
         'Cache-Control',
         response.ok ? 'public, max-age=31536000, immutable' : 'no-store',
