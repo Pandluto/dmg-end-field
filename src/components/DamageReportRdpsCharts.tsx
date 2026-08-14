@@ -1,6 +1,7 @@
 /**
  * RDPS 归因图表组件（v2）：图 3 总 RD 概览与图 4 四干员域拆分。
- * 图 3 用饼图与柱状图呈现四名干员的 RD 总量；图 4 才展示域明细。
+ * 图 3 用饼图呈现四名干员与“其他”的实际总伤占比，并用柱状图对比四人 RD；
+ * 图 4 才展示域明细。
  * 使用语义 class，负值保留符号。
  */
 
@@ -8,6 +9,7 @@ import type {
   RdpsAttributionSummary,
   RdpsCharacterContribution,
 } from '../core/services/rdpsAttribution.types';
+import { buildRdpsOverviewModel } from '../core/services/rdpsOverviewModel';
 
 function formatInteger(value: number): string {
   const rounded = Math.round(value);
@@ -49,36 +51,18 @@ function pieSlicePath(cx: number, cy: number, radius: number, startAngle: number
   ].join(' ');
 }
 
-interface RdpsOverviewCharacter {
-  key: string;
-  name: string;
-  damage: number;
-}
-
-function buildOverviewCharacters(summary: RdpsAttributionSummary): RdpsOverviewCharacter[] {
-  return summary.characters.slice(0, 4).map((character) => ({
-    key: character.characterId,
-    name: character.characterName,
-    damage: character.damage,
-  }));
-}
-
 function compactBarLabel(value: string): string {
   return value.length > 5 ? `${value.slice(0, 4)}…` : value;
 }
 
-/** 图 3 左侧：四名干员的总 RD 占比。 */
+/** 图 3 左侧：四名干员 RD 与其余实际伤害的统一占比。 */
 function RdpsTotalPie({ summary }: { summary: RdpsAttributionSummary }) {
-  const parts = buildOverviewCharacters(summary).map((character, index) => ({
-    ...character,
-    segmentIndex: index % 4,
-  }));
-  const teamTotal = parts.reduce((sum, part) => sum + part.damage, 0);
-  const canRenderPie = teamTotal > 0 && parts.every((part) => part.damage >= 0);
+  const model = buildRdpsOverviewModel(summary);
+  const { actualTotal, parts, teamTotal, otherDamage, canRenderPie } = model;
   const visibleParts = parts.filter((part) => part.damage > 0);
   let startAngle = -90;
   const slices = visibleParts.map((part) => {
-    const endAngle = startAngle + (part.damage / teamTotal) * 360;
+    const endAngle = startAngle + part.shareOfActual * 360;
     const slice = { ...part, startAngle, endAngle };
     startAngle = endAngle;
     return slice;
@@ -86,11 +70,11 @@ function RdpsTotalPie({ summary }: { summary: RdpsAttributionSummary }) {
 
   return (
     <section className="rdps-overview-panel rdps-overview-pie-panel">
-      <h3>四干员总 RD 占比 <span>{formatInteger(teamTotal)}</span></h3>
+      <h3>总 RD 归因占比 <span>{formatInteger(actualTotal)}</span></h3>
       {!canRenderPie || visibleParts.length === 0 ? (
         <div className="rdps-overview-pie-fallback">
-          <strong>{formatInteger(teamTotal)}</strong>
-          <span>{parts.some((part) => part.damage < 0) ? '存在负贡献，饼图不适用' : '暂无干员 RD'}</span>
+          <strong>{formatInteger(actualTotal)}</strong>
+          <span>{parts.some((part) => part.damage < 0) ? '存在负贡献，饼图不适用' : '暂无可展示伤害'}</span>
         </div>
       ) : (
         <div className="rdps-overview-pie-layout">
@@ -100,12 +84,12 @@ function RdpsTotalPie({ summary }: { summary: RdpsAttributionSummary }) {
               viewBox="0 0 120 120"
               preserveAspectRatio="xMidYMid meet"
               role="img"
-              aria-label="四名干员总 RD 占比饼图"
+              aria-label="四名干员 RD 与其他占实际总伤比例饼图"
             >
-              <title>四名干员 RD 合计 {formatInteger(teamTotal)}</title>
+              <title>实际总伤 {formatInteger(actualTotal)}，四人 RD {formatInteger(teamTotal)}，其他 {formatInteger(otherDamage)}</title>
               {slices.length === 1 ? (
                 <circle
-                  className={`rdps-overview-series report-ppt-share-color is-segment-${slices[0].segmentIndex}`}
+                  className={`rdps-overview-series report-ppt-share-color is-segment-${slices[0].colorIndex}`}
                   cx="60"
                   cy="60"
                   r="52"
@@ -113,10 +97,10 @@ function RdpsTotalPie({ summary }: { summary: RdpsAttributionSummary }) {
               ) : slices.map((slice) => (
                 <path
                   key={slice.key}
-                  className={`rdps-overview-series report-ppt-share-color is-segment-${slice.segmentIndex}`}
+                  className={`rdps-overview-series report-ppt-share-color is-segment-${slice.colorIndex}`}
                   d={pieSlicePath(60, 60, 52, slice.startAngle, slice.endAngle)}
                 >
-                  <title>{slice.name}：{formatInteger(slice.damage)} / {formatPercent(slice.damage / teamTotal)}</title>
+                  <title>{slice.name}：{formatInteger(slice.damage)} / {formatPercent(slice.shareOfActual)}</title>
                 </path>
               ))}
             </svg>
@@ -124,13 +108,13 @@ function RdpsTotalPie({ summary }: { summary: RdpsAttributionSummary }) {
           <div className="rdps-overview-legend">
             {parts.map((part) => (
               <div key={part.key} className="rdps-overview-legend-row">
-                <span className={`rdps-overview-legend-swatch rdps-overview-series report-ppt-share-color is-segment-${part.segmentIndex}`} />
+                <span className={`rdps-overview-legend-swatch rdps-overview-series report-ppt-share-color is-segment-${part.colorIndex}`} />
                 <strong>{part.name}</strong>
                 <em>{formatInteger(part.damage)}</em>
-                <small>{formatPercent(teamTotal === 0 ? 0 : part.damage / teamTotal)}</small>
+                <small>{formatPercent(part.shareOfActual)}</small>
               </div>
             ))}
-            <div className="rdps-overview-total">RD 合计 {formatInteger(teamTotal)}</div>
+            <div className="rdps-overview-total">总伤 {formatInteger(actualTotal)}</div>
           </div>
         </div>
       )}
@@ -140,8 +124,13 @@ function RdpsTotalPie({ summary }: { summary: RdpsAttributionSummary }) {
 
 /** 图 3 右侧：按干员聚合后的 RD 总量柱状图，不重复域明细。 */
 function RdpsTotalBars({ summary }: { summary: RdpsAttributionSummary }) {
-  const bars = buildOverviewCharacters(summary);
-  const teamTotal = bars.reduce((sum, bar) => sum + bar.damage, 0);
+  const model = buildRdpsOverviewModel(summary);
+  const bars = model.characters.map((character) => ({
+    key: character.characterId,
+    name: character.characterName,
+    damage: character.damage,
+  }));
+  const { actualTotal, teamTotal } = model;
   if (bars.length === 0) {
     return (
       <section className="rdps-overview-panel">
@@ -197,7 +186,7 @@ function RdpsTotalBars({ summary }: { summary: RdpsAttributionSummary }) {
                 height={Math.max(rectHeight, bar.damage === 0 ? 0 : 1)}
                 rx="3"
               >
-                <title>{bar.name}：{formatInteger(bar.damage)} / {formatPercent(teamTotal === 0 ? 0 : bar.damage / teamTotal)}</title>
+                <title>{bar.name}：{formatInteger(bar.damage)} / {formatPercent(actualTotal > 0 ? bar.damage / actualTotal : 0)}</title>
               </rect>
               <text className="rdps-overview-bar-value" x={x + barWidth / 2} y={valueLabelY} textAnchor="middle">
                 {formatInteger(bar.damage)}
@@ -289,7 +278,7 @@ export function RdpsCharacterSplitChart({ summary }: { summary: RdpsAttributionS
         ))}
       </div>
       {summary.diagnostics.outOfTeamCharacterCount > 0 && (
-        <div className="rdps-warn">队伍外来源不属于当前四人，未显示在图 3 / 图 4</div>
+        <div className="rdps-warn">队伍外来源已合并为图 3 的“其他”，图 4 仅显示当前四人</div>
       )}
     </div>
   );

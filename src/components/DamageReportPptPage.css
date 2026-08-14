@@ -862,6 +862,10 @@
   color: #b0afa9;
 }
 
+.report-ppt-share-color.is-segment-4 {
+  color: #d2d1cc;
+}
+
 .report-ppt-chart-legend {
   display: flex;
   flex-direction: column;

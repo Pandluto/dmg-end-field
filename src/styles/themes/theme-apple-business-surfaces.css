@@ -2612,6 +2612,10 @@
   color: #35363c;
 }
 
+:root[data-theme="apple-midnight"] .report-ppt-share-color.is-segment-4 {
+  color: #73737a;
+}
+
 :root[data-theme="apple-midnight"] .report-ppt-legend-row:nth-child(1) span {
   background: #f5f5f7 !important;
 }

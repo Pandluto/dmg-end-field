@@ -1291,6 +1291,12 @@
   background: #b095d3;
 }
 
+:root[data-theme="liquid-tide"] .report-ppt-share-color.is-segment-4 {
+  color: #b7c0d2;
+  fill: #b7c0d2;
+  background: #b7c0d2;
+}
+
 :root[data-theme="liquid-tide"] .report-ppt-petal-base {
   fill: rgba(111, 128, 180, 0.16);
   stroke: rgba(255, 255, 255, 0.78);

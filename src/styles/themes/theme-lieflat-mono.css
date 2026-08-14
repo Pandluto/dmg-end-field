@@ -647,6 +647,10 @@
   color: var(--ink-indigo);
 }
 
+:root[data-theme="lieflat-mono"] .report-ppt-share-color.is-segment-4 {
+  color: #c8c2b7;
+}
+
 :root[data-theme="lieflat-mono"] .report-ppt-petal-base {
   fill: var(--ink-paper-deep);
   stroke: var(--ink-outline-soft);

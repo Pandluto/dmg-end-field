@@ -14,6 +14,7 @@ import type {
   RdpsCharacterContribution,
   RdpsDomain,
 } from '../../core/services/rdpsAttribution.types';
+import { buildRdpsOverviewModel } from '../../core/services/rdpsOverviewModel';
 import type { Character, SkillType } from '../../types';
 import {
   getElementBackgroundColor,
@@ -589,17 +590,14 @@ function SkillDamageBars({ rows }: { rows: DisplayReportRow[] }) {
 
 function MobileRdpsOverview({ summary }: { summary: RdpsAttributionSummary | undefined }) {
   if (!summary) return <EmptyReportState>暂无 RD 归因数据</EmptyReportState>;
-  const characters = summary.characters.slice(0, 4);
-  if (characters.length === 0) return <EmptyReportState>当前队伍没有可归因干员</EmptyReportState>;
-  const teamTotal = characters.reduce((sum, character) => sum + character.damage, 0);
-  const canRenderPie = teamTotal > 0 && characters.every((character) => character.damage >= 0);
-  const positiveCharacters = characters.filter((character) => character.damage > 0);
+  const model = buildRdpsOverviewModel(summary);
+  const { actualTotal, characters, parts, canRenderPie } = model;
+  if (characters.length === 0 && actualTotal === 0) return <EmptyReportState>当前队伍没有可归因干员</EmptyReportState>;
+  const positiveParts = parts.filter((part) => part.damage > 0);
   let accumulatedShare = 0;
-  const segments = positiveCharacters.map((character) => {
-    const teamIndex = characters.findIndex((candidate) => candidate.characterId === character.characterId);
-    const share = character.damage / teamTotal;
-    const segment = { ...character, teamIndex, share, offset: accumulatedShare };
-    accumulatedShare += share;
+  const segments = positiveParts.map((part) => {
+    const segment = { ...part, offset: accumulatedShare };
+    accumulatedShare += part.shareOfActual;
     return segment;
   });
   const maxAbsolute = Math.max(...characters.map((character) => Math.abs(character.damage)), 1);
@@ -609,55 +607,90 @@ function MobileRdpsOverview({ summary }: { summary: RdpsAttributionSummary | und
       {canRenderPie && segments.length > 0 ? (
         <div className="mobile-report-share-layout mobile-report-rdps-share-layout">
           <div className="mobile-report-share-chart">
-            <svg className="mobile-report-share-svg" viewBox="0 0 200 200" role="img" aria-label="四名干员总 RD 占比">
-              <circle className="mobile-report-share-track" cx="100" cy="100" r="66" pathLength="100" />
-              {segments.map((character) => (
+            <svg className="mobile-report-share-svg" viewBox="0 0 200 200" role="img" aria-label="四名干员 RD 与其他占实际总伤比例">
+              <circle
+                className="mobile-report-share-track"
+                cx="100"
+                cy="100"
+                r="66"
+                pathLength="100"
+                fill="none"
+                stroke={REPORT_CHART_COLORS.grid}
+                strokeWidth="34"
+                style={{ fill: 'none', stroke: REPORT_CHART_COLORS.grid, strokeWidth: 34 }}
+              />
+              {segments.map((part) => (
                 <circle
-                  key={character.characterId}
+                  key={part.key}
                   className="mobile-report-share-segment"
                   cx="100"
                   cy="100"
                   r="66"
                   pathLength="100"
-                  stroke={getSeriesColor(character.teamIndex)}
-                  strokeDasharray={`${character.share * 100} ${100 - character.share * 100}`}
-                  strokeDashoffset={-character.offset * 100}
+                  fill="none"
+                  stroke={getSeriesColor(part.colorIndex)}
+                  strokeWidth="34"
+                  strokeLinecap="butt"
+                  strokeDasharray={`${part.shareOfActual * 100} ${100 - part.shareOfActual * 100}`}
+                  strokeDashoffset={-part.offset * 100}
                   transform="rotate(-90 100 100)"
                   style={{
-                    stroke: getSeriesColor(character.teamIndex),
-                    strokeDasharray: `${character.share * 100} ${100 - character.share * 100}`,
-                    strokeDashoffset: -character.offset * 100,
+                    fill: 'none',
+                    stroke: getSeriesColor(part.colorIndex),
+                    strokeWidth: 34,
+                    strokeLinecap: 'butt',
+                    strokeDasharray: `${part.shareOfActual * 100} ${100 - part.shareOfActual * 100}`,
+                    strokeDashoffset: -part.offset * 100,
                   }}
                 >
-                  <title>{character.characterName}：{formatSignedDamage(character.damage)} / {formatPercentage(character.share)}</title>
+                  <title>{part.name}：{formatSignedDamage(part.damage)} / {formatPercentage(part.shareOfActual)}</title>
                 </circle>
               ))}
-              <circle className="mobile-report-share-hole" cx="100" cy="100" r="46" />
-              <text className="mobile-report-share-total-label" x="100" y="92" textAnchor="middle">RD 合计</text>
-              <text className="mobile-report-share-total mobile-report-rdps-total" x="100" y="113" textAnchor="middle">
-                {formatCompactDamage(teamTotal)}
+              <circle
+                className="mobile-report-share-hole"
+                cx="100"
+                cy="100"
+                r="46"
+                fill={REPORT_CHART_COLORS.paper}
+                style={{ fill: REPORT_CHART_COLORS.paper }}
+              />
+              <text
+                className="mobile-report-share-total-label"
+                x="100"
+                y="92"
+                textAnchor="middle"
+                fill={REPORT_CHART_COLORS.muted}
+                style={{ fill: REPORT_CHART_COLORS.muted }}
+              >总伤</text>
+              <text
+                className="mobile-report-share-total mobile-report-rdps-total"
+                x="100"
+                y="113"
+                textAnchor="middle"
+                fill={REPORT_CHART_COLORS.ink}
+                style={{ fill: REPORT_CHART_COLORS.ink }}
+              >
+                {formatCompactDamage(actualTotal)}
               </text>
             </svg>
           </div>
-          <ol className="mobile-report-share-legend" aria-label="四名干员 RD 占比明细">
-            {characters.map((character, index) => (
-              <li key={character.characterId} className="mobile-report-legend-item">
-                <span className="mobile-report-legend-swatch" style={{ backgroundColor: getSeriesColor(index) }} aria-hidden="true" />
+          <ol className="mobile-report-share-legend" aria-label="四名干员 RD 与其他占比明细">
+            {parts.map((part) => (
+              <li key={part.key} className="mobile-report-legend-item">
+                <span className="mobile-report-legend-swatch" style={{ backgroundColor: getSeriesColor(part.colorIndex) }} aria-hidden="true" />
                 <span className="mobile-report-legend-copy">
-                  <span className="mobile-report-legend-label">{character.characterName}</span>
-                  <span className="mobile-report-legend-value">{formatSignedDamage(character.damage)}</span>
+                  <span className="mobile-report-legend-label">{part.name}</span>
+                  <span className="mobile-report-legend-value">{formatSignedDamage(part.damage)}</span>
                 </span>
-                <span className="mobile-report-legend-share">
-                  {formatPercentage(teamTotal === 0 ? 0 : character.damage / teamTotal)}
-                </span>
+                <span className="mobile-report-legend-share">{formatPercentage(part.shareOfActual)}</span>
               </li>
             ))}
           </ol>
         </div>
       ) : (
         <div className="mobile-report-rdps-signed-notice" role="note">
-          <strong>{formatCompactDamage(teamTotal)}</strong>
-          <span>{characters.some((character) => character.damage < 0) ? '存在负贡献，改用带符号对比' : '暂无正 RD'}</span>
+          <strong>{formatCompactDamage(actualTotal)}</strong>
+          <span>{parts.some((part) => part.damage < 0) ? '存在负贡献，改用带符号对比' : '暂无正 RD'}</span>
         </div>
       )}
       <ol className="mobile-report-rdps-team-bars" aria-label="四名干员总 RD 对比">
@@ -724,7 +757,7 @@ function MobileRdpsDomains({ summary }: { summary: RdpsAttributionSummary | unde
         <p className="mobile-report-rdps-warning">{unresolvedCount} 个来源未能唯一解析，已归入自身/其他</p>
       ) : null}
       {summary.diagnostics.outOfTeamCharacterCount > 0 ? (
-        <p className="mobile-report-rdps-warning">队伍外来源不属于当前四人，未显示在图 3 / 图 4</p>
+        <p className="mobile-report-rdps-warning">队伍外来源已合并为图 3 的“其他”，图 4 仅显示当前四人</p>
       ) : null}
     </div>
   );
@@ -745,7 +778,7 @@ function ChartReportSlide({
 }) {
   return (
     <section className="mobile-report-slide" aria-labelledby={titleId}>
-      <ReportSlideHeader index="03" title="伤害图表" note="伤害、时序、四干员 RD 与来源域明细" titleId={titleId} />
+      <ReportSlideHeader index="03" title="伤害图表" note="伤害、时序、总 RD 归因与来源域明细" titleId={titleId} />
       <div className="mobile-report-damage-strip">
         <span><small>期望</small><strong>{formatDamage(report.totalExpected)}</strong></span>
         <span><small>非暴击</small><strong>{formatDamage(report.totalNonCrit)}</strong></span>
@@ -760,7 +793,7 @@ function ChartReportSlide({
         <CumulativeDamageChart entries={entries} />
       </article>
       <article className="mobile-report-chart-card">
-        <h3><span>图 3</span>四干员总 RD</h3>
+        <h3><span>图 3</span>总 RD 归因</h3>
         <MobileRdpsOverview summary={report.rdps} />
       </article>
       <article className="mobile-report-chart-card">
