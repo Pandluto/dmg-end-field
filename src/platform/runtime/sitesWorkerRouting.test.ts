@@ -2,11 +2,11 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import sitesWorker from '../../../worker/index'
 
-const viteConfigSource = readFileSync(new URL('../../../vite.config.ts', import.meta.url), 'utf8')
+const staticHeadersSource = readFileSync(new URL('../../../public/_headers', import.meta.url), 'utf8')
 assert.match(
-  viteConfigSource,
-  /run_worker_first:\s*\[[\s\S]*?['"]\/assets\/\*['"]/,
-  'Sites must route hashed build assets through the Worker cache policy',
+  staticHeadersSource,
+  /\/assets\/:fingerprinted\s+[\s\S]*?Cache-Control:\s*public, max-age=31536000, immutable/,
+  'Sites static headers must cache direct fingerprinted build assets immutably',
 )
 
 const requestedPaths: string[] = []

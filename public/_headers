@@ -30,3 +30,7 @@
 /manifest.webmanifest
   Cache-Control: no-store, no-cache, must-revalidate
   Pragma: no-cache
+
+/assets/:fingerprinted
+  Cache-Control: public, max-age=31536000, immutable
+  X-Content-Type-Options: nosniff

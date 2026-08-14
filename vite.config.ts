@@ -105,7 +105,7 @@ export default defineConfig(async () => {
             '/web-data-manifest.json',
             '/web-image-manifest.json',
             '/resources/releases/*',
-            '/assets/*',
+            '/assets/images/*',
           ],
         },
       },
