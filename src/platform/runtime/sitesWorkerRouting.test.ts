@@ -11,8 +11,8 @@ assert.match(
 )
 assert.match(
   viteConfigSource,
-  /run_worker_first:\s*\[[\s\S]*?['"]\/assets\/\*['"]/,
-  'Sites must route all assets through the Worker cache policy',
+  /run_worker_first:\s*true/,
+  'Sites must route every request through the Worker cache policy',
 )
 
 const requestedPaths: string[] = []
