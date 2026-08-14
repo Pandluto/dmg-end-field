@@ -284,7 +284,9 @@ function applyMobileSourceFilter(
     if (filter.imbalanceEnabled === false && buff.type === 'imbalanceDmgBonus') return false;
     if (filter.enabledSourceKeys === undefined || filter.enabledSourceKeys === null) return true;
     const sourceKey = filter.sourceKeyOf?.(buff) ?? mobileSourceKeyOf(actionId, buff, sidecar);
-    return sourceKey === null || filter.enabledSourceKeys.has(sourceKey);
+    return sourceKey === null
+      ? filter.unattributedBuffsEnabled !== false
+      : filter.enabledSourceKeys.has(sourceKey);
   });
 }
 
@@ -667,6 +669,43 @@ function evaluateMobileRdpsTotal(
   }, 0);
 }
 
+function evaluateMobileDirectDamageByCharacter(
+  draft: MobileDraft,
+  catalog: MobileCatalog,
+  operatorSnapshots: Record<string, ConfigSnapshot>,
+  sourceSidecar: RdpsSourceSidecar,
+): Map<string, number> {
+  const directDamageByCharacter = new Map<string, number>();
+  const directDamageFilter: DamageReportSourceFilter = {
+    enabledSourceKeys: new Set<RdpsSourceKey>(),
+    unattributedBuffsEnabled: false,
+    imbalanceEnabled: false,
+  };
+  for (const slot of draft.slots) {
+    const action = slot.action;
+    if (!action) continue;
+    const config = draft.operatorConfigs[action.operatorId];
+    const snapshot = operatorSnapshots[action.operatorId];
+    if (!config || !snapshot) continue;
+    const calculation = calculateMobileSlot(
+      slot.id,
+      action,
+      catalog,
+      config,
+      snapshot,
+      operatorSnapshots,
+      directDamageFilter,
+      sourceSidecar,
+    );
+    const directDamage = calculation?.result.summary.totalExpected ?? 0;
+    directDamageByCharacter.set(
+      action.operatorId,
+      (directDamageByCharacter.get(action.operatorId) ?? 0) + directDamage,
+    );
+  }
+  return directDamageByCharacter;
+}
+
 export function buildMobileRuntimeState(
   draft: MobileDraft,
   catalog: MobileCatalog,
@@ -701,6 +740,12 @@ export function buildMobileRuntimeState(
     report.rdps = computeRdpsAttributionFromApplications({
       applications: collectMobileRdpsApplications(draft, resolution),
       actualTotal: report.totalExpected,
+      directDamageByCharacter: evaluateMobileDirectDamageByCharacter(
+        draft,
+        catalog,
+        operatorSnapshots,
+        resolution.sidecar,
+      ),
       evaluateTotal: (enabledSourceKeys) => evaluateMobileRdpsTotal(
         draft,
         catalog,

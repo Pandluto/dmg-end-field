@@ -191,6 +191,15 @@ try {
   assert.equal(runtimeWithRdps.report.rdps.characters[0]?.characterId, character.id);
   assert.ok(runtimeWithRdps.report.rdps.sources.some((source) => source.characterId === character.id));
   assert.ok(runtimeWithRdps.report.rdps.diagnostics.resolvedLegacyDefinitionCount > 0);
+  assert.ok(runtimeWithRdps.report.rdps.directDamageTotal > 0);
+  assert.ok(
+    runtimeWithRdps.report.rdps.sources.some((source) => (
+      source.characterId === character.id
+      && source.domain === 'operator'
+      && source.directDamage > 0
+    )),
+  );
+  assert.ok(Math.abs(runtimeWithRdps.report.rdps.residualTotal) < 1e-6);
   assert.ok(runtimeWithRdps.report.rdps.accountingError < 1e-6);
 } finally {
   globalThis.fetch = originalFetch;

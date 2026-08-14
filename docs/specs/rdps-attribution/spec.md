@@ -2,7 +2,9 @@
 
 ## Status
 
-规划中，尚未实现。
+历史 v1 基线；当前实现与验收口径由
+[Phase 2 / v3 全伤害归属修正](../rdps-attribution-phase2/spec.md#formula-correction全伤害归属v3)
+覆盖。
 
 本文档定义 1.8 LTS 伤害报表中的 RDPS（相对伤害贡献）归因能力。当前实现以代码为准；本文档是后续开发、验收和回归的约束，不要求恢复已退役的 Damage Sheet、Excel 或真实 PPTX 导出能力。
 
@@ -42,6 +44,9 @@
 `sourceName` 只用于展示，不参与分组、去重或计算。
 
 ### Residual / 自身/其他
+
+> 以下“基础面板进入 Residual”是 v1 历史口径，已被 v3 覆盖。当前基础/直接伤害
+> 归入出伤干员 operator 域，Residual 只保留未解析来源、严格排除项与浮点尾差。
 
 Residual 是实际总伤害中没有被可归因来源覆盖的部分。它至少包括：
 
@@ -85,7 +90,8 @@ Residual 不是“计算失败”；它是图 3 中必须显示的正式对账�
 
 ## Policy Version
 
-本阶段固定使用 `rdps-v1-owen-buff-only-strict-imbalance` 作为 `policyVersion`。任何改变来源归属、失衡处理、静态面板口径或负值展示规则的修改，都必须提升 policy version，不能静默改变历史结果语义。
+本节记录 v1 的 `rdps-v1-owen-buff-only-strict-imbalance`。当前 v3 使用
+`rdps-v3-direct-damage-operator-owen-runtime-provenance-strict-imbalance`。任何改变来源归属、失衡处理、静态面板口径或负值展示规则的修改，都必须提升 policy version，不能静默改变历史结果语义。
 
 ## Data Contract
 

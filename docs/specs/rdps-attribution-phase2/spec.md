@@ -27,6 +27,33 @@ RDPS 来源身份仍然是稳定的“干员 ID + 来源域”，但不要求这
 
 只有在所有确定性解析路径都失败或出现歧义后，该 Buff 才能进入“自身/其他”。不得因为旧记录缺少第一轮新增字段就直接判定无来源。
 
+## Formula Correction：全伤害归属（v3）
+
+2026-08-14 的“五色队-热启动循环”真实数据复核进一步确认：Phase 1/2 只把
+`V(full) - V(empty)` 的 Buff 增量计入 RD，错误地把 `V(empty)` 中每个干员
+自己造成的基础/直接伤害全部放进“其他”。本节覆盖第一轮的 Residual 基础伤害
+口径以及本文档原有的“基础面板不归因”表述。
+
+- 每个按钮在所有 Buff 关闭、失衡关闭时产生的直接伤害，按按钮的稳定
+  `characterId` 归入该干员的 `operator` 域。
+- `operator RD = 该干员直接伤害 + operator 来源 Buff 的 Owen 边际贡献`。
+- `weapon` 与 `equipment` 仍只接收各自 Buff 的 Owen 边际贡献；本轮不把武器
+  基础攻击、装备静态属性从面板中拆出来，它们随完整基础面板统一归入出伤干员本体。
+- Owen 世界的空联盟继续保留未解析 Buff，以保证已解析来源的边际计算稳定；另做
+  一次关闭所有 Buff 的直接伤害评估，避免把未解析 Buff 误归给出伤者。
+- Residual 只保留未解析/歧义来源、严格排除的失衡及浮点尾差；没有这些情况时，
+  当前四名干员贡献之和必须等于 `actualTotal`，“其他”为 0。
+- 本语义使用 `rdps-v3-direct-damage-operator-owen-runtime-provenance-strict-imbalance`。
+
+结果合同新增：
+
+```text
+directDamageTotal = Σ 每名出伤干员的无 Buff 直接伤害
+sourceContributionTotal = Σ 已解析来源的 Owen Buff 边际贡献
+attributedTotal = directDamageTotal + sourceContributionTotal
+residualTotal = actualTotal - attributedTotal
+```
+
 ## Goals
 
 - 新数据和旧数据使用同一个归因结果合同。
@@ -43,7 +70,7 @@ RDPS 来源身份仍然是稳定的“干员 ID + 来源域”，但不要求这
 - 不按模糊中文名称猜测来源。
 - 不把自定义 Buff 强行归给当前出伤角色。
 - 不修改普通伤害公式。
-- 不归因武器基础攻击、装备静态属性或基础面板。
+- 不把武器基础攻击、装备静态属性从基础面板中单独拆给 weapon/equipment 域；完整基础伤害统一归入出伤干员 operator 域。
 - 不把失衡分配给任意干员。
 - 不实现真实 PPTX、PNG 或 PDF 导出。
 - 不要求把旧 SQLite 保存为新 schema 后才能查看报表。
@@ -235,7 +262,7 @@ Evaluate 阶段只能消费 resolve 后的不可变输入，不得再次读取 s
 
 ```text
 owenEfficiencyError =
-  abs(sum(source.damage) - (attributionWorldTotal - baselineTotal))
+  abs(sourceContributionTotal - (attributionWorldTotal - baselineTotal))
 
 hierarchyError =
   abs(sum(character.domain.damage) - sum(source.damage for team characters))
@@ -244,7 +271,7 @@ accountingError =
   abs(actualTotal - attributedTotal - residualTotal)
 ```
 
-`attributedTotal` SHALL 来自 Owen 来源贡献求和；`residualTotal` 可以定义为 `actualTotal - attributedTotal`，但 UI 不能只展示 accountingError 并宣称归因正确。三种误差必须分别输出和验收。
+`source.damage` 为 `directDamage + marginalDamage`；`attributedTotal` SHALL 来自全部来源行求和，`sourceContributionTotal` 单独承载 Owen 边际贡献求和。`residualTotal` 可以定义为 `actualTotal - attributedTotal`，但 UI 不能只展示 accountingError 并宣称归因正确。三种误差必须分别输出和验收。
 
 ### Cache identity
 
@@ -289,7 +316,7 @@ Definition count 按唯一 Buff 定义/稳定 ID 计数；application count 按�
 - 图 3 保持左下位置，但不再展示逐来源表格、域或资产明细；本节覆盖第一轮的“RD total table”要求。
 - 图 3 只包含两张图：左侧饼图展示“来源 RD / 自身与其他”的总伤构成，右侧柱状图展示按干员聚合后的 RD 总量。
 - 柱状图使用统一角色目录中的名称，当前队伍按队伍顺序展示，队伍外来源追加展示且不得丢失。
-- 图 3 的来源 RD 合计必须与 `attributedTotal` 一致，饼图两项必须与 `actualTotal = attributedTotal + residualTotal` 一致。
+- 图 3 的四名干员 RD 合计来自直接伤害与 Buff 边际贡献，必须与 `attributedTotal` 一致；饼图必须满足 `actualTotal = attributedTotal + residualTotal`。
 - 图 3 不重复图 4 的 operator/weapon/equipment 域拆分，也不显示武器、装备或单 Buff 名称。
 - 负贡献在柱状图中保留符号；若来源 RD 或 Residual 的聚合值为负，不得伪造饼图比例，应显示不适用空态。
 - 解析诊断、Owen 效率误差和总账误差继续保留在 summary/测试合同中，但不占用图 3 的可视区域。

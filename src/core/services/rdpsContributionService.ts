@@ -1,8 +1,9 @@
 /**
- * RDPS Owen 归因引擎：分层 Shapley（Owen value）分配"可归因 Buff 来源"
- * 对期望总伤害的贡献。归因世界固定关闭失衡（strict-imbalance policy），
- * 无 owner 的不可归因 Buff 恒启用（属于基线）。所有 coalition 结果按
- * context fingerprint + policyVersion + 来源 mask 缓存。
+ * RDPS 归因引擎：无 Buff 的直接伤害归入实际出伤干员的 operator 域，
+ * 分层 Shapley（Owen value）继续分配可归因 Buff 的边际贡献。归因世界
+ * 固定关闭失衡（strict-imbalance policy），无 owner Buff 仅保留在 Owen
+ * 基线中并最终进入 residual。所有 coalition 结果按 context fingerprint +
+ * policyVersion + 来源 mask 缓存。
  */
 
 import type {
@@ -22,6 +23,7 @@ import type { SkillButtonBuff } from '../../types/storage';
 import { buffApplicationKeyOf } from './rdpsSourceResolutionContext';
 
 const DOMAINS: readonly RdpsDomain[] = ['operator', 'weapon', 'equipment'];
+const NO_SOURCE_KEYS = new Set<RdpsSourceKey>();
 
 /** 默认来源键（与 evaluate 路径一致）。 */
 function sourceKeyOf(buff: SkillButtonBuff): RdpsSourceKey | null {
@@ -202,6 +204,8 @@ export interface RdpsAttributionOptions {
 export interface RdpsAttributionEvaluationInput {
   applications: readonly RdpsAttributableApplication[];
   actualTotal: number;
+  /** 所有 Buff 关闭且严格排除失衡后，按实际出伤干员聚合的直接伤害。 */
+  directDamageByCharacter?: ReadonlyMap<string, number>;
   evaluateTotal: (enabledSourceKeys: ReadonlySet<RdpsSourceKey>) => number;
   excludedImbalanceEffectCount?: number;
 }
@@ -216,8 +220,16 @@ export function computeRdpsAttributionFromApplications(
 ): RdpsAttributionSummary {
   const policyVersion = options.policyVersion ?? RDPS_POLICY_VERSION;
   const contextFingerprint = options.contextFingerprint ?? `${evaluation.applications.length}-applications`;
+  const directDamageByCharacter = new Map<string, number>();
+  for (const [characterId, damage] of evaluation.directDamageByCharacter ?? []) {
+    if (!characterId || !Number.isFinite(damage)) continue;
+    directDamageByCharacter.set(characterId, (directDamageByCharacter.get(characterId) ?? 0) + damage);
+  }
   const teamCharacterIds = Array.from(new Set(
-    (options.teamCharacterIds ?? evaluation.applications.map((application) => application.characterId)).filter(Boolean),
+    (options.teamCharacterIds ?? [
+      ...evaluation.applications.map((application) => application.characterId),
+      ...directDamageByCharacter.keys(),
+    ]).filter(Boolean),
   ));
   const teamCharacterIdSet = new Set(teamCharacterIds);
 
@@ -304,21 +316,21 @@ export function computeRdpsAttributionFromApplications(
   const contributionByKey = computeOwenValues(groups, evaluateMask);
 
   // 6. 组装结果
+  const attributableCharacterIds = new Set([
+    ...Array.from(statsByKey.values()).map((stat) => stat.characterId),
+    ...directDamageByCharacter.keys(),
+  ]);
   const diagnostics: RdpsDiagnostics = {
     resolvedExplicitDefinitionCount: options.resolutionDiagnostics?.resolvedExplicitDefinitionCount ?? 0,
     resolvedLegacyDefinitionCount: options.resolutionDiagnostics?.resolvedLegacyDefinitionCount ?? 0,
     unresolvedDefinitionCount: options.resolutionDiagnostics?.unresolvedDefinitionCount ?? 0,
     ambiguousDefinitionCount: options.resolutionDiagnostics?.ambiguousDefinitionCount ?? 0,
     unresolvedApplicationCount: options.resolutionDiagnostics?.unresolvedApplicationCount ?? 0,
-    outOfTeamCharacterCount: new Set(
-      Array.from(statsByKey.values())
-        .filter((stat) => !teamCharacterIdSet.has(stat.characterId))
-        .map((stat) => stat.characterId),
-    ).size,
+    outOfTeamCharacterCount: Array.from(attributableCharacterIds)
+      .filter((characterId) => !teamCharacterIdSet.has(characterId)).length,
     unresolvedDisplayNameCount: new Set(
-      Array.from(statsByKey.values())
-        .filter((stat) => stat.characterName === stat.characterId)
-        .map((stat) => stat.characterId),
+      Array.from(attributableCharacterIds)
+        .filter((characterId) => (nameByCharacterId.get(characterId) ?? characterId) === characterId),
     ).size,
     excludedImbalanceEffectCount: evaluation.excludedImbalanceEffectCount ?? 0,
     negativeContributionCount: 0,
@@ -327,19 +339,22 @@ export function computeRdpsAttributionFromApplications(
 
   const sources: RdpsSourceContribution[] = [];
   const characterAggregate = new Map<string, { damage: number; domains: Map<RdpsDomain, number> }>();
-  for (const stat of statsByKey.values()) {
-    const damage = contributionByKey.get(stat.key) ?? 0;
-    if (damage < 0) diagnostics.negativeContributionCount += 1;
+  const appendSource = (stat: SourceStat, marginalDamage: number, directDamage: number): void => {
+    const damage = directDamage + marginalDamage;
+    const negative = marginalDamage < 0 || damage < 0;
+    if (negative) diagnostics.negativeContributionCount += 1;
     sources.push({
       key: stat.key,
       characterId: stat.characterId,
       characterName: stat.characterName,
       domain: stat.domain,
       label: stat.label,
+      directDamage,
+      marginalDamage,
       damage,
       shareOfActual: actualTotal > 0 ? damage / actualTotal : 0,
       includedBuffCount: stat.buffCount,
-      negative: damage < 0,
+      negative,
     });
     const characterId = teamCharacterIdSet.has(stat.characterId) ? stat.characterId : 'out-of-team';
     const aggregate = characterAggregate.get(characterId) ?? { damage: 0, domains: new Map() };
@@ -348,6 +363,27 @@ export function computeRdpsAttributionFromApplications(
       aggregate.domains.set(stat.domain, (aggregate.domains.get(stat.domain) ?? 0) + damage);
     }
     characterAggregate.set(characterId, aggregate);
+  };
+
+  for (const stat of statsByKey.values()) {
+    const directDamage = stat.domain === 'operator'
+      ? directDamageByCharacter.get(stat.characterId) ?? 0
+      : 0;
+    appendSource(stat, contributionByKey.get(stat.key) ?? 0, directDamage);
+  }
+  // 没有 operator Buff 的出伤干员仍必须拥有一个本体来源行。
+  for (const [characterId, directDamage] of directDamageByCharacter) {
+    const key = buildRdpsSourceKey(characterId, 'operator');
+    if (statsByKey.has(key)) continue;
+    const characterName = nameByCharacterId.get(characterId) ?? characterId;
+    appendSource({
+      key,
+      characterId,
+      characterName,
+      domain: 'operator',
+      label: `${characterName} · 本体`,
+      buffCount: 0,
+    }, 0, directDamage);
   }
 
   const characters: RdpsCharacterContribution[] = [];
@@ -370,10 +406,13 @@ export function computeRdpsAttributionFromApplications(
     });
   }
 
+  const directDamageTotal = Array.from(directDamageByCharacter.values())
+    .reduce((sum, damage) => sum + damage, 0);
+  const sourceContributionTotal = sources.reduce((sum, item) => sum + item.marginalDamage, 0);
   const attributedTotal = sources.reduce((sum, item) => sum + item.damage, 0);
   const residualTotal = actualTotal - attributedTotal;
   const accountingError = Math.abs(actualTotal - attributedTotal - residualTotal);
-  const owenEfficiencyError = Math.abs(attributedTotal - (attributionWorldTotal - baselineTotal));
+  const owenEfficiencyError = Math.abs(sourceContributionTotal - (attributionWorldTotal - baselineTotal));
   const teamSourceSum = sources
     .filter((item) => item.characterId !== undefined && teamCharacterIdSet.has(item.characterId))
     .reduce((sum, item) => sum + item.damage, 0);
@@ -389,6 +428,8 @@ export function computeRdpsAttributionFromApplications(
     actualTotal,
     attributionWorldTotal,
     baselineTotal,
+    directDamageTotal,
+    sourceContributionTotal,
     attributedTotal,
     residualTotal,
     accountingError,
@@ -420,6 +461,17 @@ export function computeRdpsAttribution(
   return computeRdpsAttributionFromApplications({
     applications: collectRdpsAttributableApplications(inputs),
     actualTotal: evaluateDamageReportContext(inputs, undefined).totalExpected,
+    directDamageByCharacter: inputs.reduce((damageByCharacter, input) => {
+      const characterId = input.runtimeButton.characterId;
+      if (!characterId) return damageByCharacter;
+      const directDamage = evaluateDamageReportContext([input], {
+        enabledSourceKeys: NO_SOURCE_KEYS,
+        unattributedBuffsEnabled: false,
+        imbalanceEnabled: false,
+      }).totalExpected;
+      damageByCharacter.set(characterId, (damageByCharacter.get(characterId) ?? 0) + directDamage);
+      return damageByCharacter;
+    }, new Map<string, number>()),
     evaluateTotal: (enabledSourceKeys) => evaluateDamageReportContext(inputs, {
       enabledSourceKeys,
       imbalanceEnabled: false,

@@ -10,6 +10,11 @@
 
 2026-08-14 视觉收口：图 3 已按反馈改为“左侧总伤 RD 构成饼图 + 右侧各干员总 RD 柱状图”，移除逐来源/域/资产表格；图 4 继续承担四名干员三域明细。已用同一真实轴验证明亮白、apple-midnight、lieflat-mono、liquid-tide，原用户主题已恢复。
 
+2026-08-14 v3 公式修正：基础/直接伤害不再进入 Residual，而是按出伤按钮的
+`characterId` 归入对应干员 `operator` 域；Owen 继续只分配 Buff 边际贡献。
+“五色队-热启动循环”实算为总伤 1,364,022.54、直接伤害 612,758.54、Buff
+边际贡献 751,264.00、Residual 0；四人贡献合计与总伤一致。
+
 标有 `[Sub-agent 可独立]` 的任务可以交给 sub-agent 独立完成。每个 sub-agent 只能修改任务声明的文件范围，并提交单一职责 commit；共享合同和最终接线由主 agent 串行处理。
 
 ## Dependency Map
@@ -31,6 +36,21 @@ RDPS2-4 真实 SQLite、浏览器、性能验收
                          ↓
 RDPS2-5 文档收口与提交
 ```
+
+## RDPS2-6：基础伤害归入出伤干员本体（主 Agent 串行）
+
+该修复同时改变共享合同、桌面评估器、移动评估器与 Owen 对账，不适合拆成互不依赖的
+sub-agent 修改；定向测试与真实 SQLite 回归可以独立复核。
+
+- [x] 提升 policyVersion，新增直接伤害与 Buff 边际贡献的独立总计。
+- [x] 增加“关闭全部 Buff + 关闭失衡”的直接伤害过滤口径。
+- [x] 桌面端按按钮 `characterId` 聚合直接伤害。
+- [x] 移动端按 action `operatorId` 聚合直接伤害。
+- [x] 将直接伤害合并到该干员 operator 来源行；无 operator Buff 时仍生成本体行。
+- [x] Owen 效率只核对 Buff 边际贡献，层级与总账核对完整 RD。
+- [x] 未解析 Buff 不进入直接伤害，继续留在 Residual。
+- [x] synthetic 回归覆盖直接伤害、operator/weapon 边际贡献与 unresolved Residual。
+- [x] `[Sub-agent 可独立复核]` 使用“五色队-热启动循环”验证四人合计等于总伤。
 
 RDPS2-2A/2B/2C 可以在共享合同完成后并行。RDPS2-2D 只修改算法与纯数学测试，不接触来源解析。RDPS2-2E 使用 mock summary 开发。RDPS2-2F 只提供 fixture、断言和测试辅助，不修改生产逻辑。
 

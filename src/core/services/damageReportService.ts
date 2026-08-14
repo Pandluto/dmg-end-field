@@ -162,8 +162,8 @@ function defaultSourceKeyOf(buff: SkillButtonBuff): string | null {
 }
 
 /**
- * RDPS 来源过滤：只保留"来源在启用集合内"的可归因 Buff；无 owner 的不可归因
- * Buff 恒启用（属于归因世界基线）；失衡在严格排除口径下被过滤。
+ * RDPS 来源过滤：只保留"来源在启用集合内"的可归因 Buff；Owen 世界默认
+ * 保留无 owner Buff，直接伤害基线可以显式关闭它们；失衡按严格口径过滤。
  */
 function applySourceFilter(buffs: SkillButtonBuff[], filter: DamageReportSourceFilter | undefined): SkillButtonBuff[] {
   if (!filter) return buffs;
@@ -171,7 +171,7 @@ function applySourceFilter(buffs: SkillButtonBuff[], filter: DamageReportSourceF
     if (filter.imbalanceEnabled === false && buff.type === 'imbalanceDmgBonus') return false;
     if (filter.enabledSourceKeys === undefined || filter.enabledSourceKeys === null) return true;
     const key = filter.sourceKeyOf ? filter.sourceKeyOf(buff) : defaultSourceKeyOf(buff);
-    if (key === null) return true;
+    if (key === null) return filter.unattributedBuffsEnabled !== false;
     return filter.enabledSourceKeys.has(key);
   });
 }

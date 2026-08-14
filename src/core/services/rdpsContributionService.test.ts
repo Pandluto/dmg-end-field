@@ -1,4 +1,8 @@
-import { collectRdpsAttributableApplications, computeOwenValues } from './rdpsContributionService';
+import {
+  collectRdpsAttributableApplications,
+  computeOwenValues,
+  computeRdpsAttributionFromApplications,
+} from './rdpsContributionService';
 import { createTwoCharacterInteractionWorld, createUnevenGroupWorld } from './rdpsTestFixtures';
 import { buildRdpsSourceKey } from './rdpsAttribution.types';
 import type { ResolvedButtonInputs } from './damageReportService';
@@ -196,5 +200,59 @@ assertClose(outTotal, 3, 'out-of-team aggregation enables all underlying leaves'
 assertClose(outResult.get('out1::operator') ?? 0, 1, 'out leaf 1 shares aggregate');
 assertClose(outResult.get('out2::weapon') ?? 0, 1, 'out leaf 2 shares aggregate');
 void outLeafCount;
+
+// v3 全伤害归属：直接伤害进入出伤干员 operator，Owen 只分配 Buff 增量；
+// 未解析 Buff 留在 Owen 基线并最终进入 residual。
+const alphaOperatorKey = buildRdpsSourceKey('alpha', 'operator');
+const alphaWeaponKey = buildRdpsSourceKey('alpha', 'weapon');
+const attribution = computeRdpsAttributionFromApplications({
+  applications: [
+    {
+      buff: { id: 'alpha-operator-buff' } as SkillButtonBuff,
+      applicationKey: 'button:alpha-operator-buff',
+      sourceKey: alphaOperatorKey,
+      characterId: 'alpha',
+      domain: 'operator',
+    },
+    {
+      buff: { id: 'alpha-weapon-buff' } as SkillButtonBuff,
+      applicationKey: 'button:alpha-weapon-buff',
+      sourceKey: alphaWeaponKey,
+      characterId: 'alpha',
+      domain: 'weapon',
+    },
+  ],
+  actualTotal: 190,
+  directDamageByCharacter: new Map([
+    ['alpha', 100],
+    ['beta', 50],
+  ]),
+  // 空联盟 160 = 150 直接伤害 + 10 未解析 Buff；完整联盟再增加 30。
+  evaluateTotal: (enabled) => 160
+    + (enabled.has(alphaOperatorKey) ? 20 : 0)
+    + (enabled.has(alphaWeaponKey) ? 10 : 0),
+}, {
+  teamCharacterIds: ['alpha', 'beta'],
+  characterNameById: new Map([
+    ['alpha', '干员甲'],
+    ['beta', '干员乙'],
+  ]),
+});
+assertClose(attribution.directDamageTotal, 150, 'direct damage total belongs to damage dealers');
+assertClose(attribution.sourceContributionTotal, 30, 'Owen total only contains resolved Buff uplift');
+assertClose(attribution.attributedTotal, 180, 'attributed total combines direct and marginal damage');
+assertClose(attribution.residualTotal, 10, 'unresolved baseline effect stays residual');
+assertClose(attribution.owenEfficiencyError, 0, 'v3 keeps Owen efficiency independent');
+const alphaOperatorSource = attribution.sources.find((item) => item.key === alphaOperatorKey);
+assertClose(alphaOperatorSource?.directDamage ?? 0, 100, 'operator row receives direct damage');
+assertClose(alphaOperatorSource?.marginalDamage ?? 0, 20, 'operator row also keeps operator Buff uplift');
+assertClose(alphaOperatorSource?.damage ?? 0, 120, 'operator row combines both components');
+const alphaWeaponSource = attribution.sources.find((item) => item.key === alphaWeaponKey);
+assertClose(alphaWeaponSource?.directDamage ?? 0, 0, 'weapon row receives no direct damage');
+assertClose(alphaWeaponSource?.damage ?? 0, 10, 'weapon row keeps only its marginal uplift');
+const betaOperatorSource = attribution.sources.find((item) => item.key === buildRdpsSourceKey('beta', 'operator'));
+assertClose(betaOperatorSource?.damage ?? 0, 50, 'damage dealer without operator Buff still gets an operator row');
+assertClose(attribution.characters[0]?.damage ?? 0, 130, 'alpha full RD combines operator and weapon');
+assertClose(attribution.characters[1]?.damage ?? 0, 50, 'beta full RD contains its direct damage');
 
 void worldKeyOf;

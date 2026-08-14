@@ -1,7 +1,8 @@
 /**
  * RDPS 归因共享类型与计算接口合同。
- * RDPS v1 使用期望伤害（totalExpected）作为归因基准；来源键由
- * ownerCharacterId + ownerBuffDomain 组成，sourceName 只用于展示。
+ * RDPS 使用期望伤害（totalExpected）作为归因基准；直接伤害归入出伤
+ * 干员的 operator 域，Buff 增量按 ownerCharacterId + ownerBuffDomain 分配。
+ * sourceName 只用于展示。
  */
 
 import type { SkillButtonBuff } from '../../types/storage';
@@ -20,7 +21,11 @@ export interface RdpsSourceContribution {
   characterName: string;
   domain?: RdpsDomain;
   label: string;
-  /** 贡献伤害，保留符号。 */
+  /** 无 Buff 的直接/基础伤害；仅 operator 域可以非零。 */
+  directDamage: number;
+  /** Owen 分配的 Buff 边际贡献，保留符号。 */
+  marginalDamage: number;
+  /** 总贡献伤害（directDamage + marginalDamage），保留符号。 */
   damage: number;
   /** 占实际总伤害比例（damage / actualTotal）。 */
   shareOfActual: number;
@@ -77,15 +82,19 @@ export interface RdpsAttributionSummary {
   actualTotal: number;
   /** 严格归因口径下所有可归因来源开启时的期望总伤害。 */
   attributionWorldTotal: number;
-  /** 没有任何可归因来源开启时的期望总伤害。 */
+  /** Owen 世界中没有任何已解析来源开启时的期望总伤害；未解析 Buff 仍启用。 */
   baselineTotal: number;
-  /** 所有可归因来源贡献之和。 */
+  /** 所有 Buff 关闭且严格排除失衡后的直接/基础伤害合计。 */
+  directDamageTotal: number;
+  /** 已解析来源的 Owen Buff 边际贡献合计。 */
+  sourceContributionTotal: number;
+  /** 直接伤害与已解析 Buff 边际贡献之和。 */
   attributedTotal: number;
   /** actualTotal - attributedTotal。 */
   residualTotal: number;
   /** 总账误差：abs(actualTotal - attributedTotal - residualTotal)。 */
   accountingError: number;
-  /** Owen 效率误差：abs(sum(source.damage) - (attributionWorldTotal - baselineTotal))。 */
+  /** Owen 效率误差：abs(sourceContributionTotal - (attributionWorldTotal - baselineTotal))。 */
   owenEfficiencyError: number;
   /** 层级求和误差：abs(sum(character.domain.damage) - sum(team source.damage))。 */
   hierarchyError: number;
@@ -95,7 +104,7 @@ export interface RdpsAttributionSummary {
 }
 
 /** 归因策略版本。任何改变来源归属、失衡处理、静态面板口径或负值展示规则的修改都必须提升。 */
-export const RDPS_POLICY_VERSION = 'rdps-v2-owen-runtime-provenance-strict-imbalance' as const;
+export const RDPS_POLICY_VERSION = 'rdps-v3-direct-damage-operator-owen-runtime-provenance-strict-imbalance' as const;
 
 /**
  * 反事实来源过滤器：按来源 key 开关普通 Buff、异常状态 Buff、连击 Buff
@@ -104,7 +113,9 @@ export const RDPS_POLICY_VERSION = 'rdps-v2-owen-runtime-provenance-strict-imbal
 export interface DamageReportSourceFilter {
   /** 指定来源 key 是否启用。null 表示启用全部可归因来源。 */
   enabledSourceKeys?: ReadonlySet<RdpsSourceKey> | null;
-  /** 失衡是否启用。v1 归因世界中恒为 false（严格排除）。 */
+  /** 无法解析稳定来源的 Buff 是否启用；直接伤害基线评估时设为 false。 */
+  unattributedBuffsEnabled?: boolean;
+  /** 失衡是否启用。RDPS 归因世界中恒为 false（严格排除）。 */
   imbalanceEnabled?: boolean;
   /**
    * 判定一个 Buff 是否属于某个来源 key。默认按 ownerCharacterId +

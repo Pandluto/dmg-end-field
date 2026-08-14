@@ -89,12 +89,17 @@ export function createUnevenGroupWorld(): OwenFixtureWorld {
 
 // ── 归因结果 fixture（图表用）───────────────────────────────────────────────
 
-const source = (partial: RdpsSourceContribution): RdpsSourceContribution => ({
+const source = (
+  partial: Omit<RdpsSourceContribution, 'directDamage' | 'marginalDamage'>
+    & Partial<Pick<RdpsSourceContribution, 'directDamage' | 'marginalDamage'>>,
+): RdpsSourceContribution => ({
   key: partial.key,
   characterId: partial.characterId,
   characterName: partial.characterName,
   domain: partial.domain,
   label: partial.label,
+  directDamage: partial.directDamage ?? 0,
+  marginalDamage: partial.marginalDamage ?? partial.damage,
   damage: partial.damage,
   shareOfActual: partial.shareOfActual,
   includedBuffCount: partial.includedBuffCount,
@@ -151,6 +156,8 @@ export function buildFourCharacterSummaryFixture(): RdpsAttributionSummary {
     actualTotal,
     attributionWorldTotal: 870,
     baselineTotal: 0,
+    directDamageTotal: 0,
+    sourceContributionTotal: attributedTotal,
     attributedTotal,
     residualTotal,
     accountingError: 0,
@@ -196,6 +203,8 @@ export function buildNegativeAndOutOfTeamSummaryFixture(): RdpsAttributionSummar
     actualTotal,
     attributionWorldTotal: 680,
     baselineTotal: 350,
+    directDamageTotal: 0,
+    sourceContributionTotal: attributedTotal,
     attributedTotal,
     residualTotal,
     accountingError: 0,
@@ -227,6 +236,8 @@ export function buildEmptySummaryFixture(): RdpsAttributionSummary {
     actualTotal: 0,
     attributionWorldTotal: 0,
     baselineTotal: 0,
+    directDamageTotal: 0,
+    sourceContributionTotal: 0,
     attributedTotal: 0,
     residualTotal: 0,
     accountingError: 0,
@@ -257,9 +268,9 @@ export function assertReconciliation(summary: RdpsAttributionSummary, tolerance 
   }
 }
 
-/** 断言 Owen 效率误差：sum(source.damage) ≈ attributionWorldTotal - baselineTotal。 */
+/** 断言 Owen 效率误差：sum(source.marginalDamage) ≈ attributionWorldTotal - baselineTotal。 */
 export function assertOwenEfficiency(summary: RdpsAttributionSummary, tolerance = RECONCILIATION_TOLERANCE): void {
-  const sum = summary.sources.reduce((total, item) => total + item.damage, 0);
+  const sum = summary.sources.reduce((total, item) => total + item.marginalDamage, 0);
   const world = summary.attributionWorldTotal - summary.baselineTotal;
   const allowed = tolerance * Math.max(1, Math.abs(world));
   if (Math.abs(sum - world) > allowed) {
@@ -269,6 +280,9 @@ export function assertOwenEfficiency(summary: RdpsAttributionSummary, tolerance 
   }
   if (Math.abs(summary.owenEfficiencyError - Math.abs(sum - world)) > allowed) {
     throw new Error('owenEfficiencyError field does not match the computed gap');
+  }
+  if (Math.abs(summary.sourceContributionTotal - sum) > allowed) {
+    throw new Error('sourceContributionTotal does not match sum(source.marginalDamage)');
   }
 }
 
