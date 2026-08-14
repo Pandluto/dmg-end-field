@@ -3,10 +3,16 @@ import { readFileSync } from 'node:fs'
 import sitesWorker from '../../../worker/index'
 
 const staticHeadersSource = readFileSync(new URL('../../../public/_headers', import.meta.url), 'utf8')
+const viteConfigSource = readFileSync(new URL('../../../vite.config.ts', import.meta.url), 'utf8')
 assert.match(
   staticHeadersSource,
   /\/assets\/:fingerprinted\s+[\s\S]*?Cache-Control:\s*public, max-age=31536000, immutable/,
-  'Sites static headers must cache direct fingerprinted build assets immutably',
+  'Sites static headers should cache direct fingerprinted build assets immutably when supported',
+)
+assert.match(
+  viteConfigSource,
+  /run_worker_first:\s*\[[\s\S]*?['"]\/assets\/\*['"]/,
+  'Sites must route all assets through the Worker cache policy',
 )
 
 const requestedPaths: string[] = []
