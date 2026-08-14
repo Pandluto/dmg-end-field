@@ -1,5 +1,13 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import sitesWorker from '../../../worker/index'
+
+const viteConfigSource = readFileSync(new URL('../../../vite.config.ts', import.meta.url), 'utf8')
+assert.match(
+  viteConfigSource,
+  /run_worker_first:\s*\[[\s\S]*?['"]\/assets\/\*['"]/,
+  'Sites must route hashed build assets through the Worker cache policy',
+)
 
 const requestedPaths: string[] = []
 const env = {
