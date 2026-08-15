@@ -23,6 +23,7 @@
 
 - [服务器资源通道](./resource-delivery-channel/spec.md)
 - [Web 页面更新策略与缓存恢复](./web-page-update-recovery/spec.md)
+- [Web LTS 通知中心](./notification-center/spec.md)
 
 ## 干员与配置
 
