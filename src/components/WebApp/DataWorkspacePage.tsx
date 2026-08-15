@@ -27,6 +27,8 @@ import {
   type LocalDataPackageSummary,
   type LocalDataScope,
 } from '../../platform/data/localDataPackages';
+import { useNotificationCenter } from '../../platform/notifications/NotificationCenterProvider';
+import { formatNotificationVersionLabel } from '../../platform/notifications/notificationFormat';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 
 function formatBytes(value: number): string {
@@ -92,6 +94,7 @@ function DataToolGlyph({ name }: { name: DataToolGlyphName }) {
 }
 
 export function DataWorkspacePage() {
+  const { notify } = useNotificationCenter();
   const [installed, setInstalled] = useState<InstalledResourcePackage | null>(null);
   const [available, setAvailable] = useState<ResourcePackageManifest | null>(null);
   const [progress, setProgress] = useState<ResourceInstallProgress | null>(null);
@@ -174,6 +177,14 @@ export function DataWorkspacePage() {
       setImages(nextImages);
       await refreshPackages();
       setMessage('基础资料已下载到 Share Data；Web 图片包已经校验。');
+      window.dispatchEvent(new Event('dmg-resource-status-changed'));
+      void notify({
+        dedupeKey: `install-result:${next.version}:${Date.now()}`,
+        kind: 'install-result',
+        severity: 'success',
+        title: `资料已下载到 Share Data（${formatNotificationVersionLabel(next.version)}）`,
+        body: '图片包已校验。工作台仍在使用已应用的资料，需要时请显式应用。',
+      });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -190,6 +201,23 @@ export function DataWorkspacePage() {
         `已还原 ${result.counts.operators} 位干员、${result.counts.weapons} 件武器、`
         + `${result.counts.equipments} 件装备；正在刷新工作台。`,
       );
+      window.dispatchEvent(new Event('dmg-resource-status-changed'));
+      if (result.backup) {
+        void notify({
+          dedupeKey: `backup-created:${result.backup.packageId}`,
+          kind: 'backup-created',
+          severity: 'info',
+          title: `已创建应用前备份（${result.backup.name}）`,
+          body: '备份保存在 Local Data，可随时导回。',
+        });
+      }
+      void notify({
+        dedupeKey: `apply-result:${result.package.packageId}:${Date.now()}`,
+        kind: 'apply-result',
+        severity: 'success',
+        title: `已应用官方资料 ${formatNotificationVersionLabel(result.package.dataVersion)}`,
+        body: `干员 ${result.counts.operators} · 武器 ${result.counts.weapons} · 装备 ${result.counts.equipments}；排轴未受影响。`,
+      });
       window.setTimeout(() => window.location.reload(), 500);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
@@ -212,6 +240,23 @@ export function DataWorkspacePage() {
         + `导入 ${result.importedTimelineArchives} 份共享存档、`
         + `${result.importedImageAssets} 张自定义图片。正在刷新工作台。`,
       );
+      window.dispatchEvent(new Event('dmg-resource-status-changed'));
+      if (result.backup) {
+        void notify({
+          dedupeKey: `backup-created:${result.backup.packageId}`,
+          kind: 'backup-created',
+          severity: 'info',
+          title: `已创建应用前备份（${result.backup.name}）`,
+          body: '备份保存在 Local Data，可随时导回。',
+        });
+      }
+      void notify({
+        dedupeKey: `apply-result:${result.package.packageId}:${Date.now()}`,
+        kind: 'apply-result',
+        severity: 'success',
+        title: `已应用“${result.package.name}”`,
+        body: `干员 ${result.counts.operators} · 武器 ${result.counts.weapons} · 装备 ${result.counts.equipments}；排轴未受影响。`,
+      });
       window.setTimeout(() => window.location.reload(), 500);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
@@ -259,6 +304,15 @@ export function DataWorkspacePage() {
         `${result.reused ? '已存在相同数据包' : '导入完成'}：${result.summary.name}；`
         + `包含 ${result.summary.imageAssetCount} 张自定义图片。`,
       );
+      if (!result.reused) {
+        void notify({
+          dedupeKey: `import-result:${scope}:${result.summary.packageId}:${Date.now()}`,
+          kind: 'import-result',
+          severity: 'success',
+          title: `已导入数据包（${result.summary.name}）`,
+          body: `已加入 ${scope === 'local' ? 'Local Data' : 'Share Data'}，可在列表中选择应用。`,
+        });
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {

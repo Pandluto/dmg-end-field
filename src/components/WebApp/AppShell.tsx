@@ -12,6 +12,11 @@ import {
   type OfflineAvailability,
 } from '../../platform/runtime/serviceWorkerRuntime';
 import { usePageVersionUpdate } from '../../platform/runtime/usePageVersionUpdate';
+import { useNotificationCenter } from '../../platform/notifications/NotificationCenterProvider';
+import { useResourceStatusNotifications } from '../../platform/notifications/useResourceStatusNotifications';
+import type { AppNotification } from '../../platform/notifications/notificationTypes';
+import { NotificationBell } from './NotificationBell';
+import { NotificationPanel } from './NotificationPanel';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import './app-shell.css';
 
@@ -44,7 +49,8 @@ type LauncherDragState = {
   moved: boolean;
 };
 
-const LAUNCHER_SIZE = 44;
+const LAUNCHER_WIDTH = 100;
+const LAUNCHER_HEIGHT = 44;
 const LAUNCHER_MARGIN = 8;
 const LAUNCHER_DRAG_THRESHOLD = 4;
 const LAUNCHER_DEFAULT_POSITION: LauncherPosition = { x: 10, y: 10 };
@@ -57,11 +63,11 @@ function clampLauncherPosition(
   return {
     x: Math.min(
       Math.max(position.x, LAUNCHER_MARGIN),
-      Math.max(LAUNCHER_MARGIN, viewportWidth - LAUNCHER_SIZE - LAUNCHER_MARGIN),
+      Math.max(LAUNCHER_MARGIN, viewportWidth - LAUNCHER_WIDTH - LAUNCHER_MARGIN),
     ),
     y: Math.min(
       Math.max(position.y, LAUNCHER_MARGIN),
-      Math.max(LAUNCHER_MARGIN, viewportHeight - LAUNCHER_SIZE - LAUNCHER_MARGIN),
+      Math.max(LAUNCHER_MARGIN, viewportHeight - LAUNCHER_HEIGHT - LAUNCHER_MARGIN),
     ),
   };
 }
@@ -144,6 +150,67 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
     ready: false,
   });
   const { state: pageVersionUpdate, update: updatePageVersion } = usePageVersionUpdate();
+  const {
+    notifications,
+    unreadCount,
+    markRead,
+    markAllRead,
+    notify,
+  } = useNotificationCenter();
+  const [notificationOpen, setNotificationOpen] = useState(false);
+  const pageUpdateAnnouncedRef = useRef('');
+  useResourceStatusNotifications();
+
+  useEffect(() => {
+    if (pageVersionUpdate.phase !== 'update-available') {
+      if (pageVersionUpdate.phase === 'up-to-date') pageUpdateAnnouncedRef.current = '';
+      return;
+    }
+    const latestVersion = pageVersionUpdate.latestVersionLabel || '';
+    const currentVersion = pageVersionUpdate.currentVersionLabel;
+    const key = `page-update:${latestVersion}:${currentVersion}`;
+    if (!latestVersion || pageUpdateAnnouncedRef.current === key) return;
+    pageUpdateAnnouncedRef.current = key;
+    void notify({
+      dedupeKey: `page-update:${latestVersion}`,
+      kind: 'page-update',
+      severity: 'info',
+      title: `发现新版本 ${latestVersion}`,
+      body: `当前 ${currentVersion}。更新只替换页面程序，不会改动你的排轴与资料。`,
+      action: { label: '更新并重新载入', handlerKey: 'page-update' },
+    });
+  }, [
+    notify,
+    pageVersionUpdate.currentVersionLabel,
+    pageVersionUpdate.latestVersionLabel,
+    pageVersionUpdate.phase,
+  ]);
+
+  const openNotificationPanel = () => {
+    setNotificationOpen((open) => !open);
+    setMenuOpen(false);
+  };
+
+  const handleNotificationAction = (notification: AppNotification) => {
+    void markRead(notification.id);
+    setNotificationOpen(false);
+    if (notification.action?.handlerKey === 'page-update') {
+      void updatePageVersion();
+      return;
+    }
+    if (notification.action?.handlerKey === 'data-workspace') {
+      navigateToAppPath(APP_ROUTE_PATHS.dataWorkspace);
+      return;
+    }
+    if (notification.action?.handlerKey === 'settings') {
+      navigateToAppPath(APP_ROUTE_PATHS.settings);
+      return;
+    }
+    if (notification.action?.route) {
+      navigateToAppPath(notification.action.route);
+    }
+  };
+
   const [launcherPosition, setLauncherPosition] = useState<LauncherPosition>(
     () => ({ ...LAUNCHER_DEFAULT_POSITION }),
   );
@@ -204,11 +271,13 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
       suppressLauncherClickRef.current = false;
       return;
     }
+    setNotificationOpen(false);
     setMenuOpen((open) => !open);
   };
 
   useEffect(() => {
     setMenuOpen(false);
+    setNotificationOpen(false);
   }, [currentPath]);
 
   useEffect(() => {
@@ -312,10 +381,15 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
     const handlePointerDown = (event: PointerEvent) => {
       if (!launcherRef.current?.contains(event.target as Node)) {
         setMenuOpen(false);
+        setNotificationOpen(false);
       }
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
+      if (notificationOpen) {
+        setNotificationOpen(false);
+        return;
+      }
       if (menuOpen) {
         setMenuOpen(false);
         return;
@@ -330,7 +404,7 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
       window.removeEventListener('pointerdown', handlePointerDown);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [menuOpen, overlay]);
+  }, [menuOpen, notificationOpen, overlay]);
 
   return (
     <div ref={shellRef} className={`web-app-shell ${overlay ? 'has-overlay' : ''}`}>
@@ -341,7 +415,7 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
         <div
           className={[
             'web-shell-launcher',
-            menuOpen ? 'is-open' : '',
+            menuOpen || notificationOpen ? 'is-open' : '',
             isLauncherDragging ? 'is-dragging' : '',
             launcherOpensLeft ? 'opens-left' : 'opens-right',
             `align-${launcherVerticalAlignment}`,
@@ -363,6 +437,12 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
           >
             <BrandLogo />
           </button>
+
+          <NotificationBell
+            unreadCount={unreadCount}
+            open={notificationOpen}
+            onClick={openNotificationPanel}
+          />
 
           {menuOpen && (
             <div className="web-shell-popover">
@@ -458,6 +538,16 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
                 </span>
               </button>
             </div>
+          )}
+
+          {notificationOpen && (
+            <NotificationPanel
+              notifications={notifications}
+              unreadCount={unreadCount}
+              onMarkRead={(id) => void markRead(id)}
+              onMarkAllRead={() => void markAllRead()}
+              onAction={handleNotificationAction}
+            />
           )}
         </div>
       )}
