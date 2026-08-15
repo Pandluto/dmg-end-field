@@ -37,6 +37,14 @@ function normalizeKind(value: string | null | undefined): AppNotification['kind'
 
 function rowToNotification(row: NotificationRow | undefined): AppNotification | null {
   if (!row) return null;
+  let action: AppNotification['action'] = null;
+  if (row.action_json) {
+    try {
+      action = normalizeNotificationAction(JSON.parse(String(row.action_json)));
+    } catch {
+      action = null;
+    }
+  }
   return {
     id: String(row.id),
     dedupeKey: String(row.dedupe_key),
@@ -44,7 +52,7 @@ function rowToNotification(row: NotificationRow | undefined): AppNotification | 
     severity: normalizeSeverity(row.severity),
     title: String(row.title),
     body: String(row.body),
-    action: row.action_json ? normalizeNotificationAction(JSON.parse(String(row.action_json))) : null,
+    action,
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
     readAt: row.read_at === null ? null : Number(row.read_at),

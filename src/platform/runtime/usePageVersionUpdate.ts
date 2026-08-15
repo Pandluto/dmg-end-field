@@ -21,6 +21,7 @@ export type PageVersionUpdateState = {
   phase: PageVersionUpdatePhase;
   currentVersionLabel: string;
   latestVersionLabel: string | null;
+  latestShellVersion: string | null;
   error: string;
 };
 
@@ -29,6 +30,7 @@ function checkedState(result: PageVersionCheckResult): PageVersionUpdateState {
     phase: result.updateAvailable ? 'update-available' : 'up-to-date',
     currentVersionLabel: formatVersionLabel(result.current.releaseVersion),
     latestVersionLabel: formatVersionLabel(result.latest.releaseVersion),
+    latestShellVersion: result.latest.shellVersion,
     error: '',
   };
 }
@@ -41,6 +43,7 @@ export function usePageVersionUpdate(): {
     phase: navigator.onLine ? 'checking' : 'offline',
     currentVersionLabel: APP_VERSION_LABEL,
     latestVersionLabel: null,
+    latestShellVersion: null,
     error: '',
   }));
   const checkSequenceRef = useRef(0);

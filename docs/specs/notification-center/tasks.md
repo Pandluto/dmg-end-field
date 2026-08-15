@@ -44,7 +44,7 @@
 ## NOT-4：接入页面更新通知
 
 - [x] AppShell 的 `usePageVersionUpdate` 发现 `update-available` 时发 `page-update` 通知。
-- [x] dedupe key 使用 `releaseVersion`。
+- [x] dedupe key 使用 `releaseVersion:shellVersion`。
 - [x] 更新成功重载后不复活旧通知。
 
 ## NOT-5：接入资料/图片版本检查

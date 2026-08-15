@@ -167,12 +167,13 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
       return;
     }
     const latestVersion = pageVersionUpdate.latestVersionLabel || '';
+    const latestShellVersion = pageVersionUpdate.latestShellVersion || '';
     const currentVersion = pageVersionUpdate.currentVersionLabel;
-    const key = `page-update:${latestVersion}:${currentVersion}`;
+    const key = `page-update:${latestVersion}:${latestShellVersion}`;
     if (!latestVersion || pageUpdateAnnouncedRef.current === key) return;
     pageUpdateAnnouncedRef.current = key;
     void notify({
-      dedupeKey: `page-update:${latestVersion}`,
+      dedupeKey: key,
       kind: 'page-update',
       severity: 'info',
       title: `发现新版本 ${latestVersion}`,
@@ -182,6 +183,7 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
   }, [
     notify,
     pageVersionUpdate.currentVersionLabel,
+    pageVersionUpdate.latestShellVersion,
     pageVersionUpdate.latestVersionLabel,
     pageVersionUpdate.phase,
   ]);
