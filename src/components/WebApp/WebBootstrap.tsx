@@ -28,6 +28,7 @@ import {
 } from '../../platform/data/localDataPackages';
 import { ensureImageServiceWorkerController } from '../../platform/runtime/serviceWorkerRuntime';
 import { initializeAppTheme } from '../../platform/theme/appTheme';
+import { NotificationCenterProvider } from '../../platform/notifications/NotificationCenterProvider';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import { AccessGate } from './AccessGate';
 import { RuntimeFailurePage } from './RuntimeFailurePage';
@@ -186,7 +187,9 @@ export function WebBootstrap() {
 
   return (
     <AppProvider>
-      <App key={`${installedPackage?.version || 'web-lts'}:${installedImagePackage?.version || 'no-images'}`} />
+      <NotificationCenterProvider>
+        <App key={`${installedPackage?.version || 'web-lts'}:${installedImagePackage?.version || 'no-images'}`} />
+      </NotificationCenterProvider>
     </AppProvider>
   );
 }

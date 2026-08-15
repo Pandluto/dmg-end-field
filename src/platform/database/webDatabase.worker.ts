@@ -82,6 +82,21 @@ function migrateSchema(): void {
       byte_size INTEGER NOT NULL
     ) STRICT;
 
+    CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY,
+      dedupe_key TEXT NOT NULL UNIQUE,
+      kind TEXT NOT NULL,
+      severity TEXT NOT NULL CHECK(severity IN ('info', 'success', 'warning', 'error')),
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      action_json TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      read_at INTEGER
+    ) STRICT;
+    CREATE INDEX IF NOT EXISTS idx_notifications_created_at
+      ON notifications(created_at DESC);
+
     CREATE TABLE IF NOT EXISTS local_data_packages (
       storage_scope TEXT NOT NULL CHECK(storage_scope IN ('local', 'share')),
       package_id TEXT NOT NULL,
