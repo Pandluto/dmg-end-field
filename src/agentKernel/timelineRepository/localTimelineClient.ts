@@ -12,6 +12,7 @@ import {
   ensureDocument,
   exportDocumentBundle,
   exportSqliteWorkspaceArchive,
+  forkTimelineWorkspaceFromWorkNode,
   getCheckoutRef,
   importDocumentBundle,
   importPortableTimelineBundle,
@@ -23,6 +24,7 @@ import {
   listWorkNodeCommits,
   listWorkNodePatches,
   listWorkNodes,
+  omitWorkNodePath,
   saveSnapshot,
   setCheckoutRef,
   transferTimelineArchive,
@@ -81,6 +83,8 @@ export function createTimelineRepositoryClient() {
     listWorkNodeCommits,
     listAuditEvents,
     deleteWorkNode,
+    omitWorkNodePath,
+    forkTimelineWorkspaceFromWorkNode,
     saveSnapshot,
     setCheckoutRef,
     getCheckoutRef,
@@ -106,6 +110,8 @@ export function createTimelineRepositoryClient() {
     listWorkNodeCommits: typeof listWorkNodeCommits;
     listAuditEvents: typeof listAuditEvents;
     deleteWorkNode: typeof deleteWorkNode;
+    omitWorkNodePath: typeof omitWorkNodePath;
+    forkTimelineWorkspaceFromWorkNode: typeof forkTimelineWorkspaceFromWorkNode;
     saveSnapshot: (input: {
       id: string;
       timelineId: string;

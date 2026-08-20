@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { createAiTimelineWorkNodeClient } from '../../agentKernel/timelineWorktree/localNodeClient';
 import { createTimelineRepositoryClient, formatTimelineOperationError, type TimelineRepositoryWorkNodePatch } from '../../agentKernel/timelineRepository/localTimelineClient';
 import type { TimelineAuditEvent } from '../../core/domain/timeline';
@@ -12,6 +12,7 @@ import { buildWorkNodeTreeLayout } from './workNodeTreeLayout';
 import { WorkNodeTreeNode } from './WorkNodeTreeNode';
 import type { WorkNodeTreeViewModel } from './workNodeTreeTypes';
 import { resolveCheckoutTargetBeforeWorkNodeDeletion } from '../../agentKernel/timelineWorktree/checkoutLifecycle';
+import { planWorkNodePathOmission } from '../../platform/timeline/workNodeTopology';
 import './WorkNodeTreePanel.css';
 
 export type WorkbenchSelectedNodeContext = {
@@ -24,8 +25,24 @@ type WorkNodeTreePanelProps = {
   timelineId: string;
   refreshKey: number;
   cameraResetKey?: number;
-  onSelectedNodeChange?: (node: WorkbenchSelectedNodeContext) => void;
+  omissionMode?: boolean;
+  onSelectedNodeChange?: (node: WorkbenchSelectedNodeContext | null) => void;
   onSummaryChange?: (summary: WorkNodeTreeViewModel) => void;
+  onOmissionSelectionChange?: (state: WorkNodeOmissionSelectionState) => void;
+  onOmissionComplete?: (omittedCount: number) => void;
+  onForkAsSqlite?: (node: WorkbenchSelectedNodeContext) => void;
+};
+
+export type WorkNodeOmissionSelectionState = {
+  selectedCount: number;
+  canConfirm: boolean;
+  busy: boolean;
+  message: string;
+};
+
+export type WorkNodeTreePanelHandle = {
+  confirmOmission: () => Promise<void>;
+  resetOmission: () => void;
 };
 
 function waitForWorkbenchCommand(commandId: string, timeoutMs = 8000): Promise<unknown> {
@@ -65,7 +82,17 @@ function collectSubtreeNodeIds(node: WorkNodeTreeViewModel['flatNodes'][number])
   return ids;
 }
 
-export function WorkNodeTreePanel({ timelineId, refreshKey, cameraResetKey = 0, onSelectedNodeChange, onSummaryChange }: WorkNodeTreePanelProps) {
+export const WorkNodeTreePanel = forwardRef<WorkNodeTreePanelHandle, WorkNodeTreePanelProps>(function WorkNodeTreePanel({
+  timelineId,
+  refreshKey,
+  cameraResetKey = 0,
+  omissionMode = false,
+  onSelectedNodeChange,
+  onSummaryChange,
+  onOmissionSelectionChange,
+  onOmissionComplete,
+  onForkAsSqlite,
+}, ref) {
   const [nodes, setNodes] = useState<AiTimelineWorkNodeListItem[]>([]);
   const [commits, setCommits] = useState<AiTimelineWorkNodeCommitListItem[]>([]);
   const [headNodeId, setHeadNodeId] = useState('');
@@ -76,6 +103,10 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, cameraResetKey = 0, 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [camera, setCamera] = useState({ x: 0, y: 0, zoom: 1 });
+  const [omissionAnchorNodeId, setOmissionAnchorNodeId] = useState('');
+  const [omissionEndNodeId, setOmissionEndNodeId] = useState('');
+  const [omissionError, setOmissionError] = useState('');
+  const [omissionBusy, setOmissionBusy] = useState(false);
   const cameraRef = useRef(camera);
   const treeCanvasRef = useRef<HTMLDivElement | null>(null);
   const cameraFrameRef = useRef<number | null>(null);
@@ -92,6 +123,12 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, cameraResetKey = 0, 
     if (!selectionInitializedRef.current) {
       selectionInitializedRef.current = true;
       setSelectedNodeId(response.headNodeId || '');
+    } else {
+      setSelectedNodeId((current) => (
+        response.nodes.some((node) => node.id === current)
+          ? current
+          : response.headNodeId || response.nodes[0]?.id || ''
+      ));
     }
     return true;
   };
@@ -102,6 +139,36 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, cameraResetKey = 0, 
     () => nodes.find((node) => node.id === selectedNodeId) || null,
     [nodes, selectedNodeId],
   );
+  const topologyNodes = useMemo(
+    () => viewModel.flatNodes.map((node) => ({ id: node.nodeId, parentNodeId: node.parentNodeId })),
+    [viewModel.flatNodes],
+  );
+  const omissionPlan = useMemo(() => {
+    if (!omissionAnchorNodeId || !omissionEndNodeId) return null;
+    try {
+      return planWorkNodePathOmission(topologyNodes, omissionAnchorNodeId, omissionEndNodeId);
+    } catch {
+      return null;
+    }
+  }, [omissionAnchorNodeId, omissionEndNodeId, topologyNodes]);
+  const omissionSelectedNodeIds = useMemo(() => new Set(
+    omissionPlan?.omittedNodeIds || (omissionAnchorNodeId ? [omissionAnchorNodeId] : []),
+  ), [omissionAnchorNodeId, omissionPlan]);
+  const omissionAvailability = useMemo(() => {
+    const availability = new Map<string, { canOmit: boolean; reason?: string }>();
+    topologyNodes.forEach((node) => {
+      try {
+        planWorkNodePathOmission(topologyNodes, node.id);
+        availability.set(node.id, { canOmit: true });
+      } catch (error) {
+        availability.set(node.id, {
+          canOmit: false,
+          reason: error instanceof Error ? error.message : '当前节点不能省略',
+        });
+      }
+    });
+    return availability;
+  }, [topologyNodes]);
   const activePathNodeIds = useMemo(() => {
     const pathIds = new Set<string>();
     const byId = new Map(viewModel.flatNodes.map((node) => [node.nodeId, node]));
@@ -124,6 +191,40 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, cameraResetKey = 0, 
     cameraRef.current = { x: 0, y: 0, zoom: 1 };
     setCamera({ x: 0, y: 0, zoom: 1 });
   }, [timelineId]);
+
+  const resetOmission = () => {
+    setOmissionAnchorNodeId('');
+    setOmissionEndNodeId('');
+    setOmissionError('');
+    setOmissionBusy(false);
+  };
+
+  useEffect(() => {
+    if (omissionMode) {
+      onSelectedNodeChange?.(null);
+      return;
+    }
+    resetOmission();
+  }, [omissionMode, timelineId]);
+
+  useEffect(() => {
+    const selectedCount = omissionPlan?.omittedNodeIds.length || (omissionAnchorNodeId ? 1 : 0);
+    const message = omissionBusy
+      ? '正在合并 SQLite 节点路径…'
+      : omissionError
+        ? omissionError
+        : omissionPlan
+          ? `将省略 ${omissionPlan.omittedNodeIds.length} 个节点，并保留 ${omissionPlan.boundaryChildNodeIds.length} 条后续路径。`
+          : omissionAnchorNodeId
+            ? '再选择同一父子路径上的结束节点。'
+            : '依次选择起点和终点；所选区间会标红。';
+    onOmissionSelectionChange?.({
+      selectedCount,
+      canConfirm: Boolean(omissionPlan) && !omissionBusy,
+      busy: omissionBusy,
+      message,
+    });
+  }, [omissionAnchorNodeId, omissionBusy, omissionError, omissionPlan, onOmissionSelectionChange]);
 
   useEffect(() => () => {
     if (cameraFrameRef.current !== null) window.cancelAnimationFrame(cameraFrameRef.current);
@@ -289,7 +390,7 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, cameraResetKey = 0, 
     }
   };
 
-  const handleDelete = async (node: WorkNodeTreeViewModel['flatNodes'][number]) => {
+  const handleDeleteSubtree = async (node: WorkNodeTreeViewModel['flatNodes'][number]) => {
     const subtreeNodeIds = collectSubtreeNodeIds(node);
     const confirmed = window.confirm(`删除节点 "${node.title}" 及其 ${subtreeNodeIds.length - 1} 个子节点？`);
     if (!confirmed) return;
@@ -311,8 +412,43 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, cameraResetKey = 0, 
       }
       await repository.deleteWorkNode(node.nodeId);
       await reloadNodes();
+      onSelectedNodeChange?.(null);
     } catch (deleteError) {
       setError(`删除节点失败：${errorMessage(deleteError)}。`);
+    }
+  };
+
+  const moveCheckoutBeforeOmission = async (omittedNodeIds: string[], predecessorNodeId: string) => {
+    const checkoutRef = await createTimelineRepositoryClient().getCheckoutRef(timelineId);
+    if (checkoutRef?.targetType === 'work-node' && omittedNodeIds.includes(checkoutRef.targetId)) {
+      await checkoutNode(predecessorNodeId);
+    }
+  };
+
+  const handleOmitNode = async (node: WorkNodeTreeViewModel['flatNodes'][number]) => {
+    let plan;
+    try {
+      plan = planWorkNodePathOmission(topologyNodes, node.nodeId);
+    } catch (planError) {
+      setError(errorMessage(planError));
+      return;
+    }
+    const confirmed = window.confirm(
+      `省略节点 "${node.title}"？其 ${plan.boundaryChildNodeIds.length} 条后续路径会直接接到父节点，节点内容及其提交记录将被删除。`,
+    );
+    if (!confirmed) return;
+    try {
+      setError('');
+      await moveCheckoutBeforeOmission(plan.omittedNodeIds, plan.predecessorNodeId);
+      const result = await createTimelineRepositoryClient().omitWorkNodePath({
+        timelineId,
+        firstNodeId: node.nodeId,
+      });
+      await reloadNodes();
+      onSelectedNodeChange?.(null);
+      onOmissionComplete?.(result.omittedNodeIds.length);
+    } catch (omitError) {
+      setError(`省略节点失败：${errorMessage(omitError)}。`);
     }
   };
 
@@ -327,7 +463,34 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, cameraResetKey = 0, 
     }
   };
 
+  const selectOmissionEndpoint = (nodeId: string) => {
+    if (omissionBusy) return;
+    if (!omissionAnchorNodeId || omissionEndNodeId) {
+      setOmissionAnchorNodeId(nodeId);
+      setOmissionEndNodeId('');
+      setOmissionError('');
+      return;
+    }
+    if (nodeId === omissionAnchorNodeId) {
+      setOmissionAnchorNodeId('');
+      setOmissionEndNodeId('');
+      setOmissionError('');
+      return;
+    }
+    try {
+      planWorkNodePathOmission(topologyNodes, omissionAnchorNodeId, nodeId);
+      setOmissionEndNodeId(nodeId);
+      setOmissionError('');
+    } catch (planError) {
+      setOmissionError(planError instanceof Error ? planError.message : '所选节点不能组成可省略路径。');
+    }
+  };
+
   const selectNode = (nodeId: string) => {
+    if (omissionMode) {
+      selectOmissionEndpoint(nodeId);
+      return;
+    }
     setSelectedNodeId(nodeId);
     const node = viewModel.flatNodes.find((item) => item.nodeId === nodeId);
     if (node) {
@@ -338,6 +501,39 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, cameraResetKey = 0, 
       });
     }
   };
+
+  const confirmOmission = async () => {
+    if (!omissionPlan || omissionBusy) return;
+    const startNode = viewModel.flatNodes.find((node) => node.nodeId === omissionPlan.omittedNodeIds[0]);
+    const lastOmittedNodeId = omissionPlan.omittedNodeIds[omissionPlan.omittedNodeIds.length - 1];
+    const endNode = viewModel.flatNodes.find((node) => node.nodeId === lastOmittedNodeId);
+    const confirmed = window.confirm(
+      `省略 ${omissionPlan.omittedNodeIds.length} 个节点（${startNode?.title || '起点'} → ${endNode?.title || '终点'}）？后续路径会直接接到父节点，此操作不能撤销。`,
+    );
+    if (!confirmed) return;
+    setOmissionBusy(true);
+    setOmissionError('');
+    try {
+      await moveCheckoutBeforeOmission(omissionPlan.omittedNodeIds, omissionPlan.predecessorNodeId);
+      const result = await createTimelineRepositoryClient().omitWorkNodePath({
+        timelineId,
+        firstNodeId: omissionPlan.omittedNodeIds[0],
+        secondNodeId: lastOmittedNodeId,
+      });
+      await reloadNodes();
+      resetOmission();
+      onSelectedNodeChange?.(null);
+      onOmissionComplete?.(result.omittedNodeIds.length);
+    } catch (omitError) {
+      setOmissionError(`省略路径失败：${errorMessage(omitError)}。`);
+      setOmissionBusy(false);
+    }
+  };
+
+  useImperativeHandle(ref, () => ({
+    confirmOmission,
+    resetOmission,
+  }), [confirmOmission]);
 
   // Ordinary selection is deferred until close. Deletion is ordered explicitly:
   // move a checkout out of the target subtree, wait for persistence, then delete.
@@ -420,7 +616,7 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, cameraResetKey = 0, 
 
   return (
     <div
-      className="work-node-tree-panel"
+      className={`work-node-tree-panel${omissionMode ? ' is-omission-mode' : ''}`}
       aria-label={`Work node 节点树，${viewModel.nodeCount} 节点，${viewModel.riskCount} 风险`}
       onPointerDown={handleCanvasPointerDown}
       onPointerMove={handleCanvasPointerMove}
@@ -468,6 +664,8 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, cameraResetKey = 0, 
             const branchY = connector.parentBottom + 14;
             const activeChildIndex = connector.childNodeIds.findIndex((nodeId) => activePathNodeIds.has(nodeId));
             const isPathSegment = activePathNodeIds.has(connector.parentNodeId) && activeChildIndex >= 0;
+            const omissionChildIndex = connector.childNodeIds.findIndex((nodeId) => omissionSelectedNodeIds.has(nodeId));
+            const isOmissionSegment = omissionSelectedNodeIds.has(connector.parentNodeId) && omissionChildIndex >= 0;
             if (connector.childXs.length === 1) {
               return (
                 <g key={`linear-${index}`}>
@@ -480,6 +678,15 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, cameraResetKey = 0, 
                   {isPathSegment ? (
                     <line
                       className="is-path"
+                      x1={connector.parentX}
+                      y1={connector.parentBottom}
+                      x2={connector.childXs[0]}
+                      y2={connector.childTop}
+                    />
+                  ) : null}
+                  {isOmissionSegment ? (
+                    <line
+                      className="is-omission-path"
                       x1={connector.parentX}
                       y1={connector.parentBottom}
                       x2={connector.childXs[0]}
@@ -503,6 +710,13 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, cameraResetKey = 0, 
                     <line className="is-path" x1={connector.childXs[activeChildIndex]} y1={branchY} x2={connector.childXs[activeChildIndex]} y2={connector.childTop} />
                   </>
                 ) : null}
+                {isOmissionSegment ? (
+                  <>
+                    <line className="is-omission-path" x1={connector.parentX} y1={connector.parentBottom} x2={connector.parentX} y2={branchY} />
+                    <line className="is-omission-path" x1={connector.parentX} y1={branchY} x2={connector.childXs[omissionChildIndex]} y2={branchY} />
+                    <line className="is-omission-path" x1={connector.childXs[omissionChildIndex]} y1={branchY} x2={connector.childXs[omissionChildIndex]} y2={connector.childTop} />
+                  </>
+                ) : null}
               </g>
             );
           })}
@@ -513,16 +727,26 @@ export function WorkNodeTreePanel({ timelineId, refreshKey, cameraResetKey = 0, 
             node={node}
             activeNodeId={selectedNodeId || headNodeId}
             activePathNodeIds={activePathNodeIds}
+            isOmissionMode={omissionMode}
+            isOmissionSelected={omissionSelectedNodeIds.has(node.nodeId)}
+            canOmit={omissionAvailability.get(node.nodeId)?.canOmit === true}
+            omitDisabledReason={omissionAvailability.get(node.nodeId)?.reason}
             x={x}
             y={y}
             onSelect={(target) => selectNode(target.nodeId)}
-            onDelete={handleDelete}
+            onDeleteSubtree={handleDeleteSubtree}
+            onOmit={handleOmitNode}
             onAddChild={(target) => void createNodeFromCurrent(target.nodeId, 'child')}
             onAddSibling={(target) => void createNodeFromCurrent(target.parentNodeId || null, 'branch')}
+            onForkAsSqlite={(target) => onForkAsSqlite?.({
+              nodeId: target.nodeId,
+              name: target.title,
+              description: target.description,
+            })}
             onRename={handleRename}
           />
         ))}
       </div>
     </div>
   );
-}
+});

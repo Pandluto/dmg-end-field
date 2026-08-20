@@ -35,6 +35,10 @@ import {
   TimelinePayloadCompatibilityError,
   type TimelinePayloadCompatibilityRepair,
 } from './timelinePayloadCompatibility';
+import {
+  planWorkNodePathOmission,
+  WorkNodeTopologyError,
+} from './workNodeTopology';
 
 type Row = Record<string, SqlPrimitive>;
 
@@ -1046,6 +1050,232 @@ export async function deleteWorkNode(
     }),
   ]);
   return { deletedNodeIds };
+}
+
+export type WorkNodePathOmissionResult = {
+  timelineId: string;
+  omittedNodeIds: string[];
+  predecessorNodeId: string;
+  reparentedNodeIds: string[];
+};
+
+export async function omitWorkNodePath(input: {
+  timelineId: string;
+  firstNodeId: string;
+  secondNodeId?: string;
+}): Promise<WorkNodePathOmissionResult> {
+  await requireDocument(input.timelineId);
+  const rows = await webDatabase.query<Row>(
+    `
+      SELECT id, timeline_id, parent_node_id, working_payload_json,
+        logs_json, content_revision
+      FROM timeline_work_nodes
+      WHERE timeline_id = ?
+      ORDER BY created_at ASC
+    `,
+    [input.timelineId],
+  );
+  let plan;
+  try {
+    plan = planWorkNodePathOmission(
+      rows.map((row) => ({
+        id: textValue(row.id),
+        ...(textValue(row.parent_node_id) ? { parentNodeId: textValue(row.parent_node_id) } : {}),
+      })),
+      input.firstNodeId,
+      input.secondNodeId || input.firstNodeId,
+    );
+  } catch (error) {
+    if (error instanceof WorkNodeTopologyError) {
+      fail(error.code, 409, error.message);
+    }
+    throw error;
+  }
+
+  const byId = new Map(rows.map((row) => [textValue(row.id), row]));
+  const predecessor = byId.get(plan.predecessorNodeId);
+  if (!predecessor) {
+    fail('timeline-work-node-parent-not-found', 404, '省略路径的承接节点不存在。');
+  }
+  const checkout = await getCheckoutRef(input.timelineId);
+  if (checkout?.targetType === 'work-node' && plan.omittedNodeIds.includes(checkout.targetId)) {
+    fail(
+      'timeline-work-node-current-checkout-protected',
+      409,
+      'Cannot omit the current Work Node checkout. Checkout the predecessor first.',
+    );
+  }
+
+  const updatedAt = Date.now();
+  const predecessorPayload = textValue(predecessor.working_payload_json);
+  const statements: SqlStatement[] = plan.boundaryChildNodeIds.map((nodeId) => {
+    const row = byId.get(nodeId);
+    if (!row) {
+      fail('timeline-work-node-not-found', 404, `待重接节点不存在：${nodeId}`);
+    }
+    const logs = [
+      makeLog('info', `已省略 ${plan.omittedNodeIds.length} 个中间节点，并重接至 ${plan.predecessorNodeId}。`),
+      ...parseJson<BrowserTimelineWorkNode['logs']>(row.logs_json, []),
+    ];
+    return {
+      sql: `
+        UPDATE timeline_work_nodes
+        SET parent_node_id = ?, base_payload_json = ?, logs_json = ?,
+          content_revision = content_revision + 1, updated_at = ?
+        WHERE id = ? AND timeline_id = ?
+      `,
+      bind: [
+        plan.predecessorNodeId,
+        predecessorPayload,
+        serialize(logs),
+        updatedAt,
+        nodeId,
+        input.timelineId,
+      ],
+    };
+  });
+  const placeholders = plan.omittedNodeIds.map(() => '?').join(', ');
+  statements.push(
+    {
+      sql: `DELETE FROM timeline_work_nodes WHERE timeline_id = ? AND id IN (${placeholders})`,
+      bind: [input.timelineId, ...plan.omittedNodeIds],
+    },
+    {
+      sql: 'UPDATE timeline_documents SET updated_at = ? WHERE id = ?',
+      bind: [updatedAt, input.timelineId],
+    },
+    auditStatement({
+      timelineId: input.timelineId,
+      eventType: 'work-node.path-omitted',
+      subjectType: 'work-node',
+      subjectId: plan.predecessorNodeId,
+      details: {
+        omittedNodeIds: plan.omittedNodeIds,
+        predecessorNodeId: plan.predecessorNodeId,
+        reparentedNodeIds: plan.boundaryChildNodeIds,
+      },
+      createdAt: updatedAt,
+    }),
+  );
+  await webDatabase.batch(statements);
+  return {
+    timelineId: input.timelineId,
+    omittedNodeIds: plan.omittedNodeIds,
+    predecessorNodeId: plan.predecessorNodeId,
+    reparentedNodeIds: plan.boundaryChildNodeIds,
+  };
+}
+
+export async function forkTimelineWorkspaceFromWorkNode(input: {
+  timelineId: string;
+  nodeId: string;
+  label: string;
+  createdAt?: number;
+}): Promise<{
+  document: TimelineDocument;
+  checkoutRef: TimelineCheckoutRef;
+  rootNodeId: string;
+  payload: TimelineSnapshotPayload;
+}> {
+  const sourceDocument = await requireDocument(input.timelineId);
+  const sourceNode = await getWorkNode(input.nodeId);
+  if (sourceNode.timelineId !== input.timelineId) {
+    fail('timeline-work-node-cross-document-parent', 409, '源节点不属于当前 SQLite 工作区。');
+  }
+  const label = input.label.trim().slice(0, 60);
+  if (!label) {
+    fail('invalid-timeline-document', 400, '新 SQLite 工作区需要名称。');
+  }
+  assertPayload(sourceNode.workingPayload, 'workingPayload');
+  const createdAt = input.createdAt ?? Date.now();
+  const timelineId = makeId('timeline');
+  const snapshotId = `${timelineId}-initial`;
+  const rootNodeId = `${timelineId}-root`;
+  const payloadJson = serialize(sourceNode.workingPayload);
+  const payloadHash = await hashPayload(sourceNode.workingPayload);
+  const rootLogs = [
+    makeLog('info', `已从“${sourceDocument.label} / ${sourceNode.label}”另存为独立 SQLite 工作区。`),
+  ];
+  const checkoutRef: TimelineCheckoutRef = {
+    timelineId,
+    targetType: 'work-node',
+    targetId: rootNodeId,
+    updatedAt: createdAt,
+  };
+
+  await webDatabase.batch([
+    {
+      sql: `
+        INSERT INTO timeline_documents(id, label, created_at, updated_at, is_temporary)
+        VALUES (?, ?, ?, ?, 0)
+      `,
+      bind: [timelineId, label, createdAt, createdAt],
+    },
+    {
+      sql: `
+        INSERT INTO timeline_snapshots(
+          id, timeline_id, label, payload_json, payload_hash, created_at, archived
+        ) VALUES (?, ?, ?, ?, ?, ?, 0)
+      `,
+      bind: [snapshotId, timelineId, '独立工作区基线', payloadJson, payloadHash, createdAt],
+    },
+    {
+      sql: `
+        INSERT INTO timeline_work_nodes(
+          id, timeline_id, parent_node_id, branch_id, label, description, status,
+          approval_policy, risk_flags_json, logs_json, base_payload_json,
+          working_payload_json, content_revision, created_at, updated_at
+        ) VALUES (?, ?, NULL, ?, ?, ?, 'applied', 'auto-low-risk', '[]', ?, ?, ?, ?, ?, ?)
+      `,
+      bind: [
+        rootNodeId,
+        timelineId,
+        `fork-root-${createdAt}`,
+        sourceNode.label,
+        `独立自 ${sourceDocument.label} / ${sourceNode.label}`.slice(0, 240),
+        serialize(rootLogs),
+        payloadJson,
+        payloadJson,
+        createdAt,
+        createdAt,
+        createdAt,
+      ],
+    },
+    {
+      sql: `
+        INSERT INTO timeline_checkout_refs(timeline_id, target_type, target_id, updated_at)
+        VALUES (?, 'work-node', ?, ?)
+      `,
+      bind: [timelineId, rootNodeId, createdAt],
+    },
+    auditStatement({
+      timelineId,
+      eventType: 'document.forked-from-work-node',
+      subjectType: 'work-node',
+      subjectId: rootNodeId,
+      details: {
+        sourceTimelineId: input.timelineId,
+        sourceNodeId: input.nodeId,
+        sourceDocumentLabel: sourceDocument.label,
+      },
+      createdAt,
+    }),
+    auditStatement({
+      timelineId: input.timelineId,
+      eventType: 'work-node.forked-to-document',
+      subjectType: 'work-node',
+      subjectId: input.nodeId,
+      details: { targetTimelineId: timelineId, targetRootNodeId: rootNodeId, targetLabel: label },
+      createdAt,
+    }),
+  ]);
+
+  return {
+    document: await requireDocument(timelineId),
+    checkoutRef,
+    rootNodeId,
+    payload: sourceNode.workingPayload,
+  };
 }
 
 export async function deleteDocument(timelineId: string): Promise<{

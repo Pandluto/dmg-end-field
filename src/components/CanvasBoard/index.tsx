@@ -3,7 +3,12 @@ import { flushSync } from 'react-dom';
 import { useAppContext } from '../../context/AppContext';
 import { loadLocalOperatorCharacters } from '../../core/services/localOperatorAdapter';
 import { SkillSandbox } from './SkillSandbox';
-import { WorkNodeTreePanel, type WorkbenchSelectedNodeContext } from './WorkNodeTreePanel';
+import {
+  WorkNodeTreePanel,
+  type WorkbenchSelectedNodeContext,
+  type WorkNodeOmissionSelectionState,
+  type WorkNodeTreePanelHandle,
+} from './WorkNodeTreePanel';
 import { useCanvasWidth } from './hooks/useCanvasWidth';
 import { useSelectStart } from './hooks/useSelectStart';
 import { useCanvasDrag } from './hooks/useCanvasDrag';
@@ -475,6 +480,27 @@ interface CanvasBoardProps {
   bottomRightControl?: React.ReactNode;
 }
 
+const EMPTY_WORK_NODE_OMISSION_STATE: WorkNodeOmissionSelectionState = {
+  selectedCount: 0,
+  canConfirm: false,
+  busy: false,
+  message: '依次选择起点和终点；所选区间会标红。',
+};
+
+type TimelineNamePromptCopy = {
+  title: string;
+  description: string;
+  placeholder: string;
+  confirmLabel: string;
+};
+
+const DEFAULT_TIMELINE_NAME_PROMPT: TimelineNamePromptCopy = {
+  title: '命名当前工作区',
+  description: '这是首次保存。名称会用于开始页、存档和工作节点记录。',
+  placeholder: '例如：别礼主力排轴',
+  confirmLabel: '保存并继续',
+};
+
 export function CanvasBoard({
   activeSkillButtonId = null,
   isWorkbenchTopZoneOpen = false,
@@ -493,6 +519,7 @@ export function CanvasBoard({
   const [snapshotDraftName, setSnapshotDraftName] = useState('');
   const [timelineNameDraft, setTimelineNameDraft] = useState('');
   const [timelineNameError, setTimelineNameError] = useState('');
+  const [timelineNamePromptCopy, setTimelineNamePromptCopy] = useState<TimelineNamePromptCopy>(DEFAULT_TIMELINE_NAME_PROMPT);
   const [shareDraftName, setShareDraftName] = useState('');
   const [shareScope, setShareScope] = useState<'snapshot' | 'branch' | 'document'>('snapshot');
   const [shareBranchRootId, setShareBranchRootId] = useState('');
@@ -511,6 +538,8 @@ export function CanvasBoard({
   const [workNodeCameraResetKey, setWorkNodeCameraResetKey] = useState(0);
   const [workNodeSaveNotice, setWorkNodeSaveNotice] = useState('');
   const [pendingWorkNodeCheckoutId, setPendingWorkNodeCheckoutId] = useState('');
+  const [isWorkNodeOmissionMode, setIsWorkNodeOmissionMode] = useState(false);
+  const [workNodeOmissionState, setWorkNodeOmissionState] = useState<WorkNodeOmissionSelectionState>(EMPTY_WORK_NODE_OMISSION_STATE);
   const [isRefreshingAvailableCandidates, setIsRefreshingAvailableCandidates] = useState(false);
   const [isDecodingTacticalShare, setIsDecodingTacticalShare] = useState(false);
   const [isBatchResistanceModalOpen, setIsBatchResistanceModalOpen] = useState(false);
@@ -539,6 +568,7 @@ export function CanvasBoard({
     refreshActiveDocument,
   } = useTimelineSession();
   const shareImportInputRef = useRef<HTMLInputElement>(null);
+  const workNodeTreePanelRef = useRef<WorkNodeTreePanelHandle>(null);
   const tacticalShareImageInputRef = useRef<HTMLInputElement>(null);
   const isProcessingWorkbenchCommandRef = useRef(false);
   const isCheckoutMutationPendingRef = useRef(false);
@@ -569,12 +599,23 @@ export function CanvasBoard({
     }
     if (!await promoteTemporaryTimeline()) return;
     setPendingWorkNodeCheckoutId('');
+    setIsWorkNodeOmissionMode(false);
+    setWorkNodeOmissionState(EMPTY_WORK_NODE_OMISSION_STATE);
     setWorkNodeRefreshKey((current) => current + 1);
     setIsWorkNodePanelOpen(true);
   };
 
-  const handleWorkNodeSelection = useCallback((node: WorkbenchSelectedNodeContext) => {
-    setPendingWorkNodeCheckoutId(node.nodeId);
+  const handleWorkNodeSelection = useCallback((node: WorkbenchSelectedNodeContext | null) => {
+    setPendingWorkNodeCheckoutId(node?.nodeId || '');
+  }, []);
+
+  const handleWorkNodeOmissionComplete = useCallback((omittedCount: number) => {
+    setIsWorkNodeOmissionMode(false);
+    setWorkNodeOmissionState(EMPTY_WORK_NODE_OMISSION_STATE);
+    setPendingWorkNodeCheckoutId('');
+    setWorkNodeRefreshKey((current) => current + 1);
+    setWorkNodeSaveNotice(`已省略 ${omittedCount} 个工作节点，后续路径已重新接线`);
+    window.setTimeout(() => setWorkNodeSaveNotice(''), 2600);
   }, []);
 
   useEffect(() => {
@@ -588,6 +629,9 @@ export function CanvasBoard({
   }, []);
 
   const closeWorkNodePanel = () => {
+    workNodeTreePanelRef.current?.resetOmission();
+    setIsWorkNodeOmissionMode(false);
+    setWorkNodeOmissionState(EMPTY_WORK_NODE_OMISSION_STATE);
     setIsWorkNodePanelOpen(false);
     if (!pendingWorkNodeCheckoutId) return;
     enqueueMainWorkbenchCommand({
@@ -3566,10 +3610,14 @@ export function CanvasBoard({
     }
   }
 
-  function requestTimelineName(): Promise<string | null> {
+  function requestTimelineName(options: {
+    initialValue?: string;
+    copy?: TimelineNamePromptCopy;
+  } = {}): Promise<string | null> {
     if (timelineNameRequestRef.current) return timelineNameRequestRef.current;
-    setTimelineNameDraft('');
+    setTimelineNameDraft(options.initialValue || '');
     setTimelineNameError('');
+    setTimelineNamePromptCopy(options.copy || DEFAULT_TIMELINE_NAME_PROMPT);
     setIsTimelineNameModalOpen(true);
     const request = new Promise<string | null>((resolve) => {
       timelineNameResolverRef.current = (value) => {
@@ -3585,6 +3633,7 @@ export function CanvasBoard({
   function closeTimelineNameModal(): void {
     setIsTimelineNameModalOpen(false);
     setTimelineNameError('');
+    setTimelineNamePromptCopy(DEFAULT_TIMELINE_NAME_PROMPT);
     timelineNameResolverRef.current?.(null);
   }
 
@@ -3596,6 +3645,7 @@ export function CanvasBoard({
     }
     setIsTimelineNameModalOpen(false);
     setTimelineNameError('');
+    setTimelineNamePromptCopy(DEFAULT_TIMELINE_NAME_PROMPT);
     timelineNameResolverRef.current?.(label);
   }
 
@@ -3693,6 +3743,52 @@ export function CanvasBoard({
     } catch (error) {
       alert(`工作节点保存失败：${formatTimelineOperationError(error)}`);
       return false;
+    }
+  };
+
+  const handleForkWorkNodeAsSqlite = async (node: WorkbenchSelectedNodeContext) => {
+    setPendingWorkNodeCheckoutId('');
+    const label = await requestTimelineName({
+      initialValue: `${node.name} · 独立存档`,
+      copy: {
+        title: '以此节点新建 SQLite',
+        description: '新工作区只以所选节点的完整状态作为根；原 SQLite 节点树不会改变。',
+        placeholder: '例如：第二套独立排轴',
+        confirmLabel: '新建并切换',
+      },
+    });
+    if (!label) return;
+    if (!await handleSaveWorkNodeCheckpoint()) return;
+
+    const repository = createTimelineRepositoryClient();
+    let forked: Awaited<ReturnType<typeof repository.forkTimelineWorkspaceFromWorkNode>>;
+    try {
+      forked = await repository.forkTimelineWorkspaceFromWorkNode({
+        timelineId: activeTimelineId,
+        nodeId: node.nodeId,
+        label,
+        createdAt: Date.now(),
+      });
+    } catch (error) {
+      alert(`新建独立 SQLite 失败：${formatTimelineOperationError(error)}`);
+      return;
+    }
+
+    try {
+      const applied = await repository.applySqliteWorkspace(forked.document.id, Date.now());
+      setIsWorkNodeOmissionMode(false);
+      setWorkNodeOmissionState(EMPTY_WORK_NODE_OMISSION_STATE);
+      setPendingWorkNodeCheckoutId('');
+      setIsWorkNodePanelOpen(false);
+      activateTimeline({
+        document: applied.document as TimelineDocument,
+        checkoutRef: applied.checkoutRef,
+        workingPayload: applied.payload,
+      });
+      window.location.reload();
+    } catch (error) {
+      await refreshTimelineArchiveLibrary().catch(() => undefined);
+      alert(`独立 SQLite 已创建，但自动切换失败：${formatTimelineOperationError(error)}。请从 SQLite 列表手动应用。`);
     }
   };
 
@@ -4181,9 +4277,43 @@ export function CanvasBoard({
             <div className="work-node-modal-head">
               <div className="work-node-modal-actions">
                 <h3>Work Node 节点树 · {activeTimelineLabel}</h3>
-                <p>查看 AI 与人工 checkpoint 的节点、差异、风险和 checkout / restore 证据。</p>
+                <p>{isWorkNodeOmissionMode
+                  ? workNodeOmissionState.message
+                  : '查看 AI 与人工 checkpoint 的节点、差异、风险和 checkout / restore 证据。'}</p>
               </div>
-              <div>
+              <div className="work-node-modal-head-actions">
+                <button
+                  type="button"
+                  className={`modal-close-btn${isWorkNodeOmissionMode ? ' is-danger' : ''}`}
+                  disabled={isWorkNodeOmissionMode && !workNodeOmissionState.canConfirm}
+                  onClick={() => {
+                    if (!isWorkNodeOmissionMode) {
+                      setPendingWorkNodeCheckoutId('');
+                      setWorkNodeOmissionState(EMPTY_WORK_NODE_OMISSION_STATE);
+                      setIsWorkNodeOmissionMode(true);
+                      return;
+                    }
+                    void workNodeTreePanelRef.current?.confirmOmission();
+                  }}
+                >
+                  {isWorkNodeOmissionMode
+                    ? `确认省略${workNodeOmissionState.selectedCount ? `（${workNodeOmissionState.selectedCount}）` : ''}`
+                    : '省略'}
+                </button>
+                {isWorkNodeOmissionMode ? (
+                  <button
+                    type="button"
+                    className="modal-close-btn"
+                    disabled={workNodeOmissionState.busy}
+                    onClick={() => {
+                      workNodeTreePanelRef.current?.resetOmission();
+                      setIsWorkNodeOmissionMode(false);
+                      setWorkNodeOmissionState(EMPTY_WORK_NODE_OMISSION_STATE);
+                    }}
+                  >
+                    取消省略
+                  </button>
+                ) : null}
                 <button type="button" className="modal-close-btn" onClick={() => setWorkNodeCameraResetKey((current) => current + 1)}>
                   归正
                 </button>
@@ -4193,10 +4323,15 @@ export function CanvasBoard({
               </div>
             </div>
             <WorkNodeTreePanel
+              ref={workNodeTreePanelRef}
               timelineId={activeTimelineId}
               refreshKey={workNodeRefreshKey}
               cameraResetKey={workNodeCameraResetKey}
+              omissionMode={isWorkNodeOmissionMode}
               onSelectedNodeChange={handleWorkNodeSelection}
+              onOmissionSelectionChange={setWorkNodeOmissionState}
+              onOmissionComplete={handleWorkNodeOmissionComplete}
+              onForkAsSqlite={(node) => void handleForkWorkNodeAsSqlite(node)}
             />
           </div>
         </div>
@@ -4433,8 +4568,8 @@ export function CanvasBoard({
           >
             <div className="timeline-snapshot-modal-head">
               <div>
-                <h3>命名当前工作区</h3>
-                <p>这是首次保存。名称会用于开始页、存档和工作节点记录。</p>
+                <h3>{timelineNamePromptCopy.title}</h3>
+                <p>{timelineNamePromptCopy.description}</p>
               </div>
               <button type="button" className="modal-close-btn" onClick={closeTimelineNameModal}>
                 关闭
@@ -4453,7 +4588,7 @@ export function CanvasBoard({
                 setTimelineNameDraft(event.target.value);
                 if (timelineNameError) setTimelineNameError('');
               }}
-              placeholder="例如：别礼主力排轴"
+              placeholder={timelineNamePromptCopy.placeholder}
               maxLength={60}
               autoFocus
             />
@@ -4464,7 +4599,7 @@ export function CanvasBoard({
                 取消
               </button>
               <button type="submit" className="btn-save">
-                保存并继续
+                {timelineNamePromptCopy.confirmLabel}
               </button>
             </div>
           </form>
