@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "packageId": "dmg-end-field-image-pack",
-  "version": "20260814.215100.a814b4dd6288",
-  "releaseVersion": "20260814.215100.e63783f486d6",
-  "generatedAt": "2026-08-14T13:51:00.650Z",
-  "releaseTag": "20260814.215100.e63783f486d6",
+  "version": "20260820.212429.a814b4dd6288",
+  "releaseVersion": "20260820.212429.c5dd6be2c082",
+  "generatedAt": "2026-08-20T13:24:29.324Z",
+  "releaseTag": "20260820.212429.c5dd6be2c082",
   "publicBasePath": "assets/images",
   "files": [
     {
@@ -2835,64 +2835,64 @@
   ],
   "totalBytes": 54443824,
   "archive": {
-    "path": "resources/releases/20260814.215100.e63783f486d6/images/assets-20260814.215100.a814b4dd6288-full.zip",
-    "fileName": "assets-20260814.215100.a814b4dd6288-full.zip",
-    "sha256": "78ebf1d015e2abbf90bd761a5505bb0e8d41d9ca9fb50f64112d842d10f12943",
+    "path": "resources/releases/20260820.212429.c5dd6be2c082/images/assets-20260820.212429.a814b4dd6288-full.zip",
+    "fileName": "assets-20260820.212429.a814b4dd6288-full.zip",
+    "sha256": "e9347e4278fe29a656c9f66cb77be160615b4c3902b3a6f67809203b1281b85e",
     "size": 36979581,
     "parts": [
       {
-        "path": "resources/releases/20260814.215100.e63783f486d6/packages/assets-20260814.215100.a814b4dd6288-full.zip.part-001",
-        "sha256": "14846662342fb54fad78840ba555a34630a2d727bf674920dbd65d8002ee3e71",
+        "path": "resources/releases/20260820.212429.c5dd6be2c082/packages/assets-20260820.212429.a814b4dd6288-full.zip.part-001",
+        "sha256": "56f444eb8ca69891fdc551ac6f46637aff61560e1a626e3a17c0be6036d9f955",
         "size": 4194304,
-        "fileName": "assets-20260814.215100.a814b4dd6288-full.zip.part-001"
+        "fileName": "assets-20260820.212429.a814b4dd6288-full.zip.part-001"
       },
       {
-        "path": "resources/releases/20260814.215100.e63783f486d6/packages/assets-20260814.215100.a814b4dd6288-full.zip.part-002",
-        "sha256": "8e58018255819d658e3ff6b398b27e0b3395d20cea48b34205d113611f9bda03",
+        "path": "resources/releases/20260820.212429.c5dd6be2c082/packages/assets-20260820.212429.a814b4dd6288-full.zip.part-002",
+        "sha256": "1a63fdaebc49897d272a3fda98ca52d4b8bdf531962aba02d24940c88e5e7f29",
         "size": 4194304,
-        "fileName": "assets-20260814.215100.a814b4dd6288-full.zip.part-002"
+        "fileName": "assets-20260820.212429.a814b4dd6288-full.zip.part-002"
       },
       {
-        "path": "resources/releases/20260814.215100.e63783f486d6/packages/assets-20260814.215100.a814b4dd6288-full.zip.part-003",
-        "sha256": "00eb2ee71d18d06e27f90d1619d55002504ddb738a0a5ea9b315fadf3f0aa6c1",
+        "path": "resources/releases/20260820.212429.c5dd6be2c082/packages/assets-20260820.212429.a814b4dd6288-full.zip.part-003",
+        "sha256": "6e5dfd946a84561b9efdeba95bc0c27aa103da2b8e7616aa1602a59fa4c9954d",
         "size": 4194304,
-        "fileName": "assets-20260814.215100.a814b4dd6288-full.zip.part-003"
+        "fileName": "assets-20260820.212429.a814b4dd6288-full.zip.part-003"
       },
       {
-        "path": "resources/releases/20260814.215100.e63783f486d6/packages/assets-20260814.215100.a814b4dd6288-full.zip.part-004",
-        "sha256": "0356ee2e2808091385f513675da00c2e69144ce9431865d2a24fc5b4b8c23989",
+        "path": "resources/releases/20260820.212429.c5dd6be2c082/packages/assets-20260820.212429.a814b4dd6288-full.zip.part-004",
+        "sha256": "ecebb1c46ea37aa9ca3d05ccdef4932100ad44f5b250a949f9a5f4402a8b082a",
         "size": 4194304,
-        "fileName": "assets-20260814.215100.a814b4dd6288-full.zip.part-004"
+        "fileName": "assets-20260820.212429.a814b4dd6288-full.zip.part-004"
       },
       {
-        "path": "resources/releases/20260814.215100.e63783f486d6/packages/assets-20260814.215100.a814b4dd6288-full.zip.part-005",
-        "sha256": "ee7f5a52d4f11b6a54faa959fce3ac1f83660805faed1018d33efb19db278d06",
+        "path": "resources/releases/20260820.212429.c5dd6be2c082/packages/assets-20260820.212429.a814b4dd6288-full.zip.part-005",
+        "sha256": "01507441034a19fab51eb58307814800c8899ab5ff046369ca9040a958aab451",
         "size": 4194304,
-        "fileName": "assets-20260814.215100.a814b4dd6288-full.zip.part-005"
+        "fileName": "assets-20260820.212429.a814b4dd6288-full.zip.part-005"
       },
       {
-        "path": "resources/releases/20260814.215100.e63783f486d6/packages/assets-20260814.215100.a814b4dd6288-full.zip.part-006",
-        "sha256": "0d50bb8a5a415dd3387fd2887ae99c733170194a77a9b29128c6f00845e0f340",
+        "path": "resources/releases/20260820.212429.c5dd6be2c082/packages/assets-20260820.212429.a814b4dd6288-full.zip.part-006",
+        "sha256": "0a4b9f30ec38ed4756654da60413bf7ccfeae151aa70f4dabc3718b4841be0f9",
         "size": 4194304,
-        "fileName": "assets-20260814.215100.a814b4dd6288-full.zip.part-006"
+        "fileName": "assets-20260820.212429.a814b4dd6288-full.zip.part-006"
       },
       {
-        "path": "resources/releases/20260814.215100.e63783f486d6/packages/assets-20260814.215100.a814b4dd6288-full.zip.part-007",
-        "sha256": "e5f4f7b9c8f6c5d10b9b2c55ab7b18423b9675769a6d834646629e1b91becb94",
+        "path": "resources/releases/20260820.212429.c5dd6be2c082/packages/assets-20260820.212429.a814b4dd6288-full.zip.part-007",
+        "sha256": "6b4f848732cae3215a8a5ee010024efea8a7138be04fc35ef590d4074b3fdeed",
         "size": 4194304,
-        "fileName": "assets-20260814.215100.a814b4dd6288-full.zip.part-007"
+        "fileName": "assets-20260820.212429.a814b4dd6288-full.zip.part-007"
       },
       {
-        "path": "resources/releases/20260814.215100.e63783f486d6/packages/assets-20260814.215100.a814b4dd6288-full.zip.part-008",
-        "sha256": "b98d3128511e2bb330781175ab8d1bdeea566a27bab4b29714f615709dabd301",
+        "path": "resources/releases/20260820.212429.c5dd6be2c082/packages/assets-20260820.212429.a814b4dd6288-full.zip.part-008",
+        "sha256": "c7bd50e4295c96599d35c559f21b5876ea6a341468ae2fa83a670eb417906f5f",
         "size": 4194304,
-        "fileName": "assets-20260814.215100.a814b4dd6288-full.zip.part-008"
+        "fileName": "assets-20260820.212429.a814b4dd6288-full.zip.part-008"
       },
       {
-        "path": "resources/releases/20260814.215100.e63783f486d6/packages/assets-20260814.215100.a814b4dd6288-full.zip.part-009",
-        "sha256": "376f3ef97e04a93682e811e0503d01f9cbf70d1c2fd05d8ed4793f2ccc2543e3",
+        "path": "resources/releases/20260820.212429.c5dd6be2c082/packages/assets-20260820.212429.a814b4dd6288-full.zip.part-009",
+        "sha256": "acd360c9fdaf87476a9624d499d7632018cabe3dc669ecdef5876a5517567627",
         "size": 3425149,
-        "fileName": "assets-20260814.215100.a814b4dd6288-full.zip.part-009"
+        "fileName": "assets-20260820.212429.a814b4dd6288-full.zip.part-009"
       }
     ]
   }
