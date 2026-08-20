@@ -151,7 +151,7 @@ export function isMobileShareEnabled(): boolean {
 
 function publicShareOrigin(): string {
   const origin = currentOrigin();
-  if (!origin) return TACTICAL_SHARE_NODE_ORIGINS[1];
+  if (!origin) return TACTICAL_SHARE_NODE_ORIGINS[0];
   const url = new URL(origin);
   if (
     url.hostname === 'dmgendfield.cloud'
@@ -159,7 +159,7 @@ function publicShareOrigin(): string {
     || url.hostname === '127.0.0.1'
     || url.hostname === 'localhost'
   ) return origin;
-  return TACTICAL_SHARE_NODE_ORIGINS[1];
+  return TACTICAL_SHARE_NODE_ORIGINS[0];
 }
 
 export function buildMobileShareUrl(shareId: string): string {
@@ -176,7 +176,7 @@ export function parseMobileShareId(value: string): string | null {
     return SHARE_ID_PATTERN.test(encodedId) ? encodedId : null;
   }
   try {
-    const url = new URL(trimmed, currentOrigin() || TACTICAL_SHARE_NODE_ORIGINS[1]);
+    const url = new URL(trimmed, currentOrigin() || TACTICAL_SHARE_NODE_ORIGINS[0]);
     const pathMatch = url.pathname.match(/^\/share\/([A-Za-z0-9_-]{16})\/?$/);
     if (pathMatch) return pathMatch[1];
     const hashPath = url.hash.replace(/^#/, '').split('?')[0];

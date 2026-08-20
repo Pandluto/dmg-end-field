@@ -2,124 +2,90 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import sitesWorker from '../../../worker/index'
 
-const staticHeadersSource = readFileSync(new URL('../../../public/_headers', import.meta.url), 'utf8')
 const viteConfigSource = readFileSync(new URL('../../../vite.config.ts', import.meta.url), 'utf8')
-assert.match(
-  staticHeadersSource,
-  /\/assets\/:fingerprinted\s+[\s\S]*?Cache-Control:\s*public, max-age=31536000, immutable/,
-  'Sites static headers should cache direct fingerprinted build assets immutably when supported',
-)
 assert.match(
   viteConfigSource,
   /run_worker_first:\s*true/,
-  'Sites must route every request through the Worker cache policy',
+  'Sites must route every request through the retirement Worker',
 )
 
-const requestedPaths: string[] = []
-const env = {
-  ASSETS: {
-    async fetch(request: Request) {
-      const pathname = new URL(request.url).pathname
-      requestedPaths.push(pathname)
-      if (pathname === '/') {
-        return new Response('<main>mobile shell</main>', {
-          headers: { 'Content-Type': 'text/html; charset=utf-8' },
-        })
-      }
-      if (pathname === '/mobile') {
-        return Response.redirect('https://dmgendfield.online/', 307)
-      }
-      if (pathname.endsWith('/existing.part-001')) {
-        return new Response('image archive part', {
-          headers: { 'Content-Type': 'application/octet-stream' },
-        })
-      }
-      if (pathname.endsWith('/missing.part-001')) {
-        return new Response('<main>SPA fallback</main>', {
-          headers: { 'Content-Type': 'text/html; charset=utf-8' },
-        })
-      }
-      if (pathname === '/assets/images/example.png') {
-        return new Response('image bytes', {
-          headers: { 'Content-Type': 'image/png' },
-        })
-      }
-      if (pathname === '/assets/mobile-report-HASH.js') {
-        return new Response('build asset', {
-          headers: { 'Content-Type': 'text/javascript; charset=utf-8' },
-        })
-      }
-      return new Response('not found', { status: 404 })
-    },
-  },
+const env = {} as Parameters<typeof sitesWorker.fetch>[1]
+
+async function assertRedirect(source: string, target: string, method = 'GET'): Promise<void> {
+  const response = await sitesWorker.fetch(new Request(source, { method }), env)
+  assert.equal(response.status, 308)
+  assert.equal(response.headers.get('Location'), target)
+  assert.equal(response.headers.get('Cache-Control'), 'no-store')
+  assert.equal(response.headers.get('X-DMG-Site-Status'), 'retired')
 }
 
-const mobileResponse = await sitesWorker.fetch(
-  new Request('https://dmgendfield.online/mobile'),
-  env,
+await assertRedirect(
+  'https://dmgendfield.online/',
+  'https://dmgendfield.cloud/',
 )
-assert.equal(mobileResponse.status, 200)
-assert.equal(await mobileResponse.text(), '<main>mobile shell</main>')
-assert.equal(mobileResponse.headers.get('Cache-Control'), 'no-store, no-cache, must-revalidate')
-assert.deepEqual(requestedPaths, ['/'])
+await assertRedirect(
+  'https://dmgendfield.online/mobile?entry=bookmark',
+  'https://dmgendfield.cloud/mobile?entry=bookmark',
+)
+await assertRedirect(
+  'https://dmgendfield.online/share/AbCdEfGhIjKlMn01?source=qr',
+  'https://dmgendfield.cloud/share/AbCdEfGhIjKlMn01?source=qr',
+)
+await assertRedirect(
+  'https://dmgendfield-online.hf233666.chatgpt.site/resources/stable.json',
+  'https://dmgendfield.cloud/resources/stable.json',
+)
+await assertRedirect(
+  'https://dmgendfield-online.hf233666.chatgpt.site/assets/app.js?v=1',
+  'https://dmgendfield.cloud/assets/app.js?v=1',
+  'HEAD',
+)
+await assertRedirect(
+  'https://dmgendfield.online//example.com/not-an-open-redirect',
+  'https://dmgendfield.cloud//example.com/not-an-open-redirect',
+)
+await assertRedirect(
+  'https://dmgendfield.online/api/mobile-shares-legacy',
+  'https://dmgendfield.cloud/api/mobile-shares-legacy',
+)
 
-requestedPaths.length = 0
-const shareResponse = await sitesWorker.fetch(
-  new Request('https://dmgendfield.online/share/AbCdEfGhIjKlMn01'),
+const versionResponse = await sitesWorker.fetch(
+  new Request('https://dmgendfield.online/version.json?check=1'),
   env,
 )
-assert.equal(shareResponse.status, 200)
-assert.equal(await shareResponse.text(), '<main>mobile shell</main>')
-assert.equal(shareResponse.headers.get('Cache-Control'), 'no-store, no-cache, must-revalidate')
-assert.deepEqual(requestedPaths, ['/'])
+assert.equal(versionResponse.status, 200)
+assert.equal(versionResponse.headers.get('Cache-Control'), 'no-store')
+assert.deepEqual(await versionResponse.json(), {
+  schemaVersion: 1,
+  releaseVersion: '1.8.5-retired',
+  shellVersion: '3bbac54d4a3c4308',
+})
 
-requestedPaths.length = 0
-const unrelatedResponse = await sitesWorker.fetch(
-  new Request('https://dmgendfield.online/not-a-client-route'),
+const serviceWorkerResponse = await sitesWorker.fetch(
+  new Request('https://dmgendfield.online/sw.js?update=1'),
   env,
 )
-assert.equal(unrelatedResponse.status, 404)
-assert.deepEqual(requestedPaths, ['/not-a-client-route'])
+assert.equal(serviceWorkerResponse.status, 200)
+assert.equal(serviceWorkerResponse.headers.get('Cache-Control'), 'no-store')
+assert.equal(serviceWorkerResponse.headers.get('Service-Worker-Allowed'), '/')
+assert.match(await serviceWorkerResponse.text(), /https:\/\/dmgendfield\.cloud/)
+assert.match(await (await sitesWorker.fetch(
+  new Request('https://dmgendfield.online/sw.js'),
+  env,
+)).text(), /self\.skipWaiting\(\)/)
 
-requestedPaths.length = 0
-const stableResponse = await sitesWorker.fetch(
-  new Request('https://dmgendfield.online/resources/stable.json'),
+const apiResponse = await sitesWorker.fetch(
+  new Request('https://dmgendfield.online/api/mobile-shares', {
+    method: 'OPTIONS',
+    headers: {
+      Origin: 'https://dmgendfield.cloud',
+      'Access-Control-Request-Method': 'GET',
+    },
+  }),
   env,
 )
-assert.equal(stableResponse.headers.get('Cache-Control'), 'no-store, no-cache, must-revalidate')
-assert.deepEqual(requestedPaths, ['/resources/stable.json'])
+assert.equal(apiResponse.status, 204)
+assert.equal(apiResponse.headers.get('Access-Control-Allow-Origin'), 'https://dmgendfield.cloud')
+assert.equal(apiResponse.headers.get('Location'), null)
 
-requestedPaths.length = 0
-const immutableResponse = await sitesWorker.fetch(
-  new Request('https://dmgendfield.online/resources/releases/v-test/packages/existing.part-001'),
-  env,
-)
-assert.equal(immutableResponse.status, 200)
-assert.equal(immutableResponse.headers.get('Cache-Control'), 'public, max-age=31536000, immutable')
-assert.deepEqual(requestedPaths, ['/resources/releases/v-test/packages/existing.part-001'])
-
-requestedPaths.length = 0
-const missingResourceResponse = await sitesWorker.fetch(
-  new Request('https://dmgendfield.online/resources/releases/v-test/packages/missing.part-001'),
-  env,
-)
-assert.equal(missingResourceResponse.status, 404)
-assert.equal(missingResourceResponse.headers.get('Cache-Control'), 'no-store')
-assert.deepEqual(requestedPaths, ['/resources/releases/v-test/packages/missing.part-001'])
-
-requestedPaths.length = 0
-const mobileImageResponse = await sitesWorker.fetch(
-  new Request('https://dmgendfield.online/assets/images/example.png?imageVersion=v-test'),
-  env,
-)
-assert.equal(mobileImageResponse.headers.get('Cache-Control'), 'public, max-age=0, must-revalidate')
-assert.deepEqual(requestedPaths, ['/assets/images/example.png'])
-
-requestedPaths.length = 0
-const hashedBuildAssetResponse = await sitesWorker.fetch(
-  new Request('https://dmgendfield.online/assets/mobile-report-HASH.js'),
-  env,
-)
-assert.equal(hashedBuildAssetResponse.status, 200)
-assert.equal(hashedBuildAssetResponse.headers.get('Cache-Control'), 'public, max-age=31536000, immutable')
-assert.deepEqual(requestedPaths, ['/assets/mobile-report-HASH.js'])
+console.log('Sites overseas retirement routing: PASS')

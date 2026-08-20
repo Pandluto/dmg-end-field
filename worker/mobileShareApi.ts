@@ -688,7 +688,10 @@ export async function handleSitesMobileShareRequest(
   env: SitesMobileShareEnv,
 ): Promise<Response | null> {
   const url = new URL(request.url)
-  if (!url.pathname.startsWith(MOBILE_SHARE_API_PATH)) return null
+  if (
+    url.pathname !== MOBILE_SHARE_API_PATH
+    && !url.pathname.startsWith(`${MOBILE_SHARE_API_PATH}/`)
+  ) return null
   const repository = new D1R2SitesMobileShareRepository(env.DB, env.MOBILE_SHARES)
   return createSitesMobileShareHandler(repository)(request)
 }

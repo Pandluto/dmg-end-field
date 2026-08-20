@@ -1,13 +1,13 @@
 # 战术分享节点
 
-国内、海外节点提供同一套 REST 契约，保存两类 JSON 战术分享：
+国内主节点与退役海外站的兼容节点提供同一套 REST 契约，保存两类 JSON 战术分享：
 
 - 手机端生成的单份当前快照。
 - 桌面端生成的完整 SQLite 工作树便携包，另带生成二维码时的当前展示快照。
 
 服务不接收或保存报告图片；二维码图片仍由浏览器生成和识别。手机扫桌面码只取当前展示快照，桌面扫桌面码才迁移整棵工作树。
 
-两端持久化相互独立：国内使用 Node.js + SQLite，海外 Sites Worker 使用 D1 保存索引与限流记录、R2 保存完整 JSON。前端并发读取两个节点，因此不要求数据库复制。
+两端持久化相互独立：国内使用 Node.js + SQLite；海外 UI 已跳转国内，但 Sites Worker 暂留 D1/R2 API 以读取历史分享。前端并发读取两个节点，因此旧二维码无需先做数据库复制。
 
 ## 共同约束
 
@@ -34,12 +34,12 @@
 4. 将 `nginx-location.conf` 中的两个 location 放入对应站点的 `server {}`，且位于 SPA fallback 之前。
 5. 先执行 `nginx -t`，再 reload Nginx。
 
-## 海外 Sites 节点
+## 海外 Sites 历史兼容节点
 
 - `.openai/hosting.json` 声明 `DB` 与 `MOBILE_SHARES` 两个逻辑绑定。
 - `drizzle/` 保存 D1 建表迁移；Worker 启动时仍执行幂等建表，避免首次请求依赖迁移时序。
 - D1 只保存分享 ID、内容哈希、大小、创建时间与限流事件；最大 8 MiB 的完整 JSON 放在 R2。
-- Sites 发布必须携带 `dist/.openai/hosting.json` 和 `dist/.openai/drizzle/`，不得创建第二个 Sites 项目。
+- Sites 仅在修复退役跳转或历史分享兼容层时发布，必须携带 `dist/.openai/hosting.json` 和 `dist/.openai/drizzle/`，不得创建第二个 Sites 项目。
 
 ## 验证
 
@@ -50,4 +50,4 @@ curl --fail --silent --show-error https://dmgendfield.cloud/api/mobile-shares/he
 curl --fail --silent --show-error https://dmgendfield.online/api/mobile-shares/health
 ```
 
-四个地址都应返回 `{"ok":true,...}`。国内数据库文件、上一版服务文件和两端上一版发布都应保留为回滚点。
+四个地址都应返回 `{"ok":true,...}`。国内数据库文件、上一版服务文件、海外 D1/R2 和 Sites 上一版都应保留为回滚点。

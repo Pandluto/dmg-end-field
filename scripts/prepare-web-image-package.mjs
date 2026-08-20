@@ -12,7 +12,7 @@ const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 const configuredOrigins = (
   process.env.DMG_RESOURCE_ORIGINS
   || process.env.DMG_RESOURCE_ORIGIN
-  || 'https://dmgendfield.cloud,http://150.158.133.176,https://dmgendfield.online'
+  || 'https://dmgendfield.cloud,http://150.158.133.176'
 );
 const resourceOrigins = [...new Set(
   configuredOrigins

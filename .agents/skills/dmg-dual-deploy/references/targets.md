@@ -5,22 +5,28 @@ Update this file whenever a domain, host, path, protocol, or deployment provider
 ## Source and builds
 
 - Default release branch: `codex/v1.8-lts-slimming`
-- Overseas build: `npm run build:sites`
-- Overseas client shell: `dist/client`
-- Domestic build: `npm run build:local`
+- Maintained application build: `npm run build:local`
 - Domestic static root: `dist`
+- Overseas retirement build: `npm run build:sites`
 - Sites project metadata: `.openai/hosting.json`
 
-## Overseas Sites
+## Retired overseas Sites route
 
-- User-facing base URL: `https://dmgendfield.online`
-- Desktop route: `https://dmgendfield.online/`
-- Mobile route: `https://dmgendfield.online/mobile`
-- Provider fallback URL: `https://dmgendfield-online.hf233666.chatgpt.site/`
-- The overseas desktop route is the complete PWA. After the first successful online load and resource installation, it supports offline use.
-- The mobile route is an online, simplified portrait interface and should continue reading the current online data/image version.
+- Former user-facing origin: `https://dmgendfield.online`
+- Provider fallback origin: `https://dmgendfield-online.hf233666.chatgpt.site`
+- Replacement origin: `https://dmgendfield.cloud`
+- Sites project ID: reuse the value in `.openai/hosting.json`
 
-Reuse the `project_id` already stored in `.openai/hosting.json`. Never replace it merely to fix a deployment.
+The overseas origin no longer serves or receives normal application/resource releases. The retirement Worker applies on both hostnames:
+
+- all UI, navigation, asset, manifest, and resource paths return `308` to the same pathname and query on `https://dmgendfield.cloud`;
+- `/sw.js` stays on the overseas origin and installs a no-cache migration Worker so previously installed PWAs stop serving the cached overseas shell;
+- `/version.json` stays on the overseas origin and advertises the retirement shell;
+- `/api/mobile-shares` stays on the overseas origin as a compatibility API for historic D1/R2 records and old QR codes.
+
+Fragments are client-side only; browsers inherit the original fragment across an HTTP redirect whose `Location` has no fragment. The redirect target must always be assembled from the fixed domestic origin by assigning pathname and query separately, never by resolving an incoming `//...` pathname as a URL.
+
+Do not delete the custom domain, Sites project, D1 database, R2 bucket, or prior live version. A normal domestic release must leave this retirement route untouched.
 
 ## Domestic server
 
@@ -55,7 +61,9 @@ The domestic desktop route is accepted only through the filed HTTPS domain. The 
 
 No SSH password, private key, token, or certificate belongs in this file.
 
-## Domestic cache contract
+## Domestic resource and cache contract
+
+The domestic origin is the only maintained resource channel. Former overseas resource URLs redirect path-for-path to it.
 
 - `index.html`, SPA fallbacks, `version.json`, `sw.js`, `manifest.webmanifest`, `resources/stable.json`, `web-data-manifest.json`, and `web-image-manifest.json`: `no-store` or equivalent no-cache/revalidation behavior.
 - Hashed JS, CSS, Worker, and WASM under `/assets/`: one-year immutable caching.

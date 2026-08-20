@@ -37,7 +37,7 @@ function mobileRecord() {
 
 test('uses a neutral share route while retaining legacy QR parsing', () => {
   const url = buildMobileShareUrl(SHARE_ID);
-  assert.equal(url, `https://dmgendfield.online/share/${SHARE_ID}`);
+  assert.equal(url, `https://dmgendfield.cloud/share/${SHARE_ID}`);
   assert.equal(parseMobileShareId(url), SHARE_ID);
   assert.equal(parseMobileShareId(`https://example.test/mobile?share=${SHARE_ID}`), SHARE_ID);
   assert.equal(parseMobileShareId(`https://example.test/#/share/${SHARE_ID}`), SHARE_ID);
