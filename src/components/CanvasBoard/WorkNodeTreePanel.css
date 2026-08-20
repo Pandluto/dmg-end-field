@@ -1,5 +1,6 @@
 .work-node-tree-panel {
   --work-node-path-color: #8B5CF6;
+  --work-node-omission-color: #dc2626;
   position: relative;
   min-width: 0;
   min-height: 0;
@@ -14,6 +15,11 @@
   box-sizing: border-box;
   cursor: grab;
   touch-action: none;
+}
+
+.work-node-tree-panel.is-omission-mode,
+.work-node-tree-panel.is-omission-mode:active {
+  cursor: crosshair;
 }
 
 .work-node-tree-panel:active {
@@ -42,6 +48,12 @@
   stroke: var(--work-node-path-color);
   stroke-width: 2;
   filter: drop-shadow(0 0 2px var(--work-node-path-color));
+}
+
+.work-node-tree-connectors .is-omission-path {
+  stroke: var(--work-node-omission-color);
+  stroke-width: 3;
+  filter: drop-shadow(0 0 3px rgba(220, 38, 38, 0.58));
 }
 
 .work-node-tree-count {
@@ -139,6 +151,22 @@
   opacity: 1;
   border-color: var(--work-node-path-color);
   box-shadow: 0 0 0 2px var(--work-node-path-color), 0 0 14px var(--work-node-path-color);
+}
+
+.work-node-tree-node.is-omission-mode {
+  cursor: crosshair;
+}
+
+.work-node-tree-node.is-omission-selected,
+.work-node-tree-node.is-omission-selected:hover {
+  opacity: 1;
+  border-color: var(--work-node-omission-color);
+  background: rgba(254, 226, 226, 0.98);
+  box-shadow: 0 0 0 2px var(--work-node-omission-color), 0 0 16px rgba(220, 38, 38, 0.46);
+}
+
+.work-node-tree-node.is-omission-selected::before {
+  background: var(--work-node-omission-color);
 }
 
 .work-node-tree-detail {
@@ -275,6 +303,54 @@
   stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.work-node-tree-delete-choices {
+  position: absolute;
+  left: calc(100% + 31px);
+  top: 50%;
+  z-index: 10;
+  width: 208px;
+  display: grid;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  background: rgba(255, 255, 255, 0.99);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.2);
+  transform: translateY(-50%);
+}
+
+.work-node-tree-delete-choices button {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 7px 8px;
+  text-align: left;
+  color: var(--office-title);
+  cursor: pointer;
+}
+
+.work-node-tree-delete-choices button:hover:not(:disabled) {
+  border-color: rgba(220, 38, 38, 0.36);
+  background: rgba(254, 226, 226, 0.78);
+}
+
+.work-node-tree-delete-choices button:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.work-node-tree-delete-choices strong {
+  font-size: 11px;
+  color: inherit;
+}
+
+.work-node-tree-delete-choices span {
+  font-size: 9px;
+  line-height: 1.35;
+  color: var(--office-body);
 }
 
 .work-node-tree-node-top {

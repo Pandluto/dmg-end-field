@@ -23,12 +23,18 @@ type WorkNodeTreeNodeProps = {
   node: WorkNodeTreeNodeModel;
   activeNodeId: string;
   activePathNodeIds: Set<string>;
+  isOmissionMode: boolean;
+  isOmissionSelected: boolean;
+  canOmit: boolean;
+  omitDisabledReason?: string;
   x: number;
   y: number;
   onSelect: (node: WorkNodeTreeNodeModel) => void;
-  onDelete: (node: WorkNodeTreeNodeModel) => void;
+  onDeleteSubtree: (node: WorkNodeTreeNodeModel) => void;
+  onOmit: (node: WorkNodeTreeNodeModel) => void;
   onAddChild: (node: WorkNodeTreeNodeModel) => void;
   onAddSibling: (node: WorkNodeTreeNodeModel) => void;
+  onForkAsSqlite: (node: WorkNodeTreeNodeModel) => void;
   onRename: (node: WorkNodeTreeNodeModel, title: string) => Promise<void>;
 };
 
@@ -84,28 +90,48 @@ function BranchIcon() {
   );
 }
 
+function DatabaseForkIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <ellipse cx="9" cy="5" rx="5" ry="2.5" />
+      <path d="M4 5v8c0 1.4 2.2 2.5 5 2.5" />
+      <path d="M14 5v5" />
+      <path d="M13 14h7" />
+      <path d="M17 11l3 3-3 3" />
+      <path d="M4 9c0 1.4 2.2 2.5 5 2.5 1.2 0 2.3-.2 3.1-.6" />
+    </svg>
+  );
+}
+
 export function WorkNodeTreeNode({
   node,
   activeNodeId,
   activePathNodeIds,
+  isOmissionMode,
+  isOmissionSelected,
+  canOmit,
+  omitDisabledReason,
   x,
   y,
   onSelect,
-  onDelete,
+  onDeleteSubtree,
+  onOmit,
   onAddChild,
   onAddSibling,
+  onForkAsSqlite,
   onRename,
 }: WorkNodeTreeNodeProps) {
   const childCount = node.children.length;
   const [isRenaming, setIsRenaming] = useState(false);
   const [titleDraft, setTitleDraft] = useState(node.title);
   const [showDetails, setShowDetails] = useState(false);
+  const [showDeleteChoices, setShowDeleteChoices] = useState(false);
   const clickTimerRef = useRef<number | null>(null);
   const hoverTimerRef = useRef<number | null>(null);
   const isActive = activeNodeId === node.nodeId;
   const isInActivePath = activePathNodeIds.has(node.nodeId);
-  const canDelete = !isInActivePath;
   const pathClassName = isActive ? ' is-active' : isInActivePath ? ' is-path' : ' is-muted';
+  const omissionClassName = isOmissionSelected ? ' is-omission-selected' : '';
   useEffect(() => () => {
     if (clickTimerRef.current !== null) window.clearTimeout(clickTimerRef.current);
     if (hoverTimerRef.current !== null) window.clearTimeout(hoverTimerRef.current);
@@ -123,6 +149,7 @@ export function WorkNodeTreeNode({
     if (hoverTimerRef.current !== null) window.clearTimeout(hoverTimerRef.current);
     hoverTimerRef.current = null;
     setShowDetails(false);
+    setShowDeleteChoices(false);
   };
 
   const selectNode = () => {
@@ -136,6 +163,7 @@ export function WorkNodeTreeNode({
 
   const startRename = (event: MouseEvent<HTMLElement>) => {
     event.stopPropagation();
+    if (isOmissionMode) return;
     if (clickTimerRef.current !== null) window.clearTimeout(clickTimerRef.current);
     clickTimerRef.current = null;
     setTitleDraft(node.title);
@@ -160,7 +188,7 @@ export function WorkNodeTreeNode({
       onPointerLeave={hideDetails}
     >
         <div
-          className={`work-node-tree-node is-${node.status}${pathClassName}`}
+          className={`work-node-tree-node is-${node.status}${pathClassName}${omissionClassName}${isOmissionMode ? ' is-omission-mode' : ''}`}
           onClick={selectNode}
         >
           <div className="work-node-tree-node-top">
@@ -198,22 +226,47 @@ export function WorkNodeTreeNode({
             <span>{node.description || '暂无描述'}</span>
           </div>
         ) : null}
-        <div className="work-node-tree-actions" aria-label="节点操作">
-          <button
-            type="button"
-            title={canDelete ? '删除节点及其子树' : '当前路径节点不能删除'}
-            disabled={!canDelete}
-            onClick={(event) => stopAction(event, () => canDelete && onDelete(node))}
-          >
-            <DeleteIcon />
-          </button>
-          <button type="button" title="新增子节点" onClick={(event) => stopAction(event, () => onAddChild(node))}>
-            <AddIcon />
-          </button>
-          <button type="button" title="新增同级分支" onClick={(event) => stopAction(event, () => onAddSibling(node))}>
-            <BranchIcon />
-          </button>
-        </div>
+        {!isOmissionMode ? (
+          <>
+            <div className="work-node-tree-actions" aria-label="节点操作">
+              <button
+                type="button"
+                title="删除或省略节点"
+                aria-expanded={showDeleteChoices}
+                onClick={(event) => stopAction(event, () => setShowDeleteChoices((current) => !current))}
+              >
+                <DeleteIcon />
+              </button>
+              <button type="button" title="新增子节点" onClick={(event) => stopAction(event, () => onAddChild(node))}>
+                <AddIcon />
+              </button>
+              <button type="button" title="新增同级分支" onClick={(event) => stopAction(event, () => onAddSibling(node))}>
+                <BranchIcon />
+              </button>
+              <button type="button" title="以此节点新建 SQLite" onClick={(event) => stopAction(event, () => onForkAsSqlite(node))}>
+                <DatabaseForkIcon />
+              </button>
+            </div>
+            {showDeleteChoices ? (
+              <div className="work-node-tree-delete-choices" role="menu" aria-label="删除方式">
+                <button type="button" role="menuitem" onClick={(event) => stopAction(event, () => onDeleteSubtree(node))}>
+                  <strong>删除以下路径</strong>
+                  <span>删除节点及全部子节点</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={!canOmit}
+                  title={canOmit ? '删除当前节点并保留后续路径' : omitDisabledReason}
+                  onClick={(event) => stopAction(event, () => canOmit && onOmit(node))}
+                >
+                  <strong>省略当前节点</strong>
+                  <span>{canOmit ? '保留后续节点并重新接线' : omitDisabledReason}</span>
+                </button>
+              </div>
+            ) : null}
+          </>
+        ) : null}
     </article>
   );
 }

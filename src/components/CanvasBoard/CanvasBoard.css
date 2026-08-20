@@ -2763,6 +2763,24 @@
   align-items: center;
   gap: 6px;
 }
+
+.work-node-modal-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.work-node-modal-head-actions .modal-close-btn.is-danger {
+  border-color: rgba(220, 38, 38, 0.72);
+  background: rgba(254, 226, 226, 0.9);
+  color: #991b1b;
+}
+
+.work-node-modal-head-actions .modal-close-btn:disabled {
+  opacity: 0.46;
+  cursor: not-allowed;
+}
 .canvas-work-node-save-notice {
   position: fixed;
   top: 20px;
