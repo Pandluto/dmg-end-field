@@ -153,8 +153,10 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
   const {
     notifications,
     unreadCount,
+    readCount,
     markRead,
     markAllRead,
+    deleteRead,
     notify,
   } = useNotificationCenter();
   const [notificationOpen, setNotificationOpen] = useState(false);
@@ -211,6 +213,13 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
     if (notification.action?.route) {
       navigateToAppPath(notification.action.route);
     }
+  };
+
+  const handleDeleteReadNotifications = () => {
+    if (readCount === 0) return;
+    const confirmed = window.confirm(`删除 ${readCount} 条已读通知？删除后无法恢复。`);
+    if (!confirmed) return;
+    void deleteRead();
   };
 
   const [launcherPosition, setLauncherPosition] = useState<LauncherPosition>(
@@ -546,8 +555,10 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
             <NotificationPanel
               notifications={notifications}
               unreadCount={unreadCount}
+              readCount={readCount}
               onMarkRead={(id) => void markRead(id)}
               onMarkAllRead={() => void markAllRead()}
+              onDeleteRead={handleDeleteReadNotifications}
               onAction={handleNotificationAction}
             />
           )}

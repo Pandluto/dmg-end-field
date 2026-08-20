@@ -166,9 +166,23 @@ export async function markKindRead(kind: AppNotification['kind']): Promise<void>
   );
 }
 
+export async function deleteReadNotifications(): Promise<number> {
+  const result = await webDatabase.execute(
+    'DELETE FROM notifications WHERE read_at IS NOT NULL',
+  );
+  return result.changes;
+}
+
 export async function countUnreadNotifications(): Promise<number> {
   const rows = await webDatabase.query<{ count: number }>(
     'SELECT COUNT(*) AS count FROM notifications WHERE read_at IS NULL',
+  );
+  return Number(rows[0]?.count || 0);
+}
+
+export async function countReadNotifications(): Promise<number> {
+  const rows = await webDatabase.query<{ count: number }>(
+    'SELECT COUNT(*) AS count FROM notifications WHERE read_at IS NOT NULL',
   );
   return Number(rows[0]?.count || 0);
 }

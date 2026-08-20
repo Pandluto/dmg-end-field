@@ -4,32 +4,46 @@ import type { AppNotification } from '../../platform/notifications/notificationT
 interface NotificationPanelProps {
   notifications: AppNotification[];
   unreadCount: number;
+  readCount: number;
   onMarkRead: (id: string) => void;
   onMarkAllRead: () => void;
+  onDeleteRead: () => void;
   onAction: (notification: AppNotification) => void;
 }
 
 export function NotificationPanel({
   notifications,
   unreadCount,
+  readCount,
   onMarkRead,
   onMarkAllRead,
+  onDeleteRead,
   onAction,
 }: NotificationPanelProps) {
   return (
     <section className="web-shell-notification-panel" role="dialog" aria-label="通知中心">
       <header className="web-shell-notification-panel-header">
-        <div>
+        <div className="web-shell-notification-panel-summary">
           <strong>通知</strong>
           <small>{unreadCount > 0 ? `${unreadCount} 条未读` : '已全部读完了'}</small>
         </div>
-        <button
-          type="button"
-          disabled={unreadCount === 0}
-          onClick={onMarkAllRead}
-        >
-          全部已读
-        </button>
+        <div className="web-shell-notification-panel-header-actions">
+          <button
+            type="button"
+            disabled={unreadCount === 0}
+            onClick={onMarkAllRead}
+          >
+            全部已读
+          </button>
+          <button
+            type="button"
+            className="is-delete-read"
+            disabled={readCount === 0}
+            onClick={onDeleteRead}
+          >
+            删除已读
+          </button>
+        </div>
       </header>
       <div className="web-shell-notification-list">
         {notifications.length === 0 ? (

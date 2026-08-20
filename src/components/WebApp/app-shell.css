@@ -1436,9 +1436,15 @@
   border-bottom: 1px solid var(--shell-border);
 }
 
-.web-shell-notification-panel-header > div {
+.web-shell-notification-panel-summary {
   display: grid;
   gap: 1px;
+}
+
+.web-shell-notification-panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .web-shell-notification-panel-header strong {
@@ -1470,6 +1476,12 @@
 .web-shell-notification-panel-header button:disabled {
   cursor: default;
   opacity: 0.4;
+}
+
+.web-shell-notification-panel-header button.is-delete-read:not(:disabled):hover {
+  border-color: rgba(255, 59, 48, 0.28);
+  background: rgba(255, 235, 233, 0.92);
+  color: #c62828;
 }
 
 .web-shell-notification-list {

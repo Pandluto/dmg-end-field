@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
-import { planWorkNodePathOmission, WorkNodeTopologyError } from './workNodeTopology';
+import {
+  planWorkNodePathOmission,
+  planWorkNodePathOmissionFromSelection,
+  WorkNodeTopologyError,
+} from './workNodeTopology';
 
 const nodes = [
   { id: 'A' },
@@ -29,6 +33,18 @@ assert.deepEqual(planWorkNodePathOmission(nodes, 'C'), {
   boundaryChildNodeIds: ['D', 'C-side'],
 });
 
+assert.deepEqual(planWorkNodePathOmissionFromSelection(nodes, ['E', 'B', 'D']), {
+  omittedNodeIds: ['B', 'C', 'D', 'E'],
+  predecessorNodeId: 'A',
+  boundaryChildNodeIds: ['F', 'C-side'],
+});
+
+assert.deepEqual(planWorkNodePathOmissionFromSelection(nodes, ['C']), {
+  omittedNodeIds: ['C'],
+  predecessorNodeId: 'B',
+  boundaryChildNodeIds: ['D', 'C-side'],
+});
+
 assert.throws(
   () => planWorkNodePathOmission(nodes, 'A', 'C'),
   (error) => error instanceof WorkNodeTopologyError && error.code === 'work-node-topology-root-protected',
@@ -42,6 +58,11 @@ assert.throws(
 assert.throws(
   () => planWorkNodePathOmission(nodes, 'C-side', 'F'),
   (error) => error instanceof WorkNodeTopologyError && error.code === 'work-node-topology-unrelated-endpoints',
+);
+
+assert.throws(
+  () => planWorkNodePathOmissionFromSelection(nodes, ['C-side', 'F']),
+  (error) => error instanceof WorkNodeTopologyError && error.code === 'work-node-topology-nonlinear-selection',
 );
 
 console.log('work node path omission planning passed');

@@ -9,7 +9,9 @@ import {
   type ReactNode,
 } from 'react';
 import {
+  countReadNotifications,
   countUnreadNotifications,
+  deleteReadNotifications,
   listNotifications,
   markAllNotificationsRead,
   markKindRead,
@@ -26,9 +28,11 @@ type NotificationCenterContextValue = {
   ready: boolean;
   notifications: AppNotification[];
   unreadCount: number;
+  readCount: number;
   notify: (input: NotificationInput) => Promise<void>;
   markRead: (id: string) => Promise<void>;
   markAllRead: () => Promise<void>;
+  deleteRead: () => Promise<number>;
   markKindRead: (kind: NotificationKind) => Promise<void>;
 };
 
@@ -46,16 +50,19 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
   const [ready, setReady] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [readCount, setReadCount] = useState(0);
   const hydratedRef = useRef(false);
 
   const refresh = useCallback(async () => {
     if (!hydratedRef.current) return;
-    const [nextNotifications, nextUnreadCount] = await Promise.all([
+    const [nextNotifications, nextUnreadCount, nextReadCount] = await Promise.all([
       listNotifications(),
       countUnreadNotifications(),
+      countReadNotifications(),
     ]);
     setNotifications(nextNotifications);
     setUnreadCount(nextUnreadCount);
+    setReadCount(nextReadCount);
     setReady(true);
   }, []);
   const refreshRef = useRef(refresh);
@@ -83,6 +90,12 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
     await refreshRef.current();
   }, []);
 
+  const deleteRead = useCallback(async () => {
+    const deletedCount = await deleteReadNotifications();
+    await refreshRef.current();
+    return deletedCount;
+  }, []);
+
   const markKindReadStable = useCallback(async (kind: NotificationKind) => {
     await markKindRead(kind);
     await refreshRef.current();
@@ -92,11 +105,13 @@ export function NotificationCenterProvider({ children }: { children: ReactNode }
     ready,
     notifications,
     unreadCount,
+    readCount,
     notify,
     markRead,
     markAllRead,
+    deleteRead,
     markKindRead: markKindReadStable,
-  }), [markAllRead, markKindReadStable, markRead, notifications, notify, ready, unreadCount]);
+  }), [deleteRead, markAllRead, markKindReadStable, markRead, notifications, notify, readCount, ready, unreadCount]);
 
   return (
     <NotificationCenterContext.Provider value={value}>
