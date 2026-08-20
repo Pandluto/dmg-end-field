@@ -20,6 +20,7 @@ export const MOBILE_SHARE_DEVICE_COOKIE = 'dmg_share_device';
 export const MOBILE_SHARE_DEVICE_COOKIE_MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
 
 const DEFAULT_ALLOWED_ORIGINS = [
+  'https://dmgendfield.cloud',
   'https://dmgendfield.online',
   'https://150.158.133.176',
   'http://150.158.133.176',

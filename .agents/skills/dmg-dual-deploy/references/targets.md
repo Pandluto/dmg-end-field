@@ -26,9 +26,10 @@ Reuse the `project_id` already stored in `.openai/hosting.json`. Never replace i
 
 - Public IP: `150.158.133.176`
 - SSH user: `ubuntu`
-- Current base URL: `http://150.158.133.176`
-- Current desktop route: `http://150.158.133.176/`
-- Current mobile route: `http://150.158.133.176/mobile`
+- User-facing base URL: `https://dmgendfield.cloud`
+- Desktop route: `https://dmgendfield.cloud/`
+- Mobile route: `https://dmgendfield.cloud/mobile`
+- Legacy IP fallback: `http://150.158.133.176`
 - Static root: `/var/www/dmg-static`
 - Staged release: `/var/www/dmg-static.release-<short-sha>`
 - Rollback release: `/var/www/dmg-static.prev-<timestamp>-<short-sha>`
@@ -37,8 +38,8 @@ Reuse the `project_id` already stored in `.openai/hosting.json`. Never replace i
 Current topology:
 
 ```text
-Internet :80 -> Caddy -> 127.0.0.1:8080 -> Nginx -> /var/www/dmg-static
-                                                     -> /api/mobile-shares -> 127.0.0.1:8787
+Internet :80/:443 -> Caddy -> 127.0.0.1:8080 -> Nginx -> /var/www/dmg-static
+                                                          -> /api/mobile-shares -> 127.0.0.1:8787
 ```
 
 Domestic mobile tactical sharing uses:
@@ -50,7 +51,7 @@ Domestic mobile tactical sharing uses:
 
 When a release changes the share service or its Nginx/systemd configuration, deploy and verify that sidecar as part of the same domestic release. Preserve the previous service file and never replace or remove the SQLite database during a code rollout.
 
-The domestic desktop route cannot provide the full workspace while it remains plain HTTP because public-IP HTTP is not a secure context. Its HTTP 200 response is only a shell response, not a functional desktop acceptance result. The domestic mobile route is the usable domestic entry during this period.
+The domestic desktop route is accepted only through the filed HTTPS domain. The raw-IP HTTP fallback may be retained for recovery checks, but it is not a functional desktop acceptance result because it is not a secure context.
 
 No SSH password, private key, token, or certificate belongs in this file.
 
@@ -63,12 +64,9 @@ No SSH password, private key, token, or certificate belongs in this file.
 - Versioned data, manifests, and package parts under `/resources/releases/`: immutable caching.
 - `sw.js`: include `Service-Worker-Allowed: /`.
 
-## Domestic HTTPS migration
+## Domestic HTTPS contract
 
-After the domestic domain filing is complete:
-
-1. Replace the public domestic URLs in this file with the final domain.
-2. Configure the domain in Caddy and validate automatic HTTPS before redirecting HTTP.
-3. Verify `window.isSecureContext`, Web Crypto, Service Worker, OPFS, and SQLite startup in current desktop Chrome or Edge.
-4. Verify both desktop and mobile routes over HTTPS.
-5. Only then remove the domestic desktop limitation from announcements and deployment handoffs.
+1. Keep `dmgendfield.cloud` configured in Caddy with automatic certificate renewal and HTTP-to-HTTPS redirects.
+2. Keep TCP ports 80 and 443 reachable through the cloud security group; keep Nginx private on `127.0.0.1:8080`.
+3. Verify `window.isSecureContext`, Web Crypto, Service Worker, OPFS, and SQLite startup in current desktop Chrome or Edge after infrastructure or shell changes.
+4. Verify both desktop and mobile routes over HTTPS before announcing a domestic release.

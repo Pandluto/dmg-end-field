@@ -6,7 +6,7 @@ export const MOBILE_SHARE_SCHEMA_VERSION = 1 as const;
 export const TACTICAL_SHARE_SCHEMA_VERSION = 2 as const;
 export const TACTICAL_SHARE_ROUTE_PREFIX = '/share';
 export const TACTICAL_SHARE_NODE_ORIGINS = [
-  'https://150.158.133.176',
+  'https://dmgendfield.cloud',
   'https://dmgendfield.online',
 ] as const;
 const SHARE_ID_PATTERN = /^[A-Za-z0-9_-]{16}$/;
@@ -154,7 +154,8 @@ function publicShareOrigin(): string {
   if (!origin) return TACTICAL_SHARE_NODE_ORIGINS[1];
   const url = new URL(origin);
   if (
-    url.hostname === '150.158.133.176'
+    url.hostname === 'dmgendfield.cloud'
+    || url.hostname === '150.158.133.176'
     || url.hostname === '127.0.0.1'
     || url.hostname === 'localhost'
   ) return origin;

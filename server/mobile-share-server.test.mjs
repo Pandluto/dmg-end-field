@@ -886,7 +886,7 @@ test('allows official cross-node reads and rejects untrusted browser origins', a
 
     const preflight = await fetch(`${service.baseUrl}/api/mobile-shares`, {
       method: 'OPTIONS',
-      headers: { origin: 'https://150.158.133.176' },
+      headers: { origin: 'https://dmgendfield.cloud' },
     });
     assert.equal(preflight.status, 204);
     assert.match(preflight.headers.get('access-control-allow-methods') || '', /GET/);

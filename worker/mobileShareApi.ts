@@ -13,6 +13,7 @@ const DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{22}$/
 const DEVICE_SIGNATURE_PATTERN = /^[A-Za-z0-9_-]{43}$/
 const MOBILE_SHARE_API_PATH = '/api/mobile-shares'
 const ALLOWED_ORIGINS = new Set([
+  'https://dmgendfield.cloud',
   'https://dmgendfield.online',
   'https://dmgendfield-online.hf233666.chatgpt.site',
   'https://150.158.133.176',

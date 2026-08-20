@@ -46,7 +46,7 @@
 ```bash
 curl --fail --silent --show-error http://127.0.0.1:8787/api/mobile-shares/health
 curl --fail --silent --show-error http://127.0.0.1:8080/api/mobile-shares/health
-curl --fail --silent --show-error http://150.158.133.176/api/mobile-shares/health
+curl --fail --silent --show-error https://dmgendfield.cloud/api/mobile-shares/health
 curl --fail --silent --show-error https://dmgendfield.online/api/mobile-shares/health
 ```
 

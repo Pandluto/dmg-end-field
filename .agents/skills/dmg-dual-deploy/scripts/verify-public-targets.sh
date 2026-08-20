@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-domestic_base="${DOMESTIC_BASE_URL:-http://150.158.133.176}"
+domestic_base="${DOMESTIC_BASE_URL:-https://dmgendfield.cloud}"
 overseas_base="${OVERSEAS_BASE_URL:-https://dmgendfield.online}"
 expected_domestic="${EXPECTED_DOMESTIC_SHELL_VERSION:-}"
 expected_overseas="${EXPECTED_OVERSEAS_SHELL_VERSION:-}"

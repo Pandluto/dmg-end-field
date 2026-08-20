@@ -126,10 +126,10 @@ assert.equal(created.reused, false)
 
 const readResponse = await handler(new Request(
   `https://dmgendfield.online/api/mobile-shares/${created.id}`,
-  { headers: { Origin: 'http://150.158.133.176' } },
+  { headers: { Origin: 'https://dmgendfield.cloud' } },
 ))
 assert.equal(readResponse.status, 200)
-assert.equal(readResponse.headers.get('Access-Control-Allow-Origin'), 'http://150.158.133.176')
+assert.equal(readResponse.headers.get('Access-Control-Allow-Origin'), 'https://dmgendfield.cloud')
 const readRecord = await readResponse.json() as { permanent: boolean; payload: ReturnType<typeof mobilePayload> }
 assert.equal(readRecord.permanent, true)
 assert.deepEqual(readRecord.payload, mobilePayload(1))
