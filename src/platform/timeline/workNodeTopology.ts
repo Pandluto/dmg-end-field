@@ -16,6 +16,8 @@ export class WorkNodeTopologyError extends Error {
     readonly code:
       | 'work-node-topology-node-not-found'
       | 'work-node-topology-unrelated-endpoints'
+      | 'work-node-topology-empty-selection'
+      | 'work-node-topology-nonlinear-selection'
       | 'work-node-topology-root-protected'
       | 'work-node-topology-no-retained-successor',
     message: string,
@@ -95,4 +97,80 @@ export function planWorkNodePathOmission(
     predecessorNodeId: firstOmitted.parentNodeId,
     boundaryChildNodeIds,
   };
+}
+
+/**
+ * Convert an unordered marquee selection into one continuous omission path.
+ * Intermediate nodes do not have to be hit by the rectangle, but every hit
+ * node must belong to the same ancestor chain.
+ */
+export function planWorkNodePathOmissionFromSelection(
+  nodes: WorkNodeTopologyItem[],
+  selectedNodeIds: string[],
+): WorkNodePathOmissionPlan {
+  const uniqueNodeIds = [...new Set(selectedNodeIds)];
+  if (uniqueNodeIds.length === 0) {
+    throw new WorkNodeTopologyError(
+      'work-node-topology-empty-selection',
+      '框内没有节点，请重新拖拽选择。',
+    );
+  }
+
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const selectedNodes = uniqueNodeIds.map((nodeId) => {
+    const node = byId.get(nodeId);
+    if (!node) {
+      throw new WorkNodeTopologyError(
+        'work-node-topology-node-not-found',
+        '框选的节点已经不存在，请刷新节点树后重试。',
+      );
+    }
+    return node;
+  });
+  const depthCache = new Map<string, number>();
+  const depthOf = (node: WorkNodeTopologyItem): number => {
+    const cached = depthCache.get(node.id);
+    if (cached !== undefined) return cached;
+    const visited = new Set<string>();
+    let depth = 0;
+    let current: WorkNodeTopologyItem | undefined = node;
+    while (current?.parentNodeId && byId.has(current.parentNodeId)) {
+      if (visited.has(current.id)) break;
+      visited.add(current.id);
+      depth += 1;
+      current = byId.get(current.parentNodeId);
+    }
+    depthCache.set(node.id, depth);
+    return depth;
+  };
+  selectedNodes.sort((left, right) => depthOf(left) - depthOf(right));
+
+  let plan: WorkNodePathOmissionPlan;
+  try {
+    plan = planWorkNodePathOmission(
+      nodes,
+      selectedNodes[0].id,
+      selectedNodes[selectedNodes.length - 1].id,
+    );
+  } catch (error) {
+    if (
+      error instanceof WorkNodeTopologyError
+      && error.code === 'work-node-topology-unrelated-endpoints'
+    ) {
+      throw new WorkNodeTopologyError(
+        'work-node-topology-nonlinear-selection',
+        '框选节点必须位于同一条连续父子路径上，不能跨分支省略。',
+      );
+    }
+    throw error;
+  }
+
+  const pathNodeIds = new Set(plan.omittedNodeIds);
+  if (selectedNodes.some((node) => !pathNodeIds.has(node.id))) {
+    throw new WorkNodeTopologyError(
+      'work-node-topology-nonlinear-selection',
+      '框选节点必须位于同一条连续父子路径上，不能跨分支省略。',
+    );
+  }
+  return plan;
 }

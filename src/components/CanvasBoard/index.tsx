@@ -706,7 +706,7 @@ const EMPTY_WORK_NODE_OMISSION_STATE: WorkNodeOmissionSelectionState = {
   selectedCount: 0,
   canConfirm: false,
   busy: false,
-  message: '依次选择起点和终点；所选区间会标红。',
+  message: '点击两个端点，或在空白处拖拽框选；所选区间会标红。',
 };
 
 type TimelineNamePromptCopy = {

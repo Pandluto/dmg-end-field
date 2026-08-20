@@ -12,7 +12,10 @@ import { buildWorkNodeTreeLayout } from './workNodeTreeLayout';
 import { WorkNodeTreeNode } from './WorkNodeTreeNode';
 import type { WorkNodeTreeViewModel } from './workNodeTreeTypes';
 import { resolveCheckoutTargetBeforeWorkNodeDeletion } from '../../agentKernel/timelineWorktree/checkoutLifecycle';
-import { planWorkNodePathOmission } from '../../platform/timeline/workNodeTopology';
+import {
+  planWorkNodePathOmission,
+  planWorkNodePathOmissionFromSelection,
+} from '../../platform/timeline/workNodeTopology';
 import './WorkNodeTreePanel.css';
 
 export type WorkbenchSelectedNodeContext = {
@@ -82,6 +85,21 @@ function collectSubtreeNodeIds(node: WorkNodeTreeViewModel['flatNodes'][number])
   return ids;
 }
 
+type OmissionMarquee = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
+type OmissionMarqueeDrag = {
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  currentClientX: number;
+  currentClientY: number;
+};
+
 export const WorkNodeTreePanel = forwardRef<WorkNodeTreePanelHandle, WorkNodeTreePanelProps>(function WorkNodeTreePanel({
   timelineId,
   refreshKey,
@@ -107,11 +125,13 @@ export const WorkNodeTreePanel = forwardRef<WorkNodeTreePanelHandle, WorkNodeTre
   const [omissionEndNodeId, setOmissionEndNodeId] = useState('');
   const [omissionError, setOmissionError] = useState('');
   const [omissionBusy, setOmissionBusy] = useState(false);
+  const [omissionMarquee, setOmissionMarquee] = useState<OmissionMarquee | null>(null);
   const cameraRef = useRef(camera);
   const treeCanvasRef = useRef<HTMLDivElement | null>(null);
   const cameraFrameRef = useRef<number | null>(null);
   const cameraCommitTimerRef = useRef<number | null>(null);
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; cameraX: number; cameraY: number } | null>(null);
+  const omissionMarqueeDragRef = useRef<OmissionMarqueeDrag | null>(null);
   const revisionRef = useRef(0);
 
   const applyListResponse = (response: { revision: number; nodes: AiTimelineWorkNodeListItem[]; commits: AiTimelineWorkNodeCommitListItem[]; headNodeId: string }) => {
@@ -197,6 +217,8 @@ export const WorkNodeTreePanel = forwardRef<WorkNodeTreePanelHandle, WorkNodeTre
     setOmissionEndNodeId('');
     setOmissionError('');
     setOmissionBusy(false);
+    setOmissionMarquee(null);
+    omissionMarqueeDragRef.current = null;
   };
 
   useEffect(() => {
@@ -217,7 +239,7 @@ export const WorkNodeTreePanel = forwardRef<WorkNodeTreePanelHandle, WorkNodeTre
           ? `将省略 ${omissionPlan.omittedNodeIds.length} 个节点，并保留 ${omissionPlan.boundaryChildNodeIds.length} 条后续路径。`
           : omissionAnchorNodeId
             ? '再选择同一父子路径上的结束节点。'
-            : '依次选择起点和终点；所选区间会标红。';
+            : '点击两个端点，或在空白处拖拽框选；所选区间会标红。';
     onOmissionSelectionChange?.({
       selectedCount,
       canConfirm: Boolean(omissionPlan) && !omissionBusy,
@@ -486,6 +508,23 @@ export const WorkNodeTreePanel = forwardRef<WorkNodeTreePanelHandle, WorkNodeTre
     }
   };
 
+  const applyOmissionMarqueeSelection = (selectedNodeIds: string[]) => {
+    try {
+      const plan = planWorkNodePathOmissionFromSelection(topologyNodes, selectedNodeIds);
+      setOmissionAnchorNodeId(plan.omittedNodeIds[0]);
+      setOmissionEndNodeId(plan.omittedNodeIds[plan.omittedNodeIds.length - 1]);
+      setOmissionError('');
+    } catch (selectionError) {
+      setOmissionAnchorNodeId('');
+      setOmissionEndNodeId('');
+      setOmissionError(
+        selectionError instanceof Error
+          ? selectionError.message
+          : '框选节点不能组成可省略路径。',
+      );
+    }
+  };
+
   const selectNode = (nodeId: string) => {
     if (omissionMode) {
       selectOmissionEndpoint(nodeId);
@@ -541,6 +580,25 @@ export const WorkNodeTreePanel = forwardRef<WorkNodeTreePanelHandle, WorkNodeTre
   const handleCanvasPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     const target = event.target as Element;
     if (event.button !== 0 || target.closest('.work-node-tree-node-shell, .work-node-tree-count, .work-node-tree-empty')) return;
+    if (omissionMode && !event.altKey) {
+      omissionMarqueeDragRef.current = {
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        currentClientX: event.clientX,
+        currentClientY: event.clientY,
+      };
+      const bounds = event.currentTarget.getBoundingClientRect();
+      setOmissionMarquee({
+        left: event.clientX - bounds.left + event.currentTarget.scrollLeft,
+        top: event.clientY - bounds.top + event.currentTarget.scrollTop,
+        width: 0,
+        height: 0,
+      });
+      event.currentTarget.setPointerCapture(event.pointerId);
+      event.preventDefault();
+      return;
+    }
     dragRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -552,6 +610,23 @@ export const WorkNodeTreePanel = forwardRef<WorkNodeTreePanelHandle, WorkNodeTre
   };
 
   const handleCanvasPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const marqueeDrag = omissionMarqueeDragRef.current;
+    if (marqueeDrag?.pointerId === event.pointerId) {
+      marqueeDrag.currentClientX = event.clientX;
+      marqueeDrag.currentClientY = event.clientY;
+      const bounds = event.currentTarget.getBoundingClientRect();
+      const left = Math.min(marqueeDrag.startClientX, event.clientX) - bounds.left
+        + event.currentTarget.scrollLeft;
+      const top = Math.min(marqueeDrag.startClientY, event.clientY) - bounds.top
+        + event.currentTarget.scrollTop;
+      setOmissionMarquee({
+        left,
+        top,
+        width: Math.abs(event.clientX - marqueeDrag.startClientX),
+        height: Math.abs(event.clientY - marqueeDrag.startClientY),
+      });
+      return;
+    }
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     cameraRef.current = {
@@ -569,7 +644,36 @@ export const WorkNodeTreePanel = forwardRef<WorkNodeTreePanelHandle, WorkNodeTre
     });
   };
 
-  const stopCanvasDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+  const stopCanvasDrag = (event: React.PointerEvent<HTMLDivElement>, cancelled = false) => {
+    const marqueeDrag = omissionMarqueeDragRef.current;
+    if (marqueeDrag?.pointerId === event.pointerId) {
+      omissionMarqueeDragRef.current = null;
+      setOmissionMarquee(null);
+      if (!cancelled) {
+        const left = Math.min(marqueeDrag.startClientX, marqueeDrag.currentClientX);
+        const right = Math.max(marqueeDrag.startClientX, marqueeDrag.currentClientX);
+        const top = Math.min(marqueeDrag.startClientY, marqueeDrag.currentClientY);
+        const bottom = Math.max(marqueeDrag.startClientY, marqueeDrag.currentClientY);
+        if (right - left >= 5 || bottom - top >= 5) {
+          const selectedNodeIds = [...event.currentTarget.querySelectorAll<HTMLElement>(
+            '.work-node-tree-node-shell[data-work-node-id]',
+          )].flatMap((element) => {
+            const bounds = element.getBoundingClientRect();
+            const centerX = bounds.left + bounds.width / 2;
+            const centerY = bounds.top + bounds.height / 2;
+            const nodeId = element.dataset.workNodeId;
+            return nodeId && centerX >= left && centerX <= right && centerY >= top && centerY <= bottom
+              ? [nodeId]
+              : [];
+          });
+          applyOmissionMarqueeSelection(selectedNodeIds);
+        }
+      }
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      return;
+    }
     if (dragRef.current?.pointerId !== event.pointerId) return;
     dragRef.current = null;
     if (cameraFrameRef.current !== null) {
@@ -581,6 +685,9 @@ export const WorkNodeTreePanel = forwardRef<WorkNodeTreePanelHandle, WorkNodeTre
       treeCanvasRef.current.style.transform = `translate3d(${next.x}px, ${next.y}px, 0) scale(${next.zoom})`;
     }
     setCamera(next);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
   };
 
   const handleCanvasWheel = (event: React.WheelEvent<HTMLDivElement>) => {
@@ -620,10 +727,17 @@ export const WorkNodeTreePanel = forwardRef<WorkNodeTreePanelHandle, WorkNodeTre
       aria-label={`Work node 节点树，${viewModel.nodeCount} 节点，${viewModel.riskCount} 风险`}
       onPointerDown={handleCanvasPointerDown}
       onPointerMove={handleCanvasPointerMove}
-      onPointerUp={stopCanvasDrag}
-      onPointerCancel={stopCanvasDrag}
+      onPointerUp={(event) => stopCanvasDrag(event)}
+      onPointerCancel={(event) => stopCanvasDrag(event, true)}
       onWheel={handleCanvasWheel}
     >
+      {omissionMarquee ? (
+        <div
+          className="work-node-tree-omission-marquee"
+          style={omissionMarquee}
+          aria-hidden="true"
+        />
+      ) : null}
       <div className="work-node-tree-count">{viewModel.nodeCount} 节点 / {viewModel.riskCount} 风险 · {Math.round(camera.zoom * 100)}%</div>
       {selectedNode ? (
         <aside className="work-node-tree-detail" aria-label="Selected Work Node details">

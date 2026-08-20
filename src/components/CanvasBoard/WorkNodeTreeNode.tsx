@@ -183,6 +183,7 @@ export function WorkNodeTreeNode({
   return (
     <article
       className="work-node-tree-node-shell"
+      data-work-node-id={node.nodeId}
       style={{ left: x, top: y } as CSSProperties}
       onPointerEnter={scheduleDetails}
       onPointerLeave={hideDetails}
@@ -243,7 +244,14 @@ export function WorkNodeTreeNode({
               <button type="button" title="新增同级分支" onClick={(event) => stopAction(event, () => onAddSibling(node))}>
                 <BranchIcon />
               </button>
-              <button type="button" title="以此节点新建 SQLite" onClick={(event) => stopAction(event, () => onForkAsSqlite(node))}>
+              <button
+                type="button"
+                className="work-node-tree-sqlite-action"
+                title="以此节点新建 SQLite"
+                aria-label="以此节点新建 SQLite"
+                data-tooltip="另存为 SQLite"
+                onClick={(event) => stopAction(event, () => onForkAsSqlite(node))}
+              >
                 <DatabaseForkIcon />
               </button>
             </div>
