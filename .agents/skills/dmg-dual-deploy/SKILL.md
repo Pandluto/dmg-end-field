@@ -69,8 +69,8 @@ Only run this section when the user explicitly requests an overseas change. Read
 
 1. Record the current live Sites version ID and commit SHA for rollback.
 2. Verify the Worker routing contract with the targeted Sites routing test and typecheck.
-3. Run `npm run build:sites`, then `node scripts/check-atomic-service-worker.mjs dist/client`.
-4. Package the validated output using the Sites plugin `package-site.sh` helper.
+3. Run `npm run build:sites`. It validates the full application build first, then removes every directly served client/resource file so all retired URLs must enter the Worker. Require `SITES_RETIREMENT_BUILD_OK`.
+4. Package the validated retirement output using the Sites plugin `package-site.sh` helper.
 5. Obtain a short-lived source write credential without persisting it in Git or a remote URL, and push the exact validated commit.
 6. Save one version to the existing Sites project, deploy it, and poll until success or failure.
 7. Verify the custom domain and provider fallback:

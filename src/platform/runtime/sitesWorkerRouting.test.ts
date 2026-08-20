@@ -3,10 +3,16 @@ import { readFileSync } from 'node:fs'
 import sitesWorker from '../../../worker/index'
 
 const viteConfigSource = readFileSync(new URL('../../../vite.config.ts', import.meta.url), 'utf8')
+const packageSource = readFileSync(new URL('../../../package.json', import.meta.url), 'utf8')
 assert.match(
   viteConfigSource,
   /run_worker_first:\s*true/,
   'Sites must route every request through the retirement Worker',
+)
+assert.match(
+  packageSource,
+  /prune-sites-retirement-client\.mjs/,
+  'Sites deployment must remove files that could bypass the retirement Worker',
 )
 
 const env = {} as Parameters<typeof sitesWorker.fetch>[1]

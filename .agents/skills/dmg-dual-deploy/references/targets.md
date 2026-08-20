@@ -24,6 +24,8 @@ The overseas origin no longer serves or receives normal application/resource rel
 - `/version.json` stays on the overseas origin and advertises the retirement shell;
 - `/api/mobile-shares` stays on the overseas origin as a compatibility API for historic D1/R2 records and old QR codes.
 
+The final `dist/client` contains only `.assetsignore`. Do not ship `index.html`, `sw.js`, `version.json`, manifests, resources, or application assets there: the Sites static layer can serve an existing file before the retirement Worker, which would revive part of the old application.
+
 Fragments are client-side only; browsers inherit the original fragment across an HTTP redirect whose `Location` has no fragment. The redirect target must always be assembled from the fixed domestic origin by assigning pathname and query separately, never by resolving an incoming `//...` pathname as a URL.
 
 Do not delete the custom domain, Sites project, D1 database, R2 bucket, or prior live version. A normal domestic release must leave this retirement route untouched.
