@@ -61,6 +61,21 @@ const EMPTY_DAMAGE_BONUS: DamageBonusSnapshot = {
   allDmgBonus: 0,
 };
 
+export function resolveMobileRuntimeDamageBonus(
+  snapshot: ConfigSnapshot,
+  imbalanceEnabled = true,
+): DamageBonusSnapshot {
+  // `display.damageBonus` is already expanded for presentation (for example,
+  // magic/all-skill bonuses are folded into every matching element/skill).
+  // Feeding it back into the shared damage calculator applies those broad
+  // bonuses a second time. Keep runtime calculation on the raw zone inputs,
+  // matching the desktop report and CharacterComputed cache.
+  const rawDamageBonus = snapshot.panel.calc.damageBonus ?? EMPTY_DAMAGE_BONUS;
+  return imbalanceEnabled
+    ? rawDamageBonus
+    : { ...rawDamageBonus, imbalanceDmgBonus: 0 };
+}
+
 function getCharacterById(catalog: MobileCatalog, characterId: string): Character | null {
   return catalog.characters.find((character) => character.id === characterId) ?? null;
 }
@@ -325,9 +340,10 @@ function calculateMobileSlot(
     sourceSidecar,
   );
   const combinedModifierBuffs = [...modifierBuffs, ...stateDerivedBuffs, ...anomalyStateBuffs];
-  const effectiveDamageBonus = sourceFilter?.imbalanceEnabled === false
-    ? { ...(snapshot.panel.display.damageBonus ?? EMPTY_DAMAGE_BONUS), imbalanceDmgBonus: 0 }
-    : snapshot.panel.display.damageBonus ?? EMPTY_DAMAGE_BONUS;
+  const effectiveDamageBonus = resolveMobileRuntimeDamageBonus(
+    snapshot,
+    sourceFilter?.imbalanceEnabled !== false,
+  );
   const result = calculateSkillButtonDamageV2({
     buttonId: action.id,
     characterId: character.id,
