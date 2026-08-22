@@ -87,6 +87,7 @@ Desktop 在线时通过固定 loopback 前缀读取 `https://dmgendfield.cloud/r
 - Desktop `.desktop.*` 覆盖与独立 Host Adapter；
 - 3030/31457 共用的国内资源代理、受限重定向、流式体积上限、超时与内置回退提示；
 - MCP/Agent、prepared proposal、审批与 Work Node 事务保留在 Desktop 增量边界；
+- 初始 SQLite 快照与 checkout 的并发创建可幂等收敛，不再因严格模式双初始化撤销 Agent 可写绑定；
 - 共享 `src` 与记录的 Slimming 基线无未登记差异；
 - 路径边界、打包边界和单向祖先关系进入自动检查。
 

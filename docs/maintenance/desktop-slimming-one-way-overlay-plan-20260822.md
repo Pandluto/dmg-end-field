@@ -5,7 +5,7 @@
 > Slimming 研究基线：`codex/v1.8-lts-slimming@b16788ad`  
 > 状态：实施完成，候选分支等待本地点击验收与长期分支快进
 >
-> 已同步 Slimming 基线：`98c9655b0513cc569db8a22b2b46b733a849d33a`
+> 已同步 Slimming 基线：`e56f3b87bf76c5be8e23906a0915041f221c293a`
 >
 > 实施候选：`codex/v1.8-lts-desktop-overlay`
 >
@@ -13,7 +13,7 @@
 
 ## 实施结果（2026-08-22）
 
-阶段 0—5 已落实：Slimming 先加入中性扩展接缝和共享 SQLite 安全修复，Desktop 候选随后完成受控汇合；共享 `src` 与记录基线保持一致，Agent 深层行为通过 `.desktop.*` 覆盖和 Desktop Host Adapter 叠加。3030/31457 使用同一固定国内资源代理，离线回退明确标注“内置版本”。
+阶段 0—5 已落实：Slimming 先加入中性扩展接缝和共享 SQLite 安全修复，Desktop 候选随后完成受控汇合；共享 `src` 与记录基线保持一致，Agent 深层行为通过 `.desktop.*` 覆盖和 Desktop Host Adapter 叠加。3030/31457 使用同一固定国内资源代理，离线回退明确标注“内置版本”。最终 Electron 冒烟还反向发现了严格模式并发初始化会争抢同一初始快照/checkout 的旧竞态；修复先进入 Slimming，再按本合同同步到候选。
 
 仓库根 `desktop-overlay.json` 记录当前 Slimming 基线和九组覆盖对，`npm run electron:smoke:overlay` 对祖先关系、共享文件和新增路径执行机器校验。剩余阶段 6 只包含最终自动门、实际在线/离线资源检查、本地点击验收，以及验收后把长期 Desktop 分支快进到候选；本次没有部署、上传或改动 Slimming 生产职责。
 
