@@ -1,6 +1,7 @@
 import type { ConfigSnapshot } from '../calculators/operatorPanelCalculator';
 import type { CandidateBuff } from '../domain/buff';
 import { normalizeBuffMultiplier } from '../domain/buffMultiplier';
+import { normalizeExtraHitCategory, normalizeExtraHitConfig } from './buffExtraHit';
 import type { RuntimeOperatorTemplateMap } from '../templates/operatorTemplate';
 import type {
   BuffList,
@@ -14,6 +15,11 @@ type BuffDefinitionRecord = Record<string, unknown> & {
   value?: unknown;
   multiplier?: unknown;
   category?: unknown;
+  maxStacks?: unknown;
+  effectKind?: unknown;
+  extraHitConfig?: unknown;
+  effectId?: unknown;
+  id?: unknown;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -24,6 +30,7 @@ export function normalizeStoredBuffDefinition<T>(value: T): T {
   if (!isRecord(value)) return value;
 
   const source = value as BuffDefinitionRecord;
+  const isExtraHit = source.effectKind === 'extraHit';
   const isLegacySkillMultiplier = source.type === 'multiplierMultiplier';
   const existingMultiplier = normalizeBuffMultiplier(source.multiplier);
   const legacyCoefficient = typeof source.value === 'number'
@@ -34,7 +41,7 @@ export function normalizeStoredBuffDefinition<T>(value: T): T {
   const multiplier = existingMultiplier
     ?? (isLegacySkillMultiplier ? { coefficient: legacyCoefficient ?? 1 } : undefined);
 
-  if (!isLegacySkillMultiplier && source.multiplier === undefined && source.schemaVersion === 2) {
+  if (!isLegacySkillMultiplier && source.multiplier === undefined && source.schemaVersion === 2 && !isExtraHit) {
     return value;
   }
 
@@ -52,6 +59,23 @@ export function normalizeStoredBuffDefinition<T>(value: T): T {
   }
   if (isLegacySkillMultiplier) {
     delete normalized.value;
+  }
+
+  if (isExtraHit) {
+    const category = normalizeExtraHitCategory(source.category);
+    normalized.category = category;
+    delete normalized.multiplier;
+    normalized.extraHitConfig = normalizeExtraHitConfig(
+      source.extraHitConfig,
+      `${String(source.effectId || source.id || 'extra-hit')}-extra-hit`,
+    );
+    if (category === 'countable') {
+      normalized.maxStacks = typeof source.maxStacks === 'number' && Number.isFinite(source.maxStacks) && source.maxStacks > 0
+        ? Math.floor(source.maxStacks)
+        : 1;
+    } else {
+      delete normalized.maxStacks;
+    }
   }
 
   return normalized as T;

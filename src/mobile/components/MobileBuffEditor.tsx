@@ -10,6 +10,7 @@ import type {
 import type { AnomalyDamageSegmentView } from '../../components/CanvasBoard/skillButton.shared';
 import type { MobileSlotCalculation, MobileTimelineAction } from '../model';
 import { getMobileBuffSourceLabel } from '../mobileBuffWorkbench';
+import { formatExtraHitFormulaLabel } from '../../core/services/buffExtraHit';
 import { MobileBuffCatalogSheet } from './MobileBuffCatalogSheet';
 import './MobileBuffEditor.css';
 
@@ -133,7 +134,7 @@ function getBuffSource(buff: SkillButtonBuff): string {
 function getBuffEffectMeta(buff: SkillButtonBuff): string {
   if (buff.effectKind === 'extraHit' && buff.extraHitConfig) {
     const config = buff.extraHitConfig;
-    return `${config.damageType} · ${config.skillType || '独立'} · ${(config.baseMultiplier * 100).toFixed(1)}% · 失衡 ${config.imbalanceValue} · CD ${config.cooldownSeconds}s`;
+    return `${formatExtraHitFormulaLabel(config)} · ${config.damageType} · ${config.skillType || '独立'} · ${(config.baseMultiplier * 100).toFixed(1)}% · 失衡 ${config.imbalanceValue} · CD ${config.cooldownSeconds}s`;
   }
   return buff.type || '普通加成';
 }

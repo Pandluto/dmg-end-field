@@ -2,6 +2,7 @@ import type { SkillButtonType } from '../../types';
 import type { SkillButtonBuff, SkillButtonTable } from '../../types/storage';
 import type { TimelineSnapshotPayload } from '../../utils/timelineSnapshotStorage';
 import { detachBuffFromSkillButton } from '../../core/services/skillButtonPanelConfig';
+import { normalizeExtraHitConfig } from '../../core/services/buffExtraHit';
 import { diffTimelinePayloads } from './diff';
 import type { AiTimelineRiskFlag, TimelinePayloadDiff } from './types';
 import { validateTimelinePayload } from './validator';
@@ -148,7 +149,8 @@ function getSelectedBuffIds(button: SkillButtonTable[string]) {
   return Array.isArray(button.selectedBuff) ? button.selectedBuff : [];
 }
 
-function normalizeBuffCategory(category: unknown): 'condition' | 'countable' | 'passive' {
+function normalizeBuffCategory(category: unknown, effectKind?: unknown): 'condition' | 'countable' | 'passive' {
+  if (effectKind === 'extraHit') return category === 'countable' ? 'countable' : 'condition';
   if (category === 'countable' || category === 'passive' || category === 'condition') return category;
   return category === 'positive' ? 'passive' : 'condition';
 }
@@ -169,6 +171,9 @@ function stableJson(value: unknown): string {
 }
 
 function buffIdentity(buff: TimelinePatchBuff | SkillButtonBuff): string {
+  const extraHitConfig = buff.effectKind === 'extraHit'
+    ? normalizeExtraHitConfig(buff.extraHitConfig)
+    : undefined;
   return stableJson({
     name: buff.name,
     displayName: buff.displayName,
@@ -180,9 +185,9 @@ function buffIdentity(buff: TimelinePatchBuff | SkillButtonBuff): string {
     source: buff.source,
     target: buff.target,
     effectKind: buff.effectKind ?? 'modifier',
-    extraHitConfig: buff.extraHitConfig,
-    category: normalizeBuffCategory(buff.category),
-    maxStacks: normalizeBuffCategory(buff.category) === 'countable'
+    extraHitConfig,
+    category: normalizeBuffCategory(buff.category, buff.effectKind),
+    maxStacks: normalizeBuffCategory(buff.category, buff.effectKind) === 'countable'
       ? normalizeMaxStacks(buff.maxStacks)
       : undefined,
     multiplier: buff.multiplier,
@@ -371,13 +376,15 @@ function resolveOrCreateBuff(
       if (payload.allBuffList.some((candidate) => candidate.id === id)) {
         throw new Error(`${path}: buff id already exists with different content: ${id}`);
       }
+      const category = normalizeBuffCategory(input.buff.category, input.buff.effectKind);
       buff = {
         ...input.buff,
         id,
-        category: normalizeBuffCategory(input.buff.category),
-        ...(normalizeBuffCategory(input.buff.category) === 'countable'
-          ? { maxStacks: normalizeMaxStacks(input.buff.maxStacks) }
-          : {}),
+        category,
+        maxStacks: category === 'countable' ? normalizeMaxStacks(input.buff.maxStacks) : undefined,
+        extraHitConfig: input.buff.effectKind === 'extraHit'
+          ? normalizeExtraHitConfig(input.buff.extraHitConfig)
+          : undefined,
         refCount: 0,
       } as SkillButtonBuff;
       payload.allBuffList.push(buff);
@@ -433,7 +440,7 @@ function remapBuffRuntimeOverrides(
   }
 
   const nextStackCounts = { ...(detached.buffStackCounts ?? {}) };
-  if (normalizeBuffCategory(newBuff.category) === 'countable') {
+  if (normalizeBuffCategory(newBuff.category, newBuff.effectKind) === 'countable') {
     const maximum = normalizeMaxStacks(newBuff.maxStacks);
     const requested = options.requestedStackCount === undefined
       ? options.preserveStack
@@ -705,7 +712,7 @@ function applyPatchOperation(payload: TimelineSnapshotPayload, operation: Timeli
     selectedBuff.add(buff.id);
     setButtonBuffIds(button, [...selectedBuff]);
     if (!alreadySelected) buff.refCount = Math.max(1, Number(buff.refCount || 0) + 1);
-    if (normalizeBuffCategory(buff.category) === 'countable') {
+    if (normalizeBuffCategory(buff.category, buff.effectKind) === 'countable') {
       const maximum = normalizeMaxStacks(buff.maxStacks);
       const current = Number(button.buffStackCounts?.[buff.id] ?? maximum);
       const requested = operation.stackCount ?? (alreadySelected ? current + 1 : maximum);
@@ -730,7 +737,7 @@ function applyPatchOperation(payload: TimelineSnapshotPayload, operation: Timeli
     const buff = payload.allBuffList.find((item) => item.id === operation.buffId);
     const currentStack = Number(button.buffStackCounts?.[operation.buffId] ?? normalizeMaxStacks(buff?.maxStacks));
     const removeCount = Math.max(1, Math.floor(operation.count ?? currentStack));
-    if (buff && normalizeBuffCategory(buff.category) === 'countable' && currentStack > removeCount) {
+    if (buff && normalizeBuffCategory(buff.category, buff.effectKind) === 'countable' && currentStack > removeCount) {
       button.buffStackCounts = {
         ...(button.buffStackCounts ?? {}),
         [operation.buffId]: currentStack - removeCount,
@@ -791,7 +798,7 @@ function applyPatchOperation(payload: TimelineSnapshotPayload, operation: Timeli
       throw new Error(`${path}: button does not reference buff ${operation.buffId}`);
     }
     const buff = findBuff(payload, operation.buffId);
-    if (normalizeBuffCategory(buff.category) !== 'countable') {
+    if (normalizeBuffCategory(buff.category, buff.effectKind) !== 'countable') {
       throw new Error(`${path}: buff ${operation.buffId} is not countable`);
     }
     const stackCount = assertLegalStackCount(buff, operation.stackCount, path);

@@ -90,6 +90,8 @@ export const DEFAULT_EXTRA_HIT_CONFIG: BuffExtraHitConfig = {
   imbalanceValue: 10,
   cooldownSeconds: 15,
   trigger: 'physicalAbnormal',
+  formulaMode: 'inherited',
+  levelCurve: 'physicalAnomaly',
 };
 
 export function normalizeExtraHitConfig(value?: Partial<BuffExtraHitConfig>): BuffExtraHitConfig {
@@ -101,6 +103,8 @@ export function normalizeExtraHitConfig(value?: Partial<BuffExtraHitConfig>): Bu
     imbalanceValue: Number(value?.imbalanceValue ?? DEFAULT_EXTRA_HIT_CONFIG.imbalanceValue) || DEFAULT_EXTRA_HIT_CONFIG.imbalanceValue,
     cooldownSeconds: Number(value?.cooldownSeconds ?? DEFAULT_EXTRA_HIT_CONFIG.cooldownSeconds) || DEFAULT_EXTRA_HIT_CONFIG.cooldownSeconds,
     trigger: value?.trigger || DEFAULT_EXTRA_HIT_CONFIG.trigger,
+    formulaMode: value?.formulaMode === 'sourceSkill' ? 'sourceSkill' : 'inherited',
+    levelCurve: value?.levelCurve === 'artsBurst' ? 'artsBurst' : 'physicalAnomaly',
   };
 }
 

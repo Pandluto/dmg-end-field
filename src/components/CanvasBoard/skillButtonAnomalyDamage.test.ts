@@ -134,3 +134,42 @@ assertEqual(extraHit.multiplierText, '288.0%', 'extra-hit multiplier text should
 assertEqual(extraHit.multiplierFormulaText, '(200.0% + 40.0%) × 1.200', 'extra-hit formula should expose operation order');
 assertEqual(extraHit.nonCritText, '1440', 'extra-hit non-crit text should use the final multiplier');
 assertClose(extraHit.nonCritValue, 1440, 'extra-hit damage should apply (base + additive) times multiplier');
+
+function buildSourceSkillExtraHit(levelCurve: 'physicalAnomaly' | 'artsBurst') {
+  return buildAnomalyDamageSegments({
+    panelBase: null,
+    panelData: { atk: 1000, critRate: 0, critDmg: 0 },
+    hitCards: [],
+    selectedAnomalyDamages: [],
+    buttonCharacterId: 'operator',
+    element: 'physical',
+    damageBonus: zeroDamageBonus,
+    targetResistance: { physicalResistance: 0 },
+    fullCombinedModifierBuffList: [],
+    extraHitBuffList: [{
+      ...extraHitBuff,
+      id: `source-skill-${levelCurve}`,
+      extraHitConfig: {
+        ...extraHitBuff.extraHitConfig,
+        baseMultiplier: 1,
+        damageType: 'physical',
+        skillType: '',
+        formulaMode: 'sourceSkill',
+        levelCurve,
+      },
+    }],
+    manuallyDisabledBuffIdsBySegmentKey: {},
+    getEffectiveCharacterSourceSkillBoost: () => 100,
+  })[0];
+}
+
+const physicalSourceSkillHit = buildSourceSkillExtraHit('physicalAnomaly');
+assertEqual(physicalSourceSkillHit.levelCoefficientText, '1.227', 'physical anomaly curve should use the 392 denominator');
+assertEqual(physicalSourceSkillHit.sourceSkillZoneText, '2.000', 'source-skill extra hit should expose its source-skill zone');
+assertEqual(physicalSourceSkillHit.multiplierFormulaText, '(245.4% + 0.0%) × 1.000', 'physical source-skill formula should scale the base multiplier');
+assertClose(physicalSourceSkillHit.nonCritValue, 1227.0408163265306, 'physical source-skill extra hit should apply level and source-skill coefficients');
+
+const artsSourceSkillHit = buildSourceSkillExtraHit('artsBurst');
+assertEqual(artsSourceSkillHit.levelCoefficientText, '1.454', 'arts burst curve should use the 196 denominator');
+assertEqual(artsSourceSkillHit.multiplierFormulaText, '(290.8% + 0.0%) × 1.000', 'arts-burst source-skill formula should scale the base multiplier');
+assertClose(artsSourceSkillHit.nonCritValue, 1454.0816326530612, 'arts-burst source-skill extra hit should apply level and source-skill coefficients');

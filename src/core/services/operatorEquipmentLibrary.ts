@@ -93,15 +93,17 @@ export function normalizeOperatorEquipmentLibrary(raw: unknown): EquipmentLibrar
       rawBuff: Partial<EquipmentThreePieceBuff>,
     ): EquipmentThreePieceBuff => {
       const effectKind = rawBuff.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
+      const normalizedCategory = normalizeThreePieceBuffCategory(rawBuff.category);
+      const category = effectKind === 'extraHit'
+        ? normalizedCategory === 'countable' ? 'countable' : 'condition'
+        : normalizedCategory;
       const typeKey = effectKind === 'extraHit' ? '' : String(rawBuff.typeKey || '');
       const unit = rawBuff.unit === 'flat' ? 'flat' : 'percent';
       const rawValue = typeof rawBuff.value === 'number' && Number.isFinite(rawBuff.value) ? rawBuff.value : 0;
       return {
         effectId: String(rawBuff.effectId || effectId),
         name: String(rawBuff.name || effectId),
-        category: effectKind === 'extraHit'
-          ? normalizeThreePieceBuffCategory(rawBuff.category) === 'countable' ? 'countable' : 'passive'
-          : normalizeThreePieceBuffCategory(rawBuff.category),
+        category,
         typeKey,
         value: effectKind === 'extraHit' ? 0 : rawValue,
         unit,
@@ -109,7 +111,11 @@ export function normalizeOperatorEquipmentLibrary(raw: unknown): EquipmentLibrar
         description: rawBuff.description,
         valueMode: rawBuff.valueMode,
         derivedValue: rawBuff.derivedValue,
-        maxStacks: rawBuff.maxStacks,
+        maxStacks: category === 'countable'
+          ? typeof rawBuff.maxStacks === 'number' && Number.isFinite(rawBuff.maxStacks)
+            ? Math.max(1, Math.floor(rawBuff.maxStacks))
+            : 1
+          : undefined,
         multiplier: rawBuff.multiplier,
         effectKind,
         ...(effectKind === 'extraHit'

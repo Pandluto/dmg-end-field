@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { calculateBuffTotals } from '../../core/calculators/buffCalculator';
 import { getCharacterSourceSkillBoostSnapshot } from '../../core/repositories/operatorConfigRepository';
 import { buildAnomalyStateDerivedBuffs, buildAnomalyStateSnapshotBuffs } from '../../core/services/anomalyStateBuffs';
+import { resolveSpecialDamageLevelCoefficient } from '../../core/services/buffExtraHit';
 import {
   createAnomalyStateSnapshot,
   getAnomalyStateSnapshotsByIds,
@@ -284,9 +285,10 @@ export function useSkillButtonAnomaly({
 
     const currentOperatorLevel = 90;
     const currentCharacterSourceSkillBoost = getEffectiveCharacterSourceSkillBoost(buttonCharacterId, fullCombinedModifierBuffList);
-    const levelCoefficient = activeAnomaly.category === 'magic'
-      ? 1 + (currentOperatorLevel - 1) / 196
-      : 1 + (currentOperatorLevel - 1) / 392;
+    const levelCoefficient = resolveSpecialDamageLevelCoefficient(
+      activeAnomaly.key === 'shatter-ice' || activeAnomaly.category === 'magic' ? 'artsBurst' : 'physicalAnomaly',
+      currentOperatorLevel,
+    );
 
     if (activeAnomaly.key === 'combo-state') {
       const comboSkillBonus = [30, 45, 60, 75][activeAnomalyLevel - 1] ?? 30;

@@ -60,7 +60,7 @@ effect 抽取规则：
 特殊规则：
 1. `modifier` 下必须有合法非空 `type`，不得带 `extraHitConfig`。
 2. `extraHit` 下 `type` 必须为空字符串，`value` 必须为 0，且必须带合法 `extraHitConfig`。
-3. `category=countable` 必须带 `maxStacks`；`extraHit` 支持 `category=passive/countable`，countable extraHit 表示按当前层数生成多个独立额外伤害段。
+3. `category=countable` 必须带 `maxStacks`；`extraHit` 只支持 `category=condition/countable`，未明确标记为 countable 时必须回退为 condition，禁止回退为 passive。`countable + maxStacks=1` 表示普通单段额外伤害，大于 1 表示按当前段数生成多个独立额外伤害段。
 4. `multiplier` 只允许用于 `modifier`，且必须 `category=condition`，不能和 `countable` 或 `extraHit` 同时使用。
 5. 缺失字符串字段可补空字符串；缺失但必填的 number 可补 0。
 6. 上述补空只适用于已经决定保留的合法 effect，不适用于应舍弃的 effect。
@@ -87,7 +87,7 @@ effect 必须严格使用这个扁平结构：
 
 合法示例：
 1. `modifier` effect 使用 `effectKind/type/value/category`
-2. `extraHit` effect 使用 `effectKind/type/value/category/extraHitConfig`
+2. `extraHit` effect 使用 `effectKind/type/value/category/extraHitConfig`。`extraHitConfig.formulaMode` 可为 `inherited/sourceSkill`，缺省 `inherited`；选择 `sourceSkill` 时，`levelCurve` 使用 `physicalAnomaly/artsBurst`，分别表示物理异常系数与碎冰/法术爆发系数。
 
 非法示例：
 1. `{ "modifier": { "type": "electricAmplify" } }`

@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import DeferredNumberInput, { parseIntegerInput } from './DeferredNumberInput';
-import { EXTRA_HIT_DAMAGE_TYPES, normalizeExtraHitConfig } from '../core/services/buffExtraHit';
+import {
+  EXTRA_HIT_DAMAGE_TYPES,
+  EXTRA_HIT_FORMULA_MODES,
+  EXTRA_HIT_FORMULA_MODE_LABELS,
+  EXTRA_HIT_LEVEL_CURVES,
+  EXTRA_HIT_LEVEL_CURVE_LABELS,
+  normalizeExtraHitConfig,
+} from '../core/services/buffExtraHit';
 import * as buffModel from './operatorDraftBuffModel';
 import './BuffEffectEditorDrawer.css';
 
@@ -9,7 +16,7 @@ const BUSINESS_TYPE_LABELS: Record<buffModel.OperatorBuffBusinessType, string> =
   condition: 'condition 条件',
   countable: 'countable 计层',
   multiplier: 'multiplier 乘区乘算',
-  extraHit: 'countable extraHit 计层额外伤害段',
+  extraHit: '额外伤害段（普通继承 / 源石技艺）',
 };
 
 export interface BuffDrawerLevelOption {
@@ -176,12 +183,26 @@ export default function BuffEffectEditorDrawer({
             <section>
               <h4>额外伤害段</h4>
               <div className="buff-editor-drawer-grid">
+                <label className="is-wide">
+                  <span>计算方式</span>
+                  <select value={config.formulaMode} onChange={(event) => update({ ...effect, extraHitConfig: normalizeExtraHitConfig({ ...config, formulaMode: event.target.value as typeof config.formulaMode }, config.key) })}>
+                    {EXTRA_HIT_FORMULA_MODES.map((mode) => <option key={mode} value={mode}>{EXTRA_HIT_FORMULA_MODE_LABELS[mode]}</option>)}
+                  </select>
+                </label>
+                {config.formulaMode === 'sourceSkill' ? (
+                  <label className="is-wide">
+                    <span>等级系数</span>
+                    <select value={config.levelCurve} onChange={(event) => update({ ...effect, extraHitConfig: normalizeExtraHitConfig({ ...config, levelCurve: event.target.value as typeof config.levelCurve }, config.key) })}>
+                      {EXTRA_HIT_LEVEL_CURVES.map((curve) => <option key={curve} value={curve}>{EXTRA_HIT_LEVEL_CURVE_LABELS[curve]}</option>)}
+                    </select>
+                  </label>
+                ) : null}
                 <label><span>伤害段 Key</span><input value={config.key} onChange={(event) => update({ ...effect, extraHitConfig: normalizeExtraHitConfig({ ...config, key: event.target.value }, config.key) })} /></label>
                 <label><span>伤害属性</span><select value={config.damageType} onChange={(event) => update({ ...effect, extraHitConfig: normalizeExtraHitConfig({ ...config, damageType: event.target.value as typeof config.damageType }, config.key) })}>{EXTRA_HIT_DAMAGE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
                 <label><span>技能类型</span><select value={config.skillType} onChange={(event) => update({ ...effect, extraHitConfig: normalizeExtraHitConfig({ ...config, skillType: event.target.value as typeof config.skillType }, config.key) })}><option value="">空</option>{['A', 'B', 'E', 'Q', 'Dot'].map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
                 <label><span>{levelOptions.length ? '当前等级攻击力倍率' : '攻击力倍率'}</span><DeferredNumberInput min={0} step="0.01" value={config.baseMultiplier} onCommit={(value) => update({ ...effect, extraHitConfig: normalizeExtraHitConfig({ ...config, baseMultiplier: Math.max(0, value ?? 0) }, config.key) })} /></label>
-                {businessType === 'extraHit' ? (
-                  <label><span>最大层数</span><DeferredNumberInput min={1} value={effect.maxStacks ?? 1} parse={parseIntegerInput} onCommit={(value) => update(buffModel.applyBuffMaxStacks(effect, value))} /></label>
+                {effect.category === 'countable' ? (
+                  <label><span>最大段数</span><DeferredNumberInput min={1} value={effect.maxStacks ?? 1} parse={parseIntegerInput} onCommit={(value) => update(buffModel.applyBuffMaxStacks(effect, value))} /></label>
                 ) : null}
               </div>
             </section>

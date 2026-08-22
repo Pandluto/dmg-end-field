@@ -145,7 +145,7 @@ function normalizeBuffEffect(effectKey: string, rawEffect: unknown): OperatorDra
     ? normalizeBuffMultiplier(source.multiplier)
     : undefined;
   const category = effectKind === 'extraHit' && normalizedCategory !== 'countable'
-    ? 'passive'
+    ? 'condition'
     : multiplier
       ? 'condition'
       : normalizedCategory;

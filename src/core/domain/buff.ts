@@ -21,6 +21,8 @@ export interface BuffCalculationMeta {
 export type BuffExtraHitTrigger = 'physicalAbnormal';
 export type BuffExtraHitDamageType = 'physical' | 'magic' | 'fire' | 'electric' | 'ice' | 'nature';
 export type BuffExtraHitSkillType = '' | 'A' | 'B' | 'E' | 'Q' | 'Dot';
+export type BuffExtraHitFormulaMode = 'inherited' | 'sourceSkill';
+export type BuffExtraHitLevelCurve = 'physicalAnomaly' | 'artsBurst';
 
 export interface BuffExtraHitConfig {
   key: string;
@@ -30,6 +32,10 @@ export interface BuffExtraHitConfig {
   imbalanceValue: number;
   cooldownSeconds: number;
   trigger: BuffExtraHitTrigger;
+  /** 缺省为 inherited，保证旧数据继续使用原有额外伤害公式。 */
+  formulaMode?: BuffExtraHitFormulaMode;
+  /** 仅 sourceSkill 模式使用；缺省为物理异常等级曲线。 */
+  levelCurve?: BuffExtraHitLevelCurve;
 }
 
 export interface CandidateBuff {
@@ -65,4 +71,3 @@ export interface CandidateBuff {
 export interface BuffData {
   buffs?: CandidateBuff[];
 }
-

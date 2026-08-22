@@ -145,7 +145,7 @@ assert.equal(
       cooldownSeconds: 3,
     },
   })),
-  '额外伤害 · 125.0% · fire · Q · 3s CD',
+  '额外伤害 · 普通继承段 · 125.0% · fire · Q · 3s CD',
 );
 assert.equal(getMissingBuffShortId('short-id'), 'short-id');
 assert.equal(getMissingBuffShortId('1234567890123456789'), '123456789012345678...');

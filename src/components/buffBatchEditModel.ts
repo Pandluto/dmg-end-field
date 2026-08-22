@@ -1,4 +1,5 @@
 import { buildAnomalyStateSnapshotBuffs } from '../core/services/anomalyStateBuffs';
+import { formatExtraHitFormulaLabel } from '../core/services/buffExtraHit';
 import {
   BUFF_SOURCE_SEARCH_MODE_OPTIONS,
   getBuffSourceSearchModeLabel,
@@ -275,7 +276,8 @@ export function getBuffSourceLabel(buff: SkillButtonBuff): string {
 
 export function getBuffValueLine(buff: SkillButtonBuff): string {
   if (buff.effectKind === 'extraHit') {
-    return `额外伤害 · ${((buff.extraHitConfig?.baseMultiplier ?? 0) * 100).toFixed(1)}% · ${buff.extraHitConfig?.damageType || 'physical'} · ${buff.extraHitConfig?.skillType || '空'} · ${buff.extraHitConfig?.cooldownSeconds ?? 0}s CD`;
+    const formulaLabel = buff.extraHitConfig ? formatExtraHitFormulaLabel(buff.extraHitConfig) : '普通继承段';
+    return `额外伤害 · ${formulaLabel} · ${((buff.extraHitConfig?.baseMultiplier ?? 0) * 100).toFixed(1)}% · ${buff.extraHitConfig?.damageType || 'physical'} · ${buff.extraHitConfig?.skillType || '空'} · ${buff.extraHitConfig?.cooldownSeconds ?? 0}s CD`;
   }
   const type = buff.type?.trim() || buff.name?.trim() || buff.id;
   return typeof buff.value === 'number' ? `${type} · ${buff.value}` : type;

@@ -162,7 +162,7 @@ const extraHit = applyBuffEffectKind({
 }, 'extraHit');
 assert.equal(extraHit.type, '');
 assert.equal(extraHit.value, 0);
-assert.equal(extraHit.category, 'passive');
+assert.equal(extraHit.category, 'condition');
 assert.equal(extraHit.multiplier, undefined);
 assert.deepEqual(extraHit.extraHitConfig, {
   key: 'dianjian',
@@ -172,11 +172,14 @@ assert.deepEqual(extraHit.extraHitConfig, {
   imbalanceValue: 10,
   cooldownSeconds: 15,
   trigger: 'physicalAbnormal',
+  formulaMode: 'inherited',
+  levelCurve: 'physicalAnomaly',
 });
 const countableExtraHit = applyBuffCategory(extraHit, 'countable');
 assert.equal(countableExtraHit.category, 'countable');
 assert.equal(countableExtraHit.maxStacks, 1);
-assert.equal(applyBuffCategory(extraHit, 'condition').category, 'passive');
+assert.equal(applyBuffCategory(extraHit, 'condition').category, 'condition');
+assert.equal(applyBuffCategory(extraHit, 'passive').category, 'condition');
 
 const secondEffect = {
   ...legacyEffect,

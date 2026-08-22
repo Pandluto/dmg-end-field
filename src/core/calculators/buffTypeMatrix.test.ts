@@ -169,6 +169,38 @@ assertClose(
   'legacy multiplier migration should preserve its coefficient',
 );
 
+const legacyPassiveExtraHit = normalizeStoredBuffDefinition(buff(
+  'legacy-passive-extra-hit',
+  '',
+  0,
+  {
+    effectKind: 'extraHit',
+    category: 'passive',
+    maxStacks: 9,
+    extraHitConfig: {
+      key: 'legacy-passive-extra-hit',
+      damageType: 'physical',
+      skillType: '',
+      baseMultiplier: 1,
+      imbalanceValue: 0,
+      cooldownSeconds: 0,
+      trigger: 'physicalAbnormal',
+    },
+  },
+));
+assertEqual(legacyPassiveExtraHit.category, 'condition', 'legacy passive extraHit should fall back to condition');
+assertEqual(legacyPassiveExtraHit.maxStacks, undefined, 'condition extraHit should not retain a stale maxStacks');
+assertEqual(legacyPassiveExtraHit.extraHitConfig?.formulaMode, 'inherited', 'legacy extraHit should preserve the original formula by default');
+
+const countableExtraHit = normalizeStoredBuffDefinition({
+  ...legacyPassiveExtraHit,
+  id: 'countable-extra-hit',
+  category: 'countable' as const,
+  maxStacks: undefined,
+});
+assertEqual(countableExtraHit.category, 'countable', 'explicit countable extraHit should stay countable');
+assertEqual(countableExtraHit.maxStacks, 1, 'countable extraHit without maxStacks should default to one segment');
+
 const PANEL_BASE_INPUT: OperatorPanelInput = {
   operator: {
     id: 'buff-matrix-panel-operator',

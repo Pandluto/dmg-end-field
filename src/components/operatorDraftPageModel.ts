@@ -46,7 +46,7 @@ export const OPERATOR_BUFF_BUSINESS_TYPE_LABELS: Record<draftBuffModel.OperatorB
   condition: 'condition 条件',
   countable: 'countable 计层',
   multiplier: 'multiplier 乘区乘算',
-  extraHit: 'countable extraHit 计层额外伤害段',
+  extraHit: '额外伤害段（普通继承 / 源石技艺）',
 };
 
 export type SkillButtonType = 'A' | 'B' | 'E' | 'Q' | 'Dot';
