@@ -1,4 +1,4 @@
-# CI/CD 与 Web 打包
+# CI/CD、Desktop 打包与国内发布
 
 ## CI
 
@@ -6,9 +6,7 @@
 
 `npm run check` 不下载 31 MB 图片压缩包，因此保持确定性；它仍会验证已提交的图片清单、浏览器索引和所有声明 hash。
 
-## 本地交付
-
-当前阶段只做本地部署：
+## 本地构建
 
 ```bash
 npm ci
@@ -16,11 +14,11 @@ npm run build:local
 npm run preview
 ```
 
-图片 ZIP 被 `.gitignore` 排除，`assets:web-prepare` 会按提交的 URL、大小和 SHA-256 下载到 `public/packages/`。Vite 随后复制它到 `dist/packages/`。
+图片 ZIP 被 `.gitignore` 排除，`assets:web-prepare` 会按提交的 URL、大小和 SHA-256 下载到 `public/packages/`。Vite 随后复制它到 `dist/packages/`。Desktop 分支还会把 MCP、Agent 和统一资源发包 runtime 写入 `dist/`，供 Electron 打包使用。
 
-## Tag 工作流
+## Tag Draft 工作流
 
-未来推送 `vMAJOR.MINOR.PATCH` tag 时：
+仓库仍保留 `vMAJOR.MINOR.PATCH` tag 的人工审核 Draft 工作流：
 
 1. 校验 tag 与 `package.json` 版本；
 2. 重跑质量门；
@@ -28,4 +26,13 @@ npm run preview
 4. 打成单一 Web `.tar.gz` 并生成 `SHA256SUMS`；
 5. 只创建或更新 GitHub Draft Release，人工浏览器验收后再决定公开。
 
-该工作流不部署 GitHub Pages，不构建桌面安装包，也不上传用户数据。
+该工作流不部署生产站点，不构建桌面安装包，也不上传用户数据。Draft Release 只是可追溯构建物，不是生产数据/图片通道；统一资源 ZIP 禁止上传 GitHub Release。
+
+## 生产发布
+
+- `codex/v1.8-lts-desktop-shell` 只制作桌面应用和统一资源 ZIP，不是网站部署源。
+- `codex/v1.8-lts-slimming` 是唯一维护中的 Web 发布分支。
+- `https://dmgendfield.cloud` 是唯一维护中的应用与资源源站。
+- 海外 `.online` 只保留同路径跳转、PWA 迁移端点和历史分享 API；普通发布不得重建海外完整应用。
+
+应用或资源上线必须使用 `.agents/skills/dmg-dual-deploy/SKILL.md`。该流程要求先锁定并推送 Slimming 源提交，再构建国内静态归档、做远端原子切换与公开 HTTPS 验证。Desktop 产生的资源 ZIP 要先在 Slimming 中校验并物化，详见 [统一资源发包与交接](./resource-delivery.md)。

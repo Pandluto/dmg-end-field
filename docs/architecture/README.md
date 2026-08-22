@@ -9,7 +9,9 @@
 - [数据生命周期](./data-lifecycle.md)：资料包、用户数据库、工作区与备份。
 - [安全边界](./security-boundaries.md)：客户端门禁、同源存储、导入与包完整性。
 - [验证矩阵](./verification-matrix.md)：哪些检查在 CI、构建或真实浏览器验收中执行。
-- [CI/CD](./ci-cd.md)：质量门、自包含 Web 包和 Draft Release。
+- [CI/CD](./ci-cd.md)：质量门、Desktop 构建、Draft 归档和国内生产发布边界。
+- [1.8 LTS 分支合同](./lts-branch-contract.md)：Desktop、Slimming 与共同基线的职责和补丁同步规则。
+- [统一资源发包与交接](./resource-delivery.md)：Desktop 产包、Slimming 物化和国内发布边界。
 - [潮汐玻璃材质系统](./liquid-tide-material-system.md)：真实液态玻璃、单层阅读承载与全路由覆盖边界。
 
 ## 架构决策

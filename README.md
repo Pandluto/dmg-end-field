@@ -2,7 +2,7 @@
   <img src="public/app-icon.svg" width="112" alt="终末地伤害工作台图标" />
 </p>
 
-<h1 align="center">终末地伤害工作台 · Web LTS 1.8</h1>
+<h1 align="center">终末地伤害工作台 · Desktop LTS 1.8</h1>
 
 <p align="center">在浏览器里完成配装、排轴、Buff 管理、伤害计算与方案恢复。</p>
 
@@ -16,12 +16,13 @@
 
 ## 1.8 LTS 的边界
 
-- 只提供桌面浏览器 Web 应用，不再包含 Electron、DEF/OpenCode、MCP 或本地桥接服务。
+- 当前 `codex/v1.8-lts-desktop-shell` 保留独立 Electron 控制壳、MCP 填表、DEF Agent 和统一资源发包工具；工作台页面仍在系统浏览器中运行。
 - 私人排轴、快照、Work Node、配置和自定义图片写入当前浏览器的 SQLite WASM/OPFS 数据库，不上传云端。
+- MCP 使用隔离的提案/审计数据库，Agent 通过受控宿主访问产品能力；两者都不能替代浏览器业务 SQLite 的权威写入。
 - 官方 JSON 与图片资料在首次确认后下载，经过 SHA-256 校验后进入浏览器 Cache Storage。
 - 一个浏览器配置中只允许一个标签页写入；其他标签页显示占用状态并可显式接管。
 - 访问门禁保存在当前浏览器 30 天。它用于本地部署访问拦截，不替代服务端身份认证。
-- 不读取或迁移旧桌面 SQLite；需要保留的数据应通过 Web LTS 自身的导入/导出能力流转。
+- 国内网站由独立的 `codex/v1.8-lts-slimming` 分支部署；Desktop 与 Slimming 只同步共同补丁，不做整分支合并。
 
 ## 本地启动
 
@@ -35,6 +36,12 @@ npm run dev
 第一次执行 `npm run dev` 会准备约 31 MB 的官方图片压缩包，然后在
 `http://127.0.0.1:3030` 启动站点。首次进入页面输入部署密码并确认下载资料。
 
+启动完整 Desktop Shell：
+
+```bash
+npm run electron:dev
+```
+
 生产式本地预览：
 
 ```bash
@@ -42,14 +49,16 @@ npm run build:local
 npm run preview
 ```
 
-`build:local` 生成包含图片压缩包的自包含 `dist/`。当前分支只做本地部署，不执行 GitHub Pages 发布。
+`build:local` 生成自包含 Web、MCP/Agent 和统一发包 runtime。当前分支不直接部署网站；生产上线只从 Slimming 分支发布到 `dmgendfield.cloud`。
 
 ## 文档
 
 - [快速上手](docs/guides/quick-start.md)
 - [开发与验证](docs/guides/development.md)
 - [架构总览](docs/architecture/overview.md)
+- [1.8 LTS 分支合同](docs/architecture/lts-branch-contract.md)
 - [数据生命周期](docs/architecture/data-lifecycle.md)
+- [统一资源发包与交接](docs/architecture/resource-delivery.md)
 - [安全边界](docs/architecture/security-boundaries.md)
 - [技术栈](docs/technology-stack.md)
 

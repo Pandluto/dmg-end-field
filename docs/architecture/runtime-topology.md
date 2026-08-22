@@ -11,7 +11,23 @@ flowchart LR
   Browser --> Cache["浏览器 Cache Storage"]
 ```
 
-唯一固定端口是 `3030`。没有 Electron 进程、loopback bridge、sidecar API 或额外业务端口。
+仅运行 `npm run dev` 时，唯一固定端口是 `3030`，不会启动 Electron、MCP 或 Agent。
+
+## Desktop Shell 开发
+
+```mermaid
+flowchart LR
+  Command["npm run electron:dev"] --> Vite["Vite · 127.0.0.1:3030"]
+  Command --> Shell["Electron 独立 Shell"]
+  Shell --> Browser["系统浏览器工作台"]
+  Shell --> MCP["Legacy Fill MCP · 17323"]
+  Shell --> Agent["DEF Agent Host · 按需启动"]
+  Browser --> OPFS["业务 SQLite · OPFS"]
+  MCP --> Audit["隔离的提案 / 审计 SQLite"]
+  Agent --> Gateway["受控 Product Gateway"]
+```
+
+生产桌面静态宿主固定在 `127.0.0.1:31457`。旧业务端口 `17321`、`17322` 不得恢复；MCP 的 `17323` 只服务填表提案，不承载业务资料库。
 
 ## 本地生产预览
 
@@ -20,8 +36,8 @@ npm run build:local
 npm run preview
 ```
 
-`build:local` 会把静态应用、WebAssembly、JSON 资料、图片清单和图片压缩包放入 `dist/`。`preview` 仅绑定 `127.0.0.1`，不会上传或发布内容。
+`build:local` 会把静态应用、WebAssembly、JSON 资料、图片清单、图片压缩包、MCP/Agent 与统一发包 runtime 放入 `dist/`。`preview` 仅绑定 `127.0.0.1`，不会上传或发布内容。
 
-## 静态部署
+## Web 生产部署
 
-`dist/` 可放到支持 HTTPS 与正确 MIME 类型的静态服务器。应用使用 hash 路由，不要求服务端 rewrite；服务器应允许 `.wasm`、`.json` 和 `.zip` 下载。真实访问控制必须由静态站点前置网关实现。
+网站生产发布只从 `codex/v1.8-lts-slimming` 执行，并通过 Caddy/Nginx 服务于 `https://dmgendfield.cloud`。Desktop 分支的 `dist/` 用于本地 Shell/安装包，不得直接替代 Slimming 的国内站点产物。

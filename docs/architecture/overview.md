@@ -1,8 +1,8 @@
-# Web LTS 1.8 架构总览
+# Desktop LTS 1.8 架构总览
 
 ## 产品形态
 
-1.8 LTS 是一个静态部署、离线优先的桌面浏览器应用。React 负责界面与业务编排；SQLite WASM 通过 OPFS 保存用户数据库；Cache Storage 与 Service Worker 保存经过校验的官方资料。仓库不再包含桌面壳、本地 HTTP 服务、Agent、MCP 或云端账号系统。
+1.8 LTS 的业务工作台仍是离线优先的桌面浏览器应用：React 负责界面与业务编排，SQLite WASM 通过 OPFS 保存用户数据库，Cache Storage 与 Service Worker 保存经过校验的官方资料。当前 Desktop Shell 分支在这一浏览器核心外增加独立 Electron 控制壳、MCP 填表、DEF Agent 和统一资源发包；这些能力不能绕过浏览器业务数据库的权威边界。
 
 ```mermaid
 flowchart LR
@@ -14,6 +14,11 @@ flowchart LR
   SW["PWA Service Worker"] --> Cache
   Packages["同源 JSON / 图片包"] --> Verify["大小 + SHA-256"]
   Verify --> Cache
+  Shell["Electron Shell"] --> User
+  Shell --> MCP["MCP 提案 / 审计"]
+  Shell --> Agent["DEF Agent Host"]
+  MCP --> UI
+  Agent --> UI
 ```
 
 ## 启动顺序
@@ -45,3 +50,6 @@ flowchart LR
 - Timeline repository 与 Work Node 事务在浏览器 SQLite 中完成，不依赖 UI 状态作为事实源。
 - 官方资源和用户数据分开保存；重装资料包不会覆盖私人排轴或自定义图片。
 - 导入导出是跨浏览器、跨设备流转用户数据的唯一显式边界。
+- Electron 只承载控制壳、进程、密钥和发包；普通业务页面拿不到 preload 或文件系统能力。
+- MCP 与 Agent 必须通过提案、审批和 Product Gateway 进入工作台，不能直接写浏览器业务 SQLite。
+- 国内网站仍由 Slimming 分支部署；两分支关系见 [1.8 LTS 分支合同](./lts-branch-contract.md)。

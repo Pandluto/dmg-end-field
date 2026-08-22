@@ -1,13 +1,15 @@
 # 项目文档入口
 
-1.8 LTS 分支只保留当前仍会约束产品、数据和发布行为的文档。已经完成的研究、任务清单、阶段验收与实验性架构材料由 Git 历史保存，不再长期占用主文档树。
+1.8 LTS 文档只保留当前仍会约束产品、数据和发布行为的事实。Desktop Shell 与 Slimming 是两个长期专业分支；共通合同按补丁同步，不做整分支合并。
 
 ## 从这里开始
 
 - [用户快速上手](./guides/quick-start.md)
 - [开发与启动](./guides/development.md)
 - [项目架构总览](./architecture/overview.md)
+- [1.8 LTS 分支合同](./architecture/lts-branch-contract.md)
 - [数据生命周期](./architecture/data-lifecycle.md)
+- [统一资源发包与交接](./architecture/resource-delivery.md)
 - [技术栈与技术选择](./technology-stack.md)
 - [当前 Spec 索引](./specs/README.md)
 - [测试方法](./testing/README.md)

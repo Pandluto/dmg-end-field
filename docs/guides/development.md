@@ -22,12 +22,22 @@ npm run dev
 
 图片 ZIP 被忽略，不会进入 Git。已经运行的开发服务器无需重复启动。
 
+需要 Electron、MCP、DEF Agent 或桌面发包界面时运行：
+
+```bash
+npm run electron:dev
+```
+
+该命令会准备 MCP/Agent/统一发包运行时，再启动独立 Shell 和 `127.0.0.1:3030` 浏览器工作台。Shell 不承载业务 SQLite；工作台仍在系统浏览器中运行。
+
 ## 常用命令
 
 ```bash
 npm run typecheck
 npm test
 npm run smoke:timeline-bundle
+npm run electron:smoke:resource-release
+npm run electron:smoke:boundaries
 npm run check:repo
 npm run check
 ```
@@ -41,7 +51,25 @@ npm run build:local
 npm run preview
 ```
 
-产物在 `dist/`，其中包含静态页面、Worker、SQLite WASM、JSON 资料和图片 ZIP。当前阶段不执行 GitHub 部署。
+产物在 `dist/`，其中包含静态页面、Worker、SQLite WASM、JSON 资料、图片 ZIP、MCP/Agent 运行时和 Desktop 统一发包 runtime。这个命令只构建本地产物，不会部署或上传。
+
+## 统一资源包
+
+Desktop Shell 或命令行都可以从完整 Share Data 与图片目录生成同一格式：
+
+```bash
+npm run resource:build -- --share-data <share.json> --images <image-directory> --output <output>
+npm run resource:verify -- <dmg-resource-release-*.zip>
+```
+
+输入必须是完整 `def.localdata.archive.v1`；员工增量或单一资料库导出要先合并，再从工作台重新导出 Share Data。详细合同见 [统一资源发包与交接](../architecture/resource-delivery.md)。
+
+## 分支与部署
+
+- Desktop/MCP/Agent 开发在 `codex/v1.8-lts-desktop-shell`。
+- 国内 Web 应用、资源物化和生产部署在 `codex/v1.8-lts-slimming`。
+- 两分支只同步共同补丁，不做整分支 merge。详见 [1.8 LTS 分支合同](../architecture/lts-branch-contract.md)。
+- 部署或发资源请求必须使用 `.agents/skills/dmg-dual-deploy/SKILL.md`；默认只更新 `dmgendfield.cloud`。
 
 ## 浏览器调试注意
 
