@@ -15,7 +15,18 @@
 
 阶段 0—5 已落实：Slimming 先加入中性扩展接缝和共享 SQLite 安全修复，Desktop 候选随后完成受控汇合；共享 `src` 与记录基线保持一致，Agent 深层行为通过 `.desktop.*` 覆盖和 Desktop Host Adapter 叠加。3030/31457 使用同一固定国内资源代理，离线回退明确标注“内置版本”。最终 Electron 冒烟还反向发现了严格模式并发初始化会争抢同一初始快照/checkout 的旧竞态；修复先进入 Slimming，再按本合同同步到候选。
 
-仓库根 `desktop-overlay.json` 记录当前 Slimming 基线和九组覆盖对，`npm run electron:smoke:overlay` 对祖先关系、共享文件和新增路径执行机器校验。剩余阶段 6 只包含最终自动门、实际在线/离线资源检查、本地点击验收，以及验收后把长期 Desktop 分支快进到候选；本次没有部署、上传或改动 Slimming 生产职责。
+仓库根 `desktop-overlay.json` 记录当前 Slimming 基线和九组覆盖对，`npm run electron:smoke:overlay` 对祖先关系、共享文件和新增路径执行机器校验。最终自动门和真实 macOS `.app` 验证已经通过；剩余阶段 6 只包含实际在线/离线资源检查、本地点击验收，以及验收后把长期 Desktop 分支快进到候选。本次没有部署、上传或改动 Slimming 生产职责。
+
+## 最终自动验证（2026-08-22）
+
+- Slimming：完整 `npm test` 与 `npm run build:web` 通过；最新资源清单为 `20260822.175836.6a42921e7583`，32 名干员、76 把武器。目录测试改为以发布清单 summary 为事实源，不再随正常数据更新误报固定数量。
+- Desktop 候选：完整 `npm run electron:check` 通过，包括 TypeScript、共享前端、Agent Core/Runtime/Host/Harness、Legacy Fill MCP、资源代理、静态宿主、Worker、三类资源发包、overlay 边界、构建和真实 Electron 冒烟。
+- SQLite：修复 React StrictMode 并发初始化争抢同一初始 snapshot/checkout 的竞态；相同 payload 的并发 bootstrap 现在幂等，真实 checkout CAS 仍保持严格。
+- Agent：空编队的正式 checkout 可以注册只写绑定；非空编队仍要求运行态、session roster 与正式 checkout 完全一致，否则 fail closed。
+- MCP：四域 Buff、武器、干员、装备均完成标准 MCP 提案、浏览器审核、OPFS SQLite 写回与重读；烟测改为在打开审核页前即时领取 30 秒单次 grant。
+- 打包：真实 arm64 `.app` 通过包边界、包内 DEF Runtime Host 和完整应用冒烟；`app.asar` 为 130,528,174 字节、942 个条目，未包含 OpenCode engine、Node 业务 SQLite、旧 REST 或 17321/17322 运行时。
+- 配置隔离：设置自定义 `DMG_DESKTOP_USER_DATA` 时不再跨目录迁移全局旧 Provider 配置，打包烟测不会读取开发机真实密钥；默认用户目录下的正常历史迁移保持不变。
+- macOS 产物使用本机 ad-hoc 签名并通过 `codesign --verify --deep --strict`；本轮没有 Developer ID 公证，也没有上传产物。
 
 ## 最终结论
 
@@ -254,4 +265,4 @@ Desktop 应直接复用 Slimming 的 `resourceChannel`、`resourceIntegrity`、`
 
 ## 当前交接
 
-代码实施已结束。自动门与本地资源链验证通过后，在候选服务器完成普通工作台、SQLite 节点树、MCP 审核和 AI 模式点击验收；确认无误后仅做长期 Desktop 分支的快进切换。回退引用继续保留，不强推、不触发网站部署。
+代码实施与自动门已经结束。下一步在候选本地服务器完成普通工作台、SQLite 节点树、国内资源下载、MCP 审核和 AI 模式点击验收；确认无误后仅做长期 Desktop 分支的快进切换。回退引用继续保留，不强推、不触发网站部署。
