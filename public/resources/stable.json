@@ -2,11 +2,11 @@
   "type": "dmg.resource-channel.v1",
   "schemaVersion": 1,
   "channel": "stable",
-  "releaseVersion": "20260820.212429.c5dd6be2c082",
-  "publishedAt": "2026-08-20T13:24:29.324Z",
+  "releaseVersion": "20260822.170422.97d779d3260f",
+  "publishedAt": "2026-08-22T09:04:22.269Z",
   "releaseManifest": {
-    "path": "resources/releases/20260820.212429.c5dd6be2c082/resource-release-manifest.json",
-    "sha256": "d29850f0f3a97625892a1f458beda78a7b6babdab33db2080f5725c4ff60c66f",
-    "size": 116208
+    "path": "resources/releases/20260822.170422.97d779d3260f/resource-release-manifest.json",
+    "sha256": "0ffa3d94bf11dd993aaf436b8ec03e00c97183eb2b4a5df1931d3589342dcbc2",
+    "size": 109108
   }
 }

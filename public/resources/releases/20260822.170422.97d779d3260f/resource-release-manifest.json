@@ -1,36 +1,36 @@
 {
   "type": "dmg.resource-deployment.v1",
   "schemaVersion": 1,
-  "releaseVersion": "20260820.212429.c5dd6be2c082",
-  "rootSha256": "c5dd6be2c08262520c64936fc39977525f770a69676a06a154e31ad32c5075f0",
-  "generatedAt": "2026-08-20T13:24:29.324Z",
+  "releaseVersion": "20260822.170422.97d779d3260f",
+  "rootSha256": "97d779d3260fd07649dbec7a9005f6ef568ae7b0bd72ae24f035216915f85b18",
+  "generatedAt": "2026-08-22T09:04:22.269Z",
   "source": {
-    "fileName": "share-20260820-three-way-merged.json",
-    "archiveId": "merged-operator-20260820132348",
-    "exportedAt": "2026-08-20T13:23:48.061Z"
+    "fileName": "local-20260822090244.json",
+    "archiveId": "local-20260822090244",
+    "exportedAt": "2026-08-22T09:02:44.167Z"
   },
   "data": {
-    "version": "20260820.212429.0d0a9409",
+    "version": "20260822.170422.5b9fe5bb",
     "file": {
       "path": "data/default-local-data.json",
-      "sha256": "0d0a9409e787b4e5a61a3df85e953dae38e00e62c9cb6ea2c9bbc7a1892e9862",
-      "size": 2171941
+      "sha256": "5b9fe5bb8d538f353df8fb3a375df7e55046d0ae106d68b53b8c4b866fe1fdd0",
+      "size": 3919111
     },
     "summary": {
       "operators": 31,
       "weapons": 76,
-      "images": 565
+      "images": 532
     }
   },
   "images": {
-    "version": "20260820.212429.a814b4dd6288",
-    "totalBytes": 54443824,
-    "indexSha256": "a814b4dd6288efb89656350feb46c0f7a7717a73ddd75eb3734d911cab300d01",
+    "version": "20260822.170422.372cefb253db",
+    "totalBytes": 36793629,
+    "indexSha256": "372cefb253db8ddf74e1ab5aef3a9c567df7b7ce70a15a9f5c571552e2a857d6",
     "archive": {
-      "path": "images/assets-20260820.212429.a814b4dd6288-full.zip",
-      "fileName": "assets-20260820.212429.a814b4dd6288-full.zip",
-      "sha256": "e9347e4278fe29a656c9f66cb77be160615b4c3902b3a6f67809203b1281b85e",
-      "size": 36979581
+      "path": "images/assets-20260822.170422.372cefb253db-full.zip",
+      "fileName": "assets-20260822.170422.372cefb253db-full.zip",
+      "sha256": "a4dc377ecf6c7229b2993f1fe7a6d64970307b558e460e84c8c6f19d54cd8bf8",
+      "size": 19614819
     },
     "files": [
       {
@@ -2009,6 +2009,36 @@
         "size": 94324
       },
       {
+        "path": "assets/images/img-operator/提丰/寒夜幽影.png",
+        "sha256": "b1783d2003b62022fab5acebce2b431821db0af2d6cfaa62cf51342c805d7e72",
+        "size": 117481
+      },
+      {
+        "path": "assets/images/img-operator/提丰/提丰.png",
+        "sha256": "b9077c26ddc8383382440ef90ffd55456014740161e0fd83b53ea2dafe8617fa",
+        "size": 544982
+      },
+      {
+        "path": "assets/images/img-operator/提丰/提丰战技.png",
+        "sha256": "46b8fa2a4c937426f27c6d0be76087b78df95ce0054670c0b6b439233ec4dbb4",
+        "size": 2052
+      },
+      {
+        "path": "assets/images/img-operator/提丰/提丰终结技.png",
+        "sha256": "d07ecca34a0de28db06c43c4c00fa3fba9a9492f8a7d155fcd005f0355b71737",
+        "size": 2563
+      },
+      {
+        "path": "assets/images/img-operator/提丰/提丰连携技.png",
+        "sha256": "9316dba6fd0bb5b1bea785573a8709927549388110578d2b65e170e7b33458d7",
+        "size": 2468
+      },
+      {
+        "path": "assets/images/img-operator/提丰/苦难的尽头.png",
+        "sha256": "b35559f257664dfdb50d2de26843a5f893cb813246d3081ce31bc933e49cc9f0",
+        "size": 121669
+      },
+      {
         "path": "assets/images/img-operator/昼雪.png",
         "sha256": "b4cda4124192dc046c02ae01ebb78d825436fa490e613be05496adffa487c5f3",
         "size": 99376
@@ -2662,214 +2692,19 @@
         "path": "assets/images/img-wepaon/wpn_sword_0022.png",
         "sha256": "b6258824e63aa43ea0802053e794e1e3de56f8d59145932bf36564acfdaea000",
         "size": 53211
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/audit-bg.png",
-        "sha256": "56cc0d76fb6913a0735bae3cf4da1d9cfe1d99c0857a40830cee0f4792c28afb",
-        "size": 346719
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/bg.png",
-        "sha256": "ffb9d291d611079f1f46ba3d55520977780abeb11bb820a1a3fbbf11065f27d0",
-        "size": 75363
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/loading-logo-en.png",
-        "sha256": "6822f921fd75591f0f13aaeb7565d5b9b5423eb4d7eda7964004287eb20d4e9a",
-        "size": 151344
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/mobileBg.png",
-        "sha256": "aef64a589c97b5e61864ab4b4404fbccb9fe7fc7cda51c27491eaa0ca2a7a67d",
-        "size": 46066
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-config-equip-stage-bg.png",
-        "sha256": "c43e03cc73b16e700b8c1d3b26b44f73fd6b29cf153c26d4e87db5c8b8ee8b44",
-        "size": 404531
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/伊冯-半身.PNG",
-        "sha256": "cc4bc745e51519df54bba448aceada22d1728dc65e79f3a67e3174074a7f2228",
-        "size": 631840
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/余烬-半身.PNG",
-        "sha256": "832e5ccecd32dffb73eda63d37bfffd64c68e20450dac5a8a90cc3263be6fa9c",
-        "size": 576676
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/佩丽卡-半身.PNG",
-        "sha256": "defa72fbf617fdec9c17c54dd0b89ce643cd51b373d840f473ecdcfe798e0c37",
-        "size": 603445
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/别礼-半身.PNG",
-        "sha256": "0eecb53044417478592268be962fb2952e3f289f54cce40a32279c0adb2cb740",
-        "size": 585763
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/卡契尔-半身.PNG",
-        "sha256": "43264af9cd05602309b47976c873159546e5082d6ebfd25ebfc6443410cc7583",
-        "size": 437960
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/卡缪-半身.PNG",
-        "sha256": "08a4e5775206a166255653dd5af28fe4f05e2b69ffdb208597f61be219498ec6",
-        "size": 441178
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/埃特拉-半身.PNG",
-        "sha256": "c5044ea55c9caa5f58e4c2eb44625bbfd1173a2cc193fd9537a34eef5939491c",
-        "size": 388167
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/大潘-半身.PNG",
-        "sha256": "9731a2a5061a2ae8802a014c3d680a52b0d510dc1186b3e9ac511cd1c1e24f7a",
-        "size": 519129
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/安塔尔-半身.PNG",
-        "sha256": "588e8393fe45b4579944fb8995e2a750dc2adb6a1339c1fe03c41ad0ddc63e8c",
-        "size": 438739
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/庄方宜-半身.PNG",
-        "sha256": "a426ed9ccfbf69316728a341991de500bd3cb9a1f18f7caba027b2d41c077a84",
-        "size": 531430
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/弧光-半身.PNG",
-        "sha256": "a20e6ca9cd7e8b0d5db8568fbda4a20255836848595e30aa79cb0f2c115d97a2",
-        "size": 490095
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/弭弗-半身.PNG",
-        "sha256": "db6ad912628510209920f261af0262fabf6b74de8f4797b27c29afbe4c5bbb29",
-        "size": 560319
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/昼雪-半身.PNG",
-        "sha256": "efbdb8b0e433bd5ab85c5c826df3ea9a2a68f1ad522fa26d465d054e5fa9201c",
-        "size": 530998
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/汤汤-半身.PNG",
-        "sha256": "032102205bb639b450256429e13bacf641292f622086ad0da5b57881c9a2827f",
-        "size": 530354
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/洁尔佩塔-半身.PNG",
-        "sha256": "3c06c523e61a2557a5f0c4a2fed130d410b9b823bd73c380bc3fc9a1ce4b1eec",
-        "size": 632831
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/洛茜-半身.PNG",
-        "sha256": "32c6850db9b38f9da75b3ece18cc2f7ad1055b3f3967320923aa5cc70a752499",
-        "size": 570302
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/狼卫-半身.PNG",
-        "sha256": "06aa042a0c646ebacd0fcda45bf66cabd3389cc73574cad08a1ced5363763bea",
-        "size": 520378
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/秋栗-半身.PNG",
-        "sha256": "1b178d68338302197daa5e0caf545fede725d942533d91cf285d99c1f89b28de",
-        "size": 524908
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/管理员 (女)-半身.PNG",
-        "sha256": "57f0b3fd1bf6ea072ae6a39e29265ab494e83ced1e4b209b48589c2377b74ec0",
-        "size": 500704
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/管理员 (男)-半身.PNG",
-        "sha256": "2dbe86ab5065204bf4b4c95f9872ed732bddca7cfd0a229d21d5ab7ef5636728",
-        "size": 471838
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/艾尔黛拉-半身.PNG",
-        "sha256": "a7d86cc0979ba3cdb75561ac75a8a8088ad196287c5a4fdd3ec0ec2bebafc711",
-        "size": 568432
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/艾维文娜-半身.PNG",
-        "sha256": "aad37334b3772e7b1c54ec92ad87fb9b835d26f900b24e283f19926342addaa1",
-        "size": 501778
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/莱万汀-半身.PNG",
-        "sha256": "6a5b0f676ea96a12059a6bea72c7b0006ad53256df3471632b6467f459342afb",
-        "size": 561863
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/萤石-半身.PNG",
-        "sha256": "c833ecd5d51b933fa88aa30053106df5110a27b150f835634ce67e9862aab0a5",
-        "size": 520738
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/赛希-半身.PNG",
-        "sha256": "47ebd77037123007a91207c0cdb702ab506678f3872506e5e665ea66ca07109f",
-        "size": 621700
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/阿列什-半身.PNG",
-        "sha256": "5238d7bda3838d2b7b64a5540f6850a8d769fc17a856de341cbf5ecfc4cc8d96",
-        "size": 562992
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/陈千语-半身.PNG",
-        "sha256": "b29e0c02b611ba3eb68f9830431c68e07c851312de657150399c189777746d09",
-        "size": 524648
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/骏卫-半身.PNG",
-        "sha256": "7660f7a4c9a2a5c929796ebe24650459fbd0980c669da62673115d7f598265cd",
-        "size": 568542
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/operator-half/黎风-半身.PNG",
-        "sha256": "d488763612b87226e42a48ba724334175cb6a4ce65cde1d06dfb4aab00f54212",
-        "size": 462599
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/runtime-bg.08c7f0.png",
-        "sha256": "4aabe4b14651fa05b9ed7d21e97735c137f98e04b1e8cfd524d163be08e6d4af",
-        "size": 697435
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/runtime-ef-name-white.png",
-        "sha256": "2a60ab28a46009b79e09a2fdf3aaa8350e4d3b31a36091136c389d603b91cf80",
-        "size": 5192
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/runtime-header_bg_logo.3c0fb7a48927275e7f6c.png",
-        "sha256": "b92e4ad8dcb200f3206e30aa45e314dbab6a7d98a678852c48a127775c1f3d58",
-        "size": 11587
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/runtime-loading-logo-cn.c87021.png",
-        "sha256": "0f32aab095c191b91d7c4117e0225a3fd97baea0c06d1684f0c0823ed1a4fbd4",
-        "size": 141592
-      },
-      {
-        "path": "assets/images/skland-endfield-wiki/runtime-loadingBg.27323a.png",
-        "sha256": "84aa0b08c7c931c474a29e2aaaf2f576c3f67e4cda47463bc4187249c93c40e1",
-        "size": 1181235
       }
     ]
   },
   "delivery": {
     "dataManifest": {
-      "path": "resources/releases/20260820.212429.c5dd6be2c082/web-data-manifest.json",
-      "sha256": "7bf475ee40b4b80602ca9ffeb61ebae15f5d264dcaced488bce54f6d0b7110fe",
+      "path": "resources/releases/20260822.170422.97d779d3260f/web-data-manifest.json",
+      "sha256": "d7009843183f859b0c1ffac30bf289022d027f2c39a30e95ea12b05fa69950ab",
       "size": 592
     },
     "imageManifest": {
-      "path": "resources/releases/20260820.212429.c5dd6be2c082/web-image-manifest.json",
-      "sha256": "405ae22a07f755030c468144514a689ce7366392ddfd4e49d475eea6f9aed799",
-      "size": 112558
+      "path": "resources/releases/20260822.170422.97d779d3260f/web-image-manifest.json",
+      "sha256": "8ac8caa9d4bdf990e2a94cb354f5d27dc449aa2eb417bc469835b7a5583e2fce",
+      "size": 104473
     }
   }
 }
