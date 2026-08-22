@@ -638,7 +638,7 @@ export async function saveSnapshot(input: {
           sql: `
             UPDATE timeline_snapshots
             SET archived = 0, label = ?
-            WHERE timeline_id = ? AND id = ?
+            WHERE timeline_id = ? AND id = ? AND archived = 1
           `,
           bind: [input.label, input.timelineId, textValue(matching.id)],
         },
@@ -649,7 +649,15 @@ export async function saveSnapshot(input: {
           subjectId: textValue(matching.id),
           details: { payloadHash },
           createdAt,
+          when: { sql: 'changes() > 0' },
         }),
+        {
+          sql: `
+            UPDATE timeline_documents SET updated_at = ?
+            WHERE id = ? AND changes() > 0
+          `,
+          bind: [Date.now(), input.timelineId],
+        },
       ]);
     }
     const refreshed = await webDatabase.query<Row>(
@@ -660,45 +668,94 @@ export async function saveSnapshot(input: {
   }
 
   let snapshotId = input.id;
-  const idOwner = await webDatabase.query<Row>(
-    'SELECT id FROM timeline_snapshots WHERE id = ?',
-    [snapshotId],
-  );
-  if (idOwner[0]) snapshotId = `${input.id}-${payloadHash.slice(-12)}-${makeId('copy').slice(-8)}`;
-  await webDatabase.batch([
-    {
-      sql: `
-        INSERT INTO timeline_snapshots(
-          id, timeline_id, label, payload_json, payload_hash, created_at, archived
-        ) VALUES (?, ?, ?, ?, ?, ?, 0)
-      `,
-      bind: [
-        snapshotId,
-        input.timelineId,
-        input.label,
-        payloadJson,
-        payloadHash,
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const result = await webDatabase.batch([
+      {
+        sql: `
+          INSERT INTO timeline_snapshots(
+            id, timeline_id, label, payload_json, payload_hash, created_at, archived
+          ) VALUES (?, ?, ?, ?, ?, ?, 0)
+          ON CONFLICT(id) DO NOTHING
+        `,
+        bind: [
+          snapshotId,
+          input.timelineId,
+          input.label,
+          payloadJson,
+          payloadHash,
+          createdAt,
+        ],
+      },
+      auditStatement({
+        timelineId: input.timelineId,
+        eventType: 'snapshot.saved',
+        subjectType: 'snapshot',
+        subjectId: snapshotId,
+        details: { payloadHash },
         createdAt,
-      ],
-    },
-    {
-      sql: 'UPDATE timeline_documents SET updated_at = ? WHERE id = ?',
-      bind: [Date.now(), input.timelineId],
-    },
-    auditStatement({
-      timelineId: input.timelineId,
-      eventType: 'snapshot.saved',
-      subjectType: 'snapshot',
-      subjectId: snapshotId,
-      details: { payloadHash },
-      createdAt,
-    }),
-  ]);
-  const rows = await webDatabase.query<Row>(
-    'SELECT * FROM timeline_snapshots WHERE timeline_id = ? AND id = ?',
-    [input.timelineId, snapshotId],
+        when: { sql: 'changes() > 0' },
+      }),
+      {
+        sql: `
+          UPDATE timeline_documents SET updated_at = ?
+          WHERE id = ? AND changes() > 0
+        `,
+        bind: [Date.now(), input.timelineId],
+      },
+    ]);
+    const rows = await webDatabase.query<Row>(
+      'SELECT * FROM timeline_snapshots WHERE id = ?',
+      [snapshotId],
+    );
+    const stored = rows[0];
+    if (result.statementChanges[0] > 0) {
+      if (!stored) {
+        fail('timeline-snapshot-write-lost', 500, `Timeline snapshot was not readable after insert: ${snapshotId}`);
+      }
+      return { snapshot: snapshotFromRow(stored), reused: false };
+    }
+    if (
+      stored
+      && textValue(stored.timeline_id) === input.timelineId
+      && textValue(stored.payload_hash) === payloadHash
+    ) {
+      if (numberValue(stored.archived) === 1) {
+        await webDatabase.batch([
+          {
+            sql: `
+              UPDATE timeline_snapshots
+              SET archived = 0, label = ?
+              WHERE timeline_id = ? AND id = ? AND payload_hash = ? AND archived = 1
+            `,
+            bind: [input.label, input.timelineId, snapshotId, payloadHash],
+          },
+          auditStatement({
+            timelineId: input.timelineId,
+            eventType: 'snapshot.unarchived',
+            subjectType: 'snapshot',
+            subjectId: snapshotId,
+            details: { payloadHash },
+            createdAt,
+            when: { sql: 'changes() > 0' },
+          }),
+        ]);
+      }
+      const refreshed = await webDatabase.query<Row>(
+        'SELECT * FROM timeline_snapshots WHERE timeline_id = ? AND id = ?',
+        [input.timelineId, snapshotId],
+      );
+      if (!refreshed[0]) {
+        fail('timeline-snapshot-write-lost', 500, `Timeline snapshot disappeared after reuse: ${snapshotId}`);
+      }
+      return { snapshot: snapshotFromRow(refreshed[0]), reused: true };
+    }
+    snapshotId = `${input.id}-${payloadHash.slice(-12)}-${makeId('copy').slice(-8)}`;
+  }
+  fail(
+    'timeline-snapshot-id-collision',
+    409,
+    `Timeline snapshot id remained occupied after bounded retries: ${input.id}`,
   );
-  return { snapshot: snapshotFromRow(rows[0]), reused: false };
 }
 
 export async function getCheckoutRef(timelineId: string): Promise<TimelineCheckoutRef | null> {
@@ -755,6 +812,12 @@ export async function setCheckoutRef(
     );
   }
   const updatedAt = input.updatedAt ?? Date.now();
+  const desiredCheckout: TimelineCheckoutRef = {
+    timelineId: input.timelineId,
+    targetType: input.targetType,
+    targetId: input.targetId,
+    updatedAt,
+  };
   const checkoutStatement: SqlStatement = expectedCheckout
     ? {
       sql: `
@@ -815,30 +878,47 @@ export async function setCheckoutRef(
       ],
     };
   checkoutStatement.requireChanges = true;
-  const result = await batchWithRequiredChanges([
-    checkoutStatement,
-    {
-      sql: `
-        UPDATE timeline_documents SET updated_at = ?
-        WHERE id = ? AND changes() > 0
-      `,
-      bind: [updatedAt, input.timelineId],
-    },
-    auditStatement({
-      timelineId: input.timelineId,
-      eventType: 'checkout.updated',
-      subjectType: 'checkout',
-      subjectId: input.targetId,
-      details: { targetType: input.targetType },
-      createdAt: updatedAt,
-      when: { sql: 'changes() > 0' },
-    }),
-  ], {
-    code: 'timeline-checkout-conflict',
-    message: 'Timeline checkout changed before this update could be applied.',
-    details: { expected: expectedCheckout },
-  });
+  let result: SqlBatchResult;
+  try {
+    result = await batchWithRequiredChanges([
+      checkoutStatement,
+      {
+        sql: `
+          UPDATE timeline_documents SET updated_at = ?
+          WHERE id = ? AND changes() > 0
+        `,
+        bind: [updatedAt, input.timelineId],
+      },
+      auditStatement({
+        timelineId: input.timelineId,
+        eventType: 'checkout.updated',
+        subjectType: 'checkout',
+        subjectId: input.targetId,
+        details: { targetType: input.targetType },
+        createdAt: updatedAt,
+        when: { sql: 'changes() > 0' },
+      }),
+    ], {
+      code: 'timeline-checkout-conflict',
+      message: 'Timeline checkout changed before this update could be applied.',
+      details: { expected: expectedCheckout },
+    });
+  } catch (error) {
+    if (
+      !hasExplicitExpected
+      && error instanceof BrowserTimelineStoreError
+      && error.code === 'timeline-checkout-conflict'
+    ) {
+      const concurrent = await getCheckoutRef(input.timelineId);
+      if (sameCheckout(concurrent, desiredCheckout)) return concurrent!;
+    }
+    throw error;
+  }
   if (!result.statementChanges[0]) {
+    if (!hasExplicitExpected) {
+      const concurrent = await getCheckoutRef(input.timelineId);
+      if (sameCheckout(concurrent, desiredCheckout)) return concurrent!;
+    }
     fail(
       'timeline-checkout-conflict',
       409,
@@ -846,12 +926,7 @@ export async function setCheckoutRef(
       { expected: expectedCheckout, actual: await getCheckoutRef(input.timelineId) },
     );
   }
-  return {
-    timelineId: input.timelineId,
-    targetType: input.targetType,
-    targetId: input.targetId,
-    updatedAt,
-  };
+  return desiredCheckout;
 }
 
 export async function listWorkNodes(timelineId: string): Promise<BrowserTimelineWorkNode[]> {
