@@ -161,7 +161,7 @@ code {
 
 .status-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -288,6 +288,11 @@ code {
 
 .message.is-success {
   color: var(--accent);
+}
+
+.shell-message {
+  margin: 0;
+  padding: 0 4px;
 }
 
 .agent-profile-message {

@@ -9,7 +9,7 @@ codex/v1.8-lts-slimming
   └─ Web/PWA、移动端、SQLite、资源、领域与普通工作台
                          ↓ 只允许向下同步
 codex/v1.8-lts-desktop-shell
-  └─ Electron + MCP + DEF Agent + Desktop Host Adapter + 桌面发包
+  └─ Electron + MCP + Desktop Host Adapter + 保留的 Agent/发包实现
 ```
 
 `v1.8-LTS` 只作为历史祖先和审计锚点。国内网站只从 Slimming 部署；Desktop 即使继承了 Web、移动端和 Worker 源码，也不获得网站部署职责。
@@ -70,7 +70,7 @@ Desktop/MCP 编辑完整资料
         ↓
 导出 def.localdata.archive.v1 Share Data
         ↓
-Desktop 生成并校验 dmg.resource-release.v1 ZIP
+项目 Agent Skill 调用保留的实现生成并校验 dmg.resource-release.v1 ZIP
         ↓
 Slimming 校验、物化并提交 public/ 稳定通道
         ↓
@@ -81,6 +81,14 @@ Desktop 在线时通过固定 loopback 前缀读取 `https://dmgendfield.cloud/r
 
 员工增量文件必须先合并到资料编辑器，再导出完整 Share Data。资源版本使用实际打包时的北京时间与内容哈希；来源文件的 `exportedAt` 只用于追溯。资源 ZIP 不上传 GitHub Release，Desktop 分支也不直接部署国内网站。
 
+## Electron 产品入口冻结（2026-08-22）
+
+- 标准 MCP 服务与“打开 MCP 填表”继续随 `npm run electron:dev` 启动和工作；
+- AI/Agent 源码、测试和打包内容继续保留，但 Electron Shell 不显示入口，preload 不暴露相关方法，主进程不注册相关 IPC，也不初始化 Agent profile/runtime；
+- Electron 内的资源打包界面同样冻结，preload 与 IPC 不再暴露选择目录、生成资源包或显示产物的方法；
+- 后续数据打包与发布由项目 `AGENTS.md` 路由到 `.agents/skills/dmg-dual-deploy/SKILL.md`，不再依赖人工点击 Electron 工具；
+- 恢复任一入口必须作为单独产品决策修改统一 feature flag，并重新通过边界与真实 Electron smoke，不能只把 DOM 按钮加回来。
+
 ## 1.8.6 已落实
 
 - Slimming 中性 Host、路由、工作台和资源传输接缝；
@@ -90,5 +98,6 @@ Desktop 在线时通过固定 loopback 前缀读取 `https://dmgendfield.cloud/r
 - 初始 SQLite 快照与 checkout 的并发创建可幂等收敛，不再因严格模式双初始化撤销 Agent 可写绑定；
 - 共享 `src` 与记录的 Slimming 基线无未登记差异；
 - 路径边界、打包边界和单向祖先关系进入自动检查。
+- AI/Agent 与 Electron 资源打包入口已在 feature flag、Shell、preload、IPC 四层冻结；实现仍留在 Desktop 增量边界，MCP 不受影响。
 
 迁移前 Desktop 状态保留在 `codex/archive-v1.8-lts-desktop-shell-pre-overlay-20260822`，用于回退和审计，不作为后续开发分支。

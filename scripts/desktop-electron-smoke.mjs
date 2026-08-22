@@ -26,21 +26,22 @@ const mcpRuntimePort = 17323;
 const screenshotRoot = process.env.DMG_DESKTOP_SMOKE_SCREENSHOT_DIR
   ? path.resolve(process.env.DMG_DESKTOP_SMOKE_SCREENSHOT_DIR)
   : '';
+const frozenDesktopHostMethods = [
+  'getAgentState',
+  'getAgentProfile',
+  'testAgentProfile',
+  'saveAgentProfile',
+  'openAgentMode',
+  'pickImageReleaseSource',
+  'pickShareDataSource',
+  'pickReleaseOutput',
+  'buildResourceRelease',
+  'revealPath',
+];
 const fillFixture = JSON.parse(fs.readFileSync(
   path.join(projectRoot, 'docs', 'specs', 'legacy-ai-cli-mcp-extraction', 'fixtures', 'legacy-fill-wire-v1.json'),
   'utf8',
 ));
-const releaseFixtureRoot = path.join(profileRoot, 'release-fixture');
-const shareDataFixturePath = path.join(releaseFixtureRoot, 'share-data.json');
-const imageFixtureRoot = path.join(releaseFixtureRoot, 'images');
-const releaseOutputRoot = path.join(releaseFixtureRoot, 'output');
-
-function resourceRecords(prefix, count) {
-  return Object.fromEntries(Array.from({ length: count }, (_, index) => [
-    `${prefix}-${index + 1}`,
-    { id: `${prefix}-${index + 1}`, name: `${prefix} ${index + 1}` },
-  ]));
-}
 
 if (!fs.existsSync(distIndex)) {
   throw new Error('缺少 dist/index.html；请先运行 npm run build:local。');
@@ -48,31 +49,6 @@ if (!fs.existsSync(distIndex)) {
 if (packagedExecutable && !fs.existsSync(packagedExecutable)) {
   throw new Error(`桌面可执行文件不存在：${packagedExecutable}`);
 }
-fs.mkdirSync(releaseFixtureRoot, { recursive: true });
-fs.mkdirSync(imageFixtureRoot, { recursive: true });
-fs.mkdirSync(releaseOutputRoot, { recursive: true });
-fs.writeFileSync(shareDataFixturePath, `${JSON.stringify({
-  type: 'def.localdata.archive.v1',
-  schemaVersion: 1,
-  id: 'desktop-shell-smoke',
-  createdAt: '2026-08-20T09:53:24.000Z',
-  exportedAt: '2026-08-20T09:53:24.000Z',
-  storage: {
-    local: {
-      'def.operator-editor.library.v1': resourceRecords('operator', 30),
-      'def.weapon-sheet.library.v1': resourceRecords('weapon', 75),
-      'def.equipment-sheet.library.v1': { equipment: { id: 'equipment' } },
-      'def.buff-editor.library.v1': { buff: { id: 'buff' } },
-    },
-    session: {},
-  },
-  timelineArchives: [],
-})}\n`, 'utf8');
-fs.writeFileSync(
-  path.join(imageFixtureRoot, 'sample.svg'),
-  '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>\n',
-  'utf8',
-);
 
 function canConnect(port) {
   return new Promise((resolve) => {
@@ -143,7 +119,7 @@ function structured(result) {
   return result.structuredContent.data;
 }
 
-async function inspectBrowserWorkspace({ workspaceUrl, clientConfigPath, issueAgentUrl, issueMcpUrl }) {
+async function inspectBrowserWorkspace({ workspaceUrl, clientConfigPath, issueMcpUrl }) {
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   let client;
   try {
@@ -185,124 +161,16 @@ async function inspectBrowserWorkspace({ workspaceUrl, clientConfigPath, issueAg
     await workspacePage.getByRole('button', { name: '打开排轴工作区' }).waitFor({ timeout: 120_000 });
     assert.equal(await workspacePage.getByText('MCP 填表', { exact: true }).count(), 0, '普通前端导航不应暴露 MCP 入口');
     assert.equal(await workspacePage.getByText('AI 模式', { exact: true }).count(), 0, '普通前端导航不应暴露 AI 模式入口');
+    await workspacePage.evaluate(() => { window.location.hash = '#/settings'; });
+    await workspacePage.getByRole('heading', { name: '备份与资料' }).waitFor();
+    assert.equal(
+      await workspacePage.getByRole('button', { name: '打开发包工具' }).count(),
+      0,
+      'Desktop 浏览器设置不应暴露本地资源打包入口',
+    );
+    await workspacePage.evaluate(() => { window.location.hash = '#/welcome'; });
+    await workspacePage.getByRole('button', { name: '打开排轴工作区' }).waitFor();
     await workspacePage.getByRole('button', { name: '打开排轴工作区' }).click();
-
-    const agentUrl = await issueAgentUrl();
-    assert.match(agentUrl, /#\/timeline\/ai\?__agent_launch_grant=[a-zA-Z0-9_-]+$/u);
-    const agentPage = await context.newPage();
-    const agentTraffic = [];
-    agentPage.on('request', (request) => {
-      if (new URL(request.url()).pathname.startsWith('/agent-host/')) {
-        agentTraffic.push(`> ${request.method()} ${new URL(request.url()).pathname}`);
-      }
-    });
-    agentPage.on('response', (response) => {
-      if (new URL(response.url()).pathname.startsWith('/agent-host/')) {
-        agentTraffic.push(`< ${response.status()} ${new URL(response.url()).pathname}`);
-      }
-    });
-    captureLogs(agentPage, 'agent');
-    await agentPage.goto(agentUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-    try {
-      await agentPage.getByRole('complementary', { name: 'AI 模式' }).waitFor({ timeout: 30_000 });
-    } catch (error) {
-      const diagnostics = await agentPage.evaluate(async () => {
-        const capability = window.sessionStorage.getItem('dmg.desktop.agent-ui-session.v1') || '';
-        const host = capability
-          ? await fetch('/agent-host/ui/state', {
-              cache: 'no-store',
-              headers: { 'x-dmg-agent-ui-capability': capability },
-            }).then(async (response) => ({ status: response.status, body: await response.text() }))
-              .catch((requestError) => ({ status: 0, body: String(requestError) }))
-          : null;
-        return {
-          url: window.location.href,
-          capability: capability ? 'present' : 'missing',
-          body: document.body.innerText.slice(0, 4_000),
-          host,
-        };
-      }).catch((diagnosticError) => ({ diagnosticError: String(diagnosticError) }));
-      throw new Error(`AI 模式页面没有进入工作台：${error instanceof Error ? error.message : String(error)}\n${JSON.stringify(diagnostics, null, 2)}\n${browserLogs.join('\n')}`);
-    }
-    assert.doesNotMatch(new URL(agentPage.url()).hash, /__agent_launch_grant/u, 'AI 页面没有立即清除一次性 launch grant');
-    assert.equal(new URL(agentPage.url()).searchParams.has('__agent_launch_grant'), false, 'AI launch grant 不得进入 query string');
-    const agentSession = await agentPage.evaluate(() => ({
-      capability: window.sessionStorage.getItem('dmg.desktop.agent-ui-session.v1') || '',
-      localCapability: window.localStorage.getItem('dmg.desktop.agent-ui-session.v1'),
-    }));
-    assert.match(agentSession.capability, /^[a-zA-Z0-9_-]{20,200}$/u);
-    assert.equal(agentSession.localCapability, null, 'AI capability 只能保存在当前标签 sessionStorage');
-    const consumerDeadline = Date.now() + 60_000;
-    let registeredAgentState = null;
-    while (Date.now() < consumerDeadline) {
-      registeredAgentState = await agentPage.evaluate(async () => {
-        const capability = window.sessionStorage.getItem('dmg.desktop.agent-ui-session.v1') || '';
-        const response = await fetch('/agent-host/ui/state', {
-          cache: 'no-store',
-          headers: { 'x-dmg-agent-ui-capability': capability },
-        });
-        return response.ok ? response.json() : null;
-      });
-      if (registeredAgentState?.consumer?.binding?.workspaceId) break;
-      await agentPage.waitForTimeout(100);
-    }
-    assert.equal(
-      registeredAgentState?.consumer?.binding?.workspaceId?.length > 0,
-      true,
-      `AI 模式没有在时限内注册完整 Browser Workbench consumer：${JSON.stringify({
-        registeredAgentState,
-        agentTraffic,
-        browserLogs,
-        body: await agentPage.locator('body').innerText().catch(() => ''),
-      })}`,
-    );
-    // The first Main Workbench render can publish more than one snapshot while
-    // it settles its active timeline. Verify the post-settlement consumer, not
-    // the brief close/rebind edge between those snapshots.
-    await agentPage.waitForTimeout(250);
-    const agentState = await agentPage.evaluate(async () => {
-      const capability = window.sessionStorage.getItem('dmg.desktop.agent-ui-session.v1') || '';
-      const response = await fetch('/agent-host/ui/state', {
-        cache: 'no-store',
-        headers: { 'x-dmg-agent-ui-capability': capability },
-      });
-      return response.json();
-    });
-    const agentPresentation = await agentPage.evaluate(async () => ({
-      visibility: document.visibilityState,
-      body: document.body.innerText.slice(0, 4_000),
-      viewport: { width: window.innerWidth, height: window.innerHeight },
-      panel: (() => {
-        const bounds = document.querySelector('.agent-mode-overlay')?.getBoundingClientRect();
-        return bounds ? { width: bounds.width, height: bounds.height, top: bounds.top, right: bounds.right } : null;
-      })(),
-      locks: typeof navigator.locks?.query === 'function' ? await navigator.locks.query() : null,
-    }));
-    assert.equal(agentState.engine?.kind, 'def-runtime');
-    assert.equal(agentState.engine?.state, 'unavailable');
-    assert.equal(
-      agentState.consumer?.binding?.workspaceId?.length > 0,
-      true,
-      `Agent consumer binding is incomplete: ${JSON.stringify({ agentState, agentPresentation, agentTraffic })}`,
-    );
-    assert.ok(agentPresentation.panel, 'Slim AI 工作面板没有渲染');
-    assert.ok(
-      agentPresentation.panel.width >= Math.min(380, agentPresentation.viewport.width * 0.45)
-        && agentPresentation.panel.width <= agentPresentation.viewport.width * 0.6,
-      `AI 工作面板没有嵌入工作台右侧：${JSON.stringify(agentPresentation)}`,
-    );
-    assert.ok(
-      agentPresentation.panel.height >= agentPresentation.viewport.height * 0.85,
-      'AI 工作面板没有使用可用浏览器高度',
-    );
-    assert.match(agentPresentation.body, /AI 会话未能打开/u, 'Provider 未配置时没有显示明确的 AI 会话状态');
-    assert.match(
-      agentPresentation.body,
-      /Provider profile is not configured/u,
-      'Provider 未配置时没有显示可操作的 Shell 配置提示',
-    );
-    assert.doesNotMatch(agentPresentation.body, /引擎待接入/u, '真实引擎阶段仍显示旧占位文案');
-    await agentPage.close();
 
     const mcpUrl = await issueMcpUrl();
     assert.match(mcpUrl, /[?&]__mcp_fill_publisher=[a-zA-Z0-9_-]+/u);
@@ -558,15 +426,26 @@ try {
     capabilities: await window.desktopHost?.getCapabilities(),
     appInfo: await window.desktopHost?.getAppInfo(),
     mcpState: await window.desktopHost?.getMcpState(),
-    agentState: await window.desktopHost?.getAgentState(),
+    apiKeys: Object.keys(window.desktopHost || {}).sort(),
   }));
   assert.equal(shellRuntime.capabilities?.host, 'desktop-shell');
   assert.equal(shellRuntime.capabilities?.browserWorkspace, true);
-  assert.equal(shellRuntime.capabilities?.agent.available, true);
+  assert.equal(shellRuntime.capabilities?.agent.available, false);
   assert.equal(shellRuntime.capabilities?.agent.framework, true);
+  assert.equal(shellRuntime.capabilities?.agent.entryEnabled, false);
+  assert.equal(shellRuntime.capabilities?.agent.frozen, true);
   assert.equal(shellRuntime.capabilities?.agent.engine, false);
-  assert.equal(shellRuntime.agentState?.state, 'not-started');
-  assert.equal(shellRuntime.agentState?.running, false, 'Agent Host 必须保持懒启动');
+  assert.equal(shellRuntime.capabilities?.releaseTools.resources, false);
+  assert.equal(shellRuntime.capabilities?.releaseTools.entryEnabled, false);
+  assert.equal(shellRuntime.capabilities?.releaseTools.frozen, true);
+  assert.equal(shellRuntime.apiKeys.includes('openMcpFill'), true);
+  for (const method of frozenDesktopHostMethods) {
+    assert.equal(shellRuntime.apiKeys.includes(method), false, `冻结入口仍暴露 preload 方法：${method}`);
+  }
+  assert.equal(await firstPage.getByRole('button', { name: '打开 AI 模式' }).count(), 0);
+  assert.equal(await firstPage.getByText('Agent 模型', { exact: true }).count(), 0);
+  assert.equal(await firstPage.getByRole('button', { name: '生成统一资源包' }).count(), 0);
+  assert.equal(await firstPage.getByText('国内统一资源包', { exact: true }).count(), 0);
   assert.equal(shellRuntime.capabilities?.mcp.available, true);
   assert.equal(shellRuntime.mcpState?.ready, true, shellRuntime.mcpState?.reason);
   assert.equal(shellRuntime.mcpState?.mcpUrl, 'http://127.0.0.1:17323/mcp');
@@ -597,14 +476,6 @@ try {
   await inspectBrowserWorkspace({
     workspaceUrl: openedUrls[0],
     clientConfigPath: shellRuntime.mcpState.mcpClientConfigPath,
-    issueAgentUrl: async () => {
-      const before = await firstApplication.evaluate(() => globalThis.__DMG_SMOKE_OPENED_URLS__.length);
-      await firstPage.getByRole('button', { name: '打开 AI 模式' }).click();
-      await firstPage.getByText(/AI 模式已在系统浏览器中打开/u).waitFor({ timeout: 30_000 });
-      const urls = await firstApplication.evaluate(() => globalThis.__DMG_SMOKE_OPENED_URLS__);
-      assert.equal(urls.length, before + 1);
-      return urls.at(-1);
-    },
     issueMcpUrl: async () => {
       const before = await firstApplication.evaluate(() => globalThis.__DMG_SMOKE_OPENED_URLS__.length);
       await firstPage.getByRole('button', { name: '打开 MCP 填表' }).click();
@@ -614,41 +485,6 @@ try {
       return urls.at(-1);
     },
   });
-  const runningAgent = await firstPage.evaluate(() => window.desktopHost?.getAgentState());
-  assert.equal(runningAgent?.ready, true, runningAgent?.reason);
-  assert.equal(runningAgent?.health?.engine?.kind, 'def-runtime');
-  assert.equal(runningAgent?.health?.engine?.state, 'unavailable');
-
-  const bypassedSelection = await firstPage.evaluate(async () => (
-    window.desktopHost?.buildResourceRelease()
-  ));
-  assert.equal(bypassedSelection?.ok, false);
-
-  await firstApplication.evaluate(({ dialog: electronDialog }, fixture) => {
-    const selections = [fixture.shareDataSource, fixture.imageSource, fixture.output];
-    electronDialog.showOpenDialog = async () => ({
-      canceled: false,
-      filePaths: [selections.shift()],
-    });
-  }, {
-    shareDataSource: shareDataFixturePath,
-    imageSource: imageFixtureRoot,
-    output: releaseOutputRoot,
-  });
-
-  const releaseResults = await firstPage.evaluate(async () => {
-    const shareDataSelection = await window.desktopHost?.pickShareDataSource();
-    const imageSelection = await window.desktopHost?.pickImageReleaseSource();
-    const outputSelection = await window.desktopHost?.pickReleaseOutput();
-    const resource = await window.desktopHost?.buildResourceRelease();
-    return { shareDataSelection, imageSelection, outputSelection, resource };
-  });
-  assert.equal(releaseResults.shareDataSelection?.ok, true);
-  assert.equal(releaseResults.imageSelection?.ok, true);
-  assert.equal(releaseResults.outputSelection?.ok, true);
-  assert.equal(releaseResults.resource?.ok, true, releaseResults.resource?.error);
-  assert.ok(fs.existsSync(releaseResults.resource?.result?.manifestPath || ''));
-  assert.ok(fs.existsSync(releaseResults.resource?.result?.bundlePath || ''));
 
   await firstPage.getByLabel('Shell 显示比例').selectOption('1.25');
   await firstPage.waitForTimeout(150);
@@ -665,8 +501,15 @@ try {
   const secondPage = await secondApplication.firstWindow({ timeout: 30_000 });
   await secondPage.getByRole('heading', { name: '终末地伤害工作台' }).waitFor({ timeout: 30_000 });
   assert.equal(await secondPage.getByLabel('Shell 显示比例').inputValue(), '1.25');
-  const secondAgentState = await secondPage.evaluate(() => window.desktopHost?.getAgentState());
-  assert.equal(secondAgentState?.state, 'not-started');
+  const secondRuntime = await secondPage.evaluate(async () => ({
+    capabilities: await window.desktopHost?.getCapabilities(),
+    apiKeys: Object.keys(window.desktopHost || {}).sort(),
+  }));
+  assert.equal(secondRuntime.capabilities?.agent.frozen, true);
+  assert.equal(secondRuntime.capabilities?.releaseTools.frozen, true);
+  for (const method of frozenDesktopHostMethods) {
+    assert.equal(secondRuntime.apiKeys.includes(method), false, `重启后冻结入口重新暴露：${method}`);
+  }
   assert.equal((await fetch(`${expectedOrigin}/`)).status, 200);
   await assertRetiredPortsClosed();
   await assertMcpPortOpen();
@@ -682,9 +525,9 @@ try {
     retiredRuntimePorts,
     mcpRuntimePort,
     mcpProposalRoundTrip: ['buff', 'weapon', 'operator', 'equipment'],
-    agentFramework: 'lazy-host-browser-product-gateway',
+    agentFramework: 'implementation-preserved-entry-frozen',
     mcpReviewDiff: true,
-    releaseTools: 'unified-domestic-resource-release',
+    releaseTools: 'implementation-preserved-entry-frozen',
     packagedExecutable: packagedExecutable || null,
   }, null, 2));
 } catch (error) {

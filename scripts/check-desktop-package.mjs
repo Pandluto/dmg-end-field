@@ -31,6 +31,7 @@ for (const required of [
   '/dist/agent/ui/index.html',
   '/dist/resource-release/builder.mjs',
   '/electron/agent-runtime.cjs',
+  '/electron/desktop-feature-flags.cjs',
   '/electron/main.cjs',
   '/electron/legacy-fill-runtime.cjs',
   '/electron/preload.cjs',

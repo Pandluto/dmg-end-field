@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const require = createRequire(import.meta.url);
+const desktopFeatureFlags = require(path.join(repositoryRoot, 'electron', 'desktop-feature-flags.cjs'));
 const packageJson = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'package.json'), 'utf8'));
 const mainSource = fs.readFileSync(path.join(repositoryRoot, 'electron', 'main.cjs'), 'utf8');
 const preloadSource = fs.readFileSync(path.join(repositoryRoot, 'electron', 'preload.cjs'), 'utf8');
@@ -140,7 +143,20 @@ assert.match(mainSource, /shell\.openExternal\(buildBrowserUrl\(/);
 assert.doesNotMatch(mainSource, /loadURL\(.*(?:DESKTOP_ORIGIN|browserOrigin|windowUrl)/);
 assert.match(shellDocumentSource, /工作台在系统浏览器中运行/);
 assert.match(shellDocumentSource, /打开 MCP 填表/);
-assert.match(shellDocumentSource, /打开 AI 模式/);
+assert.deepEqual(desktopFeatureFlags, {
+  agentEntry: false,
+  resourcePackagerEntry: false,
+});
+assert.doesNotMatch(shellDocumentSource, /打开 AI 模式|Agent 模型|DEF Runtime Provider/);
+assert.doesNotMatch(shellDocumentSource, /国内统一资源包|生成统一资源包|完整 Share Data JSON/);
+assert.match(mainSource, /if \(desktopFeatureFlags\.agentEntry\)/);
+assert.match(mainSource, /if \(desktopFeatureFlags\.resourcePackagerEntry\)/);
+assert.match(mainSource, /--dmg-desktop-feature-agent-entry=/);
+assert.match(mainSource, /--dmg-desktop-feature-resource-packager-entry=/);
+assert.match(preloadSource, /readFeatureFlag\('agent-entry'\)/);
+assert.match(preloadSource, /readFeatureFlag\('resource-packager-entry'\)/);
+assert.match(preloadSource, /desktopFeatureFlags\.agentEntry \? \{/);
+assert.match(preloadSource, /desktopFeatureFlags\.resourcePackagerEntry \? \{/);
 assert.doesNotMatch(
   appSource,
   /mcp-fill|timeline\/ai|platform\/agent/i,
@@ -158,8 +174,6 @@ assert.match(desktopHostSource, /DESKTOP_AGENT_MODE_PATH = '\/timeline\/ai'/);
 assert.match(indexSource, /\/src\/desktop-entry\.ts/);
 assert.match(tsconfigSource, /"moduleSuffixes"\s*:\s*\["\.desktop", ""\]/);
 assert.match(viteSource, /'\.desktop\.tsx'/);
-assert.match(shellDocumentSource, /国内统一资源包/);
-assert.match(shellDocumentSource, /不会上传 GitHub Release/);
 assert.match(mainSource, /createLegacyFillRuntime/);
 assert.match(mainSource, /createAgentRuntime/);
 assert.match(mainSource, /utilityProcess\.fork/);
@@ -195,8 +209,8 @@ const preloadChannels = [...preloadSource.matchAll(/invoke\('([^']+)'/g)]
 assert.ok(preloadChannels.every((channel) => handledChannels.includes(channel)));
 
 console.log('Desktop runtime boundary check passed.');
-console.log(`- IPC handlers: ${handledChannels.length}`);
+console.log(`- IPC declarations retained behind boundaries: ${handledChannels.length}`);
 console.log('- Electron renders only the independent Shell; the inherited Slim app opens through a Desktop host adapter');
 console.log('- Domestic resources use a bounded loopback proxy with an explicit bundled fallback');
 console.log('- Browser SQLite remains the only business store; MCP uses an isolated proposal/audit database');
-console.log('- DEF Agent Host is isolated and lazy; OpenCode stays behind its adapter/UI gateway while Pi, old REST ports, sidecars, and Node business SQLite remain absent');
+console.log('- AI and Shell resource-packager entries are frozen at feature, preload, IPC, and UI boundaries; their implementation remains preserved');

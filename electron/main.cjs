@@ -16,6 +16,7 @@ const {
   utilityProcess,
 } = require('electron');
 const { createDesktopStaticServer } = require('./static-host.cjs');
+const desktopFeatureFlags = require('./desktop-feature-flags.cjs');
 const { createOfficialResourceProxyHandler } = require('./official-resource-proxy.cjs');
 const { createLegacyFillRuntime } = require('./legacy-fill-runtime.cjs');
 const { createAgentRuntime } = require('./agent-runtime.cjs');
@@ -319,6 +320,10 @@ function createShellWindow() {
       : APPLICATION_ICON_PATH,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
+      additionalArguments: [
+        `--dmg-desktop-feature-agent-entry=${desktopFeatureFlags.agentEntry ? '1' : '0'}`,
+        `--dmg-desktop-feature-resource-packager-entry=${desktopFeatureFlags.resourcePackagerEntry ? '1' : '0'}`,
+      ],
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -383,12 +388,20 @@ function registerIpc() {
     return {
       host: 'desktop-shell',
       browserWorkspace: true,
-      releaseTools: { resources: true },
+      releaseTools: {
+        resources: desktopFeatureFlags.resourcePackagerEntry,
+        entryEnabled: desktopFeatureFlags.resourcePackagerEntry,
+        frozen: !desktopFeatureFlags.resourcePackagerEntry,
+      },
       agent: {
-        available: true,
+        available: desktopFeatureFlags.agentEntry,
         framework: true,
+        entryEnabled: desktopFeatureFlags.agentEntry,
+        frozen: !desktopFeatureFlags.agentEntry,
         engine: agentState?.health?.engine?.state === 'ready',
-        reason: agentState?.reason || 'DEF Agent Host 尚未初始化',
+        reason: desktopFeatureFlags.agentEntry
+          ? agentState?.reason || 'DEF Agent Host 尚未初始化'
+          : 'AI 入口已冻结。',
       },
       mcp: {
         available: Boolean(mcpState?.ready),
@@ -438,68 +451,70 @@ function registerIpc() {
       reason: 'MCP 填表运行时尚未初始化。',
     };
   });
-  ipcMain.handle('desktop:get-agent-state', (event) => {
-    requireTrustedSender(event);
-    return agentRuntime?.state() || {
-      running: false,
-      ready: false,
-      state: 'not-started',
-      reason: 'DEF Agent Host 尚未初始化。',
-    };
-  });
-  ipcMain.handle('desktop:get-agent-profile', (event) => {
-    requireTrustedSender(event);
-    return readAgentProviderProfile(agentProviderProfilePath) || {
-      configured: false,
-      ref: 'default',
-      providerId: 'deepseek',
-      displayName: 'DeepSeek',
-      baseUrl: 'https://api.deepseek.com',
-      modelId: DEFAULT_DEEPSEEK_MODEL_ID,
-      apiKeyConfigured: false,
-    };
-  });
-  ipcMain.handle('desktop:save-agent-profile', async (event, payload) => {
-    requireTrustedSender(event);
-    try {
-      const result = await saveAgentProviderProfile(payload || {});
-      return {
-        ok: true,
-        profile: result.profile,
-        runtime: result.runtime,
-        changed: result.changed,
+  if (desktopFeatureFlags.agentEntry) {
+    ipcMain.handle('desktop:get-agent-state', (event) => {
+      requireTrustedSender(event);
+      return agentRuntime?.state() || {
+        running: false,
+        ready: false,
+        state: 'not-started',
+        reason: 'DEF Agent Host 尚未初始化。',
       };
-    } catch (error) {
-      return {
-        ok: false,
-        code: typeof error?.code === 'string' ? error.code : 'AGENT_PROVIDER_UPDATE_FAILED',
-        error: error instanceof Error ? error.message : 'Provider 更新失败，旧配置仍在使用。',
+    });
+    ipcMain.handle('desktop:get-agent-profile', (event) => {
+      requireTrustedSender(event);
+      return readAgentProviderProfile(agentProviderProfilePath) || {
+        configured: false,
+        ref: 'default',
+        providerId: 'deepseek',
+        displayName: 'DeepSeek',
+        baseUrl: 'https://api.deepseek.com',
+        modelId: DEFAULT_DEEPSEEK_MODEL_ID,
+        apiKeyConfigured: false,
       };
-    }
-  });
-  ipcMain.handle('desktop:test-agent-profile', async (event, payload) => {
-    requireTrustedSender(event);
-    try {
-      return {
-        ok: true,
-        profile: await testAgentProviderConnection(payload || {}),
-      };
-    } catch (error) {
-      return {
-        ok: false,
-        code: typeof error?.code === 'string' ? error.code : 'AGENT_PROVIDER_PROBE_FAILED',
-        error: error instanceof Error ? error.message : 'Provider 连接测试失败。',
-      };
-    }
-  });
-  ipcMain.handle('desktop:open-agent-mode', async (event) => {
-    requireTrustedSender(event);
-    try {
-      return { ok: true, ...await openAgentMode() };
-    } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
+    });
+    ipcMain.handle('desktop:save-agent-profile', async (event, payload) => {
+      requireTrustedSender(event);
+      try {
+        const result = await saveAgentProviderProfile(payload || {});
+        return {
+          ok: true,
+          profile: result.profile,
+          runtime: result.runtime,
+          changed: result.changed,
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          code: typeof error?.code === 'string' ? error.code : 'AGENT_PROVIDER_UPDATE_FAILED',
+          error: error instanceof Error ? error.message : 'Provider 更新失败，旧配置仍在使用。',
+        };
+      }
+    });
+    ipcMain.handle('desktop:test-agent-profile', async (event, payload) => {
+      requireTrustedSender(event);
+      try {
+        return {
+          ok: true,
+          profile: await testAgentProviderConnection(payload || {}),
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          code: typeof error?.code === 'string' ? error.code : 'AGENT_PROVIDER_PROBE_FAILED',
+          error: error instanceof Error ? error.message : 'Provider 连接测试失败。',
+        };
+      }
+    });
+    ipcMain.handle('desktop:open-agent-mode', async (event) => {
+      requireTrustedSender(event);
+      try {
+        return { ok: true, ...await openAgentMode() };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    });
+  }
   ipcMain.handle('desktop:open-mcp-fill', async (event) => {
     requireTrustedSender(event);
     try {
@@ -518,48 +533,50 @@ function registerIpc() {
     app.quit();
     return { ok: true };
   });
-  ipcMain.handle('desktop:pick-image-release-source', (event) => pickPath(event, {
-    title: '选择图片资源目录',
-    properties: ['openDirectory'],
-  }, 'imageSource'));
-  ipcMain.handle('desktop:pick-share-data-source', (event) => pickPath(event, {
-    title: '选择完整 Share Data JSON',
-    properties: ['openFile'],
-    filters: [{ name: 'Share Data', extensions: ['json'] }],
-  }, 'shareDataSource'));
-  ipcMain.handle('desktop:pick-release-output', (event) => pickPath(event, {
-    title: '选择发包输出目录',
-    properties: ['openDirectory', 'createDirectory'],
-  }, 'output'));
-  ipcMain.handle('desktop:build-resource-release', async (event) => {
-    requireTrustedSender(event);
-    try {
-      if (!releaseSelections.shareDataSource || !releaseSelections.imageSource || !releaseSelections.output) {
-        throw new Error('请先选择 Share Data、图片目录和输出目录。');
+  if (desktopFeatureFlags.resourcePackagerEntry) {
+    ipcMain.handle('desktop:pick-image-release-source', (event) => pickPath(event, {
+      title: '选择图片资源目录',
+      properties: ['openDirectory'],
+    }, 'imageSource'));
+    ipcMain.handle('desktop:pick-share-data-source', (event) => pickPath(event, {
+      title: '选择完整 Share Data JSON',
+      properties: ['openFile'],
+      filters: [{ name: 'Share Data', extensions: ['json'] }],
+    }, 'shareDataSource'));
+    ipcMain.handle('desktop:pick-release-output', (event) => pickPath(event, {
+      title: '选择发包输出目录',
+      properties: ['openDirectory', 'createDirectory'],
+    }, 'output'));
+    ipcMain.handle('desktop:build-resource-release', async (event) => {
+      requireTrustedSender(event);
+      try {
+        if (!releaseSelections.shareDataSource || !releaseSelections.imageSource || !releaseSelections.output) {
+          throw new Error('请先选择 Share Data、图片目录和输出目录。');
+        }
+        const builder = await importResourceReleaseBuilder();
+        const result = await builder.buildResourceReleaseFromPaths({
+          shareData: releaseSelections.shareDataSource,
+          images: releaseSelections.imageSource,
+          output: releaseSelections.output,
+        });
+        generatedReleaseDirectories.add(path.resolve(result.outputDir));
+        return { ok: true, result };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
       }
-      const builder = await importResourceReleaseBuilder();
-      const result = await builder.buildResourceReleaseFromPaths({
-        shareData: releaseSelections.shareDataSource,
-        images: releaseSelections.imageSource,
-        output: releaseSelections.output,
-      });
-      generatedReleaseDirectories.add(path.resolve(result.outputDir));
-      return { ok: true, result };
-    } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
-  ipcMain.handle('desktop:reveal-path', async (event, payload) => {
-    requireTrustedSender(event);
-    const targetPath = path.resolve(String(payload?.path || ''));
-    if (!payload?.path || !fs.existsSync(targetPath)) return { ok: false, error: '路径不存在。' };
-    if (!generatedReleaseDirectories.has(targetPath)) {
-      return { ok: false, error: '只能打开本次 Shell 会话生成的发布目录。' };
-    }
-    const revealTarget = fs.statSync(targetPath).isDirectory() ? targetPath : path.dirname(targetPath);
-    const error = await shell.openPath(revealTarget);
-    return error ? { ok: false, error } : { ok: true, path: revealTarget };
-  });
+    });
+    ipcMain.handle('desktop:reveal-path', async (event, payload) => {
+      requireTrustedSender(event);
+      const targetPath = path.resolve(String(payload?.path || ''));
+      if (!payload?.path || !fs.existsSync(targetPath)) return { ok: false, error: '路径不存在。' };
+      if (!generatedReleaseDirectories.has(targetPath)) {
+        return { ok: false, error: '只能打开本次 Shell 会话生成的发布目录。' };
+      }
+      const revealTarget = fs.statSync(targetPath).isDirectory() ? targetPath : path.dirname(targetPath);
+      const error = await shell.openPath(revealTarget);
+      return error ? { ok: false, error } : { ok: true, path: revealTarget };
+    });
+  }
 }
 
 async function startApplication() {
@@ -594,47 +611,51 @@ async function startApplication() {
   const runtimeApplicationRoot = app.isPackaged
     ? path.join(process.resourcesPath, 'app.asar.unpacked')
     : APPLICATION_ROOT;
-  const developmentProfileOverride = !app.isPackaged
-    ? String(process.env.DMG_AGENT_PROVIDER_PROFILE_PATH || '').trim()
-    : '';
-  agentProviderProfilePath = developmentProfileOverride
-    ? path.resolve(developmentProfileOverride)
-    : path.join(
-      app.getPath('userData'),
-      'runtime',
-      'def-agent-provider-profiles.json',
-    );
-  if (!developmentProfileOverride) {
-    const legacyProfilePaths = desktopUserDataOverride
-      ? []
-      : [
-          path.join(app.getPath('appData'), 'dmg-end-field', 'runtime', 'def-agent', 'config.json'),
-          path.join(APPLICATION_ROOT, '.runtime', 'def-agent', 'config.json'),
-        ];
-    const profileMigration = migrateLegacyAgentProviderProfile(agentProviderProfilePath, legacyProfilePaths);
-    if (profileMigration.migrated) diagnostic(`migrated legacy Agent provider profile from ${profileMigration.sourcePath}`);
-    if (desktopUserDataOverride) diagnostic('skipped global legacy Provider migration for isolated userData');
+  if (desktopFeatureFlags.agentEntry) {
+    const developmentProfileOverride = !app.isPackaged
+      ? String(process.env.DMG_AGENT_PROVIDER_PROFILE_PATH || '').trim()
+      : '';
+    agentProviderProfilePath = developmentProfileOverride
+      ? path.resolve(developmentProfileOverride)
+      : path.join(
+        app.getPath('userData'),
+        'runtime',
+        'def-agent-provider-profiles.json',
+      );
+    if (!developmentProfileOverride) {
+      const legacyProfilePaths = desktopUserDataOverride
+        ? []
+        : [
+            path.join(app.getPath('appData'), 'dmg-end-field', 'runtime', 'def-agent', 'config.json'),
+            path.join(APPLICATION_ROOT, '.runtime', 'def-agent', 'config.json'),
+          ];
+      const profileMigration = migrateLegacyAgentProviderProfile(agentProviderProfilePath, legacyProfilePaths);
+      if (profileMigration.migrated) diagnostic(`migrated legacy Agent provider profile from ${profileMigration.sourcePath}`);
+      if (desktopUserDataOverride) diagnostic('skipped global legacy Provider migration for isolated userData');
+    } else {
+      diagnostic('using development-only Agent provider profile override');
+    }
+    agentRuntimeOptions = {
+      applicationRoot: runtimeApplicationRoot,
+      runtimeRoot: path.join(app.getPath('userData'), 'runtime', 'def-agent-host'),
+      engineStoreRoot: path.join(app.getPath('userData'), 'runtime', 'def-runtime-engine'),
+      sessionStoreRoot: path.join(app.getPath('userData'), 'runtime', 'def-agent-host', 'session-store'),
+      productCommandStoreRoot: path.join(app.getPath('userData'), 'runtime', 'def-agent-host', 'product-commands'),
+      engineProfilePath: agentProviderProfilePath,
+      interopEnabled: !app.isPackaged && process.env.DEF_AGENT_INTEROP_ENABLED === '1',
+      browserOrigin,
+      diagnostic,
+      launchService: ({ servicePath, cwd, env }) => utilityProcess.fork(servicePath, [], {
+        cwd,
+        env,
+        stdio: 'pipe',
+        serviceName: 'DEF Agent Host',
+      }),
+    };
+    agentRuntime = createAgentRuntime(agentRuntimeOptions);
   } else {
-    diagnostic('using development-only Agent provider profile override');
+    diagnostic('AI entry frozen; Agent profile and runtime initialization skipped');
   }
-  agentRuntimeOptions = {
-    applicationRoot: runtimeApplicationRoot,
-    runtimeRoot: path.join(app.getPath('userData'), 'runtime', 'def-agent-host'),
-    engineStoreRoot: path.join(app.getPath('userData'), 'runtime', 'def-runtime-engine'),
-    sessionStoreRoot: path.join(app.getPath('userData'), 'runtime', 'def-agent-host', 'session-store'),
-    productCommandStoreRoot: path.join(app.getPath('userData'), 'runtime', 'def-agent-host', 'product-commands'),
-    engineProfilePath: agentProviderProfilePath,
-    interopEnabled: !app.isPackaged && process.env.DEF_AGENT_INTEROP_ENABLED === '1',
-    browserOrigin,
-    diagnostic,
-    launchService: ({ servicePath, cwd, env }) => utilityProcess.fork(servicePath, [], {
-      cwd,
-      env,
-      stdio: 'pipe',
-      serviceName: 'DEF Agent Host',
-    }),
-  };
-  agentRuntime = createAgentRuntime(agentRuntimeOptions);
   registerIpc();
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false);
@@ -651,7 +672,7 @@ async function startApplication() {
     host: DESKTOP_HOST,
     port: DESKTOP_PORT,
     requestHandler: async (request, response) => (
-      await agentRuntime.handleBrowserRequest(request, response)
+      (agentRuntime ? await agentRuntime.handleBrowserRequest(request, response) : false)
       || await legacyFillRuntime.handleBrowserRequest(request, response)
       || await officialResourceProxyHandler(request, response)
     ),
