@@ -24,6 +24,25 @@ const appShellSource = fs.readFileSync(
   path.join(repositoryRoot, 'src', 'components', 'WebApp', 'AppShell.tsx'),
   'utf8',
 );
+const desktopEntrySource = fs.readFileSync(
+  path.join(repositoryRoot, 'src', 'desktop-entry.ts'),
+  'utf8',
+);
+const desktopHostSource = fs.readFileSync(
+  path.join(repositoryRoot, 'src', 'platform', 'desktop', 'desktopHostExtension.tsx'),
+  'utf8',
+);
+const desktopWorkerSource = fs.readFileSync(
+  path.join(repositoryRoot, 'public', 'sw-desktop.js'),
+  'utf8',
+);
+const resourceProxySource = fs.readFileSync(
+  path.join(repositoryRoot, 'electron', 'official-resource-proxy.cjs'),
+  'utf8',
+);
+const indexSource = fs.readFileSync(path.join(repositoryRoot, 'index.html'), 'utf8');
+const tsconfigSource = fs.readFileSync(path.join(repositoryRoot, 'tsconfig.json'), 'utf8');
+const viteSource = fs.readFileSync(path.join(repositoryRoot, 'vite.config.ts'), 'utf8');
 const resourceBuilderSource = fs.readFileSync(
   path.join(repositoryRoot, 'scripts', 'resource-release-file-builder.mjs'),
   'utf8',
@@ -122,9 +141,23 @@ assert.doesNotMatch(mainSource, /loadURL\(.*(?:DESKTOP_ORIGIN|browserOrigin|wind
 assert.match(shellDocumentSource, /工作台在系统浏览器中运行/);
 assert.match(shellDocumentSource, /打开 MCP 填表/);
 assert.match(shellDocumentSource, /打开 AI 模式/);
-assert.match(appSource, /APP_ROUTE_PATHS\.mcpFill/);
+assert.doesNotMatch(
+  appSource,
+  /mcp-fill|timeline\/ai|platform\/agent/i,
+  'the inherited Slim App must not contain Desktop routes or Agent imports',
+);
 assert.doesNotMatch(appShellSource, /mcp-fill|MCP 填表/i, 'normal Web navigation keeps the MCP route hidden');
 assert.doesNotMatch(appShellSource, /agentMode|AI 模式/i, 'normal Web navigation keeps the Agent route hidden');
+assert.match(desktopEntrySource, /installDesktopHostExtension\(\)/);
+assert.match(desktopEntrySource, /import\('\.\/main'\)/);
+assert.match(desktopHostSource, /installAppHostExtension\(/);
+assert.match(desktopHostSource, /installOfficialResourceTransport\(/);
+assert.match(desktopHostSource, /fallbackToBundledOnUnavailable:\s*true/);
+assert.match(desktopHostSource, /DESKTOP_MCP_FILL_PATH = '\/mcp-fill'/);
+assert.match(desktopHostSource, /DESKTOP_AGENT_MODE_PATH = '\/timeline\/ai'/);
+assert.match(indexSource, /\/src\/desktop-entry\.ts/);
+assert.match(tsconfigSource, /"moduleSuffixes"\s*:\s*\["\.desktop", ""\]/);
+assert.match(viteSource, /'\.desktop\.tsx'/);
 assert.match(shellDocumentSource, /国内统一资源包/);
 assert.match(shellDocumentSource, /不会上传 GitHub Release/);
 assert.match(mainSource, /createLegacyFillRuntime/);
@@ -148,6 +181,14 @@ assert.match(agentRuntimeSource, /x-dmg-agent-host-token/);
 assert.doesNotMatch(agentRuntimeSource, /node:sqlite|better-sqlite3|sqlite3|17321|17322|17323/);
 assert.match(mainSource, /dist', 'resource-release', 'builder\.mjs/);
 assert.match(mainSource, /builder\.buildResourceReleaseFromPaths/);
+assert.match(mainSource, /createOfficialResourceProxyHandler/);
+assert.match(mainSource, /await officialResourceProxyHandler\(request, response\)/);
+assert.match(resourceProxySource, /UPSTREAM_ORIGIN = 'https:\/\/dmgendfield\.cloud'/);
+assert.match(resourceProxySource, /MAX_CHANNEL_BYTES = 64 \* 1024/);
+assert.match(resourceProxySource, /MAX_RESOURCE_BYTES = 64 \* 1024 \* 1024/);
+assert.match(resourceProxySource, /AbortController/);
+assert.doesNotMatch(resourceProxySource, /authorization|set-cookie/i);
+assert.match(desktopWorkerSource, /url\.pathname\.startsWith\('\/agent-host\/'\)/);
 
 const preloadChannels = [...preloadSource.matchAll(/invoke\('([^']+)'/g)]
   .map((match) => match[1]);
@@ -155,6 +196,7 @@ assert.ok(preloadChannels.every((channel) => handledChannels.includes(channel)))
 
 console.log('Desktop runtime boundary check passed.');
 console.log(`- IPC handlers: ${handledChannels.length}`);
-console.log('- Electron renders only the independent Shell; the Slim app opens in the system browser');
+console.log('- Electron renders only the independent Shell; the inherited Slim app opens through a Desktop host adapter');
+console.log('- Domestic resources use a bounded loopback proxy with an explicit bundled fallback');
 console.log('- Browser SQLite remains the only business store; MCP uses an isolated proposal/audit database');
 console.log('- DEF Agent Host is isolated and lazy; OpenCode stays behind its adapter/UI gateway while Pi, old REST ports, sidecars, and Node business SQLite remain absent');

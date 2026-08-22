@@ -22,12 +22,14 @@ flowchart LR
   Shell --> Browser["系统浏览器工作台"]
   Shell --> MCP["Legacy Fill MCP · 17323"]
   Shell --> Agent["DEF Agent Host · 按需启动"]
+  Browser --> Proxy["固定资源代理 · 3030 / 31457"]
+  Proxy --> Cloud["dmgendfield.cloud/resources/"]
   Browser --> OPFS["业务 SQLite · OPFS"]
   MCP --> Audit["隔离的提案 / 审计 SQLite"]
   Agent --> Gateway["受控 Product Gateway"]
 ```
 
-生产桌面静态宿主固定在 `127.0.0.1:31457`。旧业务端口 `17321`、`17322` 不得恢复；MCP 的 `17323` 只服务填表提案，不承载业务资料库。
+生产桌面静态宿主固定在 `127.0.0.1:31457`。开发态 Vite 与生产静态宿主都只把固定前缀代理到 `dmgendfield.cloud/resources/`，不开放任意上游；服务器不可用时资源消费者退回已打包版本并显示“内置版本”。旧业务端口 `17321`、`17322` 不得恢复；MCP 的 `17323` 只服务填表提案，不承载业务资料库。
 
 ## 本地生产预览
 

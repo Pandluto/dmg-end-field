@@ -3,7 +3,19 @@
 > 研究日期：2026-08-22  
 > Desktop 研究基线：`codex/v1.8-lts-desktop-shell@ec0bdf37`  
 > Slimming 研究基线：`codex/v1.8-lts-slimming@b16788ad`  
-> 状态：最后一轮研究完成，架构代码尚未开始修改
+> 状态：实施完成，候选分支等待本地点击验收与长期分支快进
+>
+> 已同步 Slimming 基线：`98c9655b0513cc569db8a22b2b46b733a849d33a`
+>
+> 实施候选：`codex/v1.8-lts-desktop-overlay`
+>
+> 回退引用：`codex/archive-v1.8-lts-desktop-shell-pre-overlay-20260822`
+
+## 实施结果（2026-08-22）
+
+阶段 0—5 已落实：Slimming 先加入中性扩展接缝和共享 SQLite 安全修复，Desktop 候选随后完成受控汇合；共享 `src` 与记录基线保持一致，Agent 深层行为通过 `.desktop.*` 覆盖和 Desktop Host Adapter 叠加。3030/31457 使用同一固定国内资源代理，离线回退明确标注“内置版本”。
+
+仓库根 `desktop-overlay.json` 记录当前 Slimming 基线和九组覆盖对，`npm run electron:smoke:overlay` 对祖先关系、共享文件和新增路径执行机器校验。剩余阶段 6 只包含最终自动门、实际在线/离线资源检查、本地点击验收，以及验收后把长期 Desktop 分支快进到候选；本次没有部署、上传或改动 Slimming 生产职责。
 
 ## 最终结论
 
@@ -240,6 +252,6 @@ Desktop 应直接复用 Slimming 的 `resourceChannel`、`resourceIntegrity`、`
 - 不发布网站、不上传资源、不重建海外应用；
 - 不强推、不删除当前 Desktop 历史。
 
-## 开工判断
+## 当前交接
 
-可以开始落实。建议把它视为六个可回退的实现批次，而不是一次大 merge。最先做的是阶段 0 和阶段 1；在 Slimming 的中性接缝验证通过前，不移动现有 Desktop 的 Agent 事务代码。这样最难的 Canvas/选区搬迁发生在一个已经稳定的接口框架内，风险最低。
+代码实施已结束。自动门与本地资源链验证通过后，在候选服务器完成普通工作台、SQLite 节点树、MCP 审核和 AI 模式点击验收；确认无误后仅做长期 Desktop 分支的快进切换。回退引用继续保留，不强推、不触发网站部署。

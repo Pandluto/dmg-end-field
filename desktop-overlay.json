@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "slimmingBranch": "codex/v1.8-lts-slimming",
+  "slimmingCommit": "98c9655b0513cc569db8a22b2b46b733a849d33a",
+  "desktopBranch": "codex/v1.8-lts-desktop-shell",
+  "desktopOverrides": [
+    {
+      "base": "src/components/CanvasBoard/CanvasBoard.css",
+      "overlay": "src/components/CanvasBoard/CanvasBoard.desktop.css"
+    },
+    {
+      "base": "src/components/CanvasBoard/SkillSandbox.css",
+      "overlay": "src/components/CanvasBoard/SkillSandbox.desktop.css"
+    },
+    {
+      "base": "src/components/CanvasBoard/SkillSandbox.tsx",
+      "overlay": "src/components/CanvasBoard/SkillSandbox.desktop.tsx"
+    },
+    {
+      "base": "src/components/CanvasBoard/index.tsx",
+      "overlay": "src/components/CanvasBoard/index.desktop.tsx"
+    },
+    {
+      "base": "src/components/WorkbenchFrame/WorkbenchFrame.css",
+      "overlay": "src/components/WorkbenchFrame/WorkbenchFrame.desktop.css"
+    },
+    {
+      "base": "src/components/WorkbenchFrame/WorkbenchFrame.tsx",
+      "overlay": "src/components/WorkbenchFrame/WorkbenchFrame.desktop.tsx"
+    },
+    {
+      "base": "src/context/AppContext.tsx",
+      "overlay": "src/context/AppContext.desktop.tsx"
+    },
+    {
+      "base": "src/core/services/selectionWorkspaceTransition.ts",
+      "overlay": "src/core/services/selectionWorkspaceTransition.desktop.ts"
+    },
+    {
+      "base": "src/utils/mainWorkbenchControl.ts",
+      "overlay": "src/utils/mainWorkbenchControl.desktop.ts"
+    }
+  ]
+}

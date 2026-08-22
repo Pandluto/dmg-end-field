@@ -22,7 +22,7 @@ import {
   buildPreparedSelectionPayload,
   resolvePreparedSelectionRoster,
   type PreparedSelectionRosterRequest,
-} from './selectionPayloadCandidate';
+} from '../../platform/agent/selectionPayloadCandidate';
 import {
   classifySelectionWorkspaceTransition,
   resolveSelectionHorizontalParentId,

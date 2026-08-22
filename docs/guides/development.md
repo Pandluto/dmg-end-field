@@ -37,12 +37,13 @@ npm run typecheck
 npm test
 npm run smoke:timeline-bundle
 npm run electron:smoke:resource-release
+npm run electron:smoke:overlay
 npm run electron:smoke:boundaries
 npm run check:repo
 npm run check
 ```
 
-`npm run check` 是确定性合并门，包含依赖审计、类型、测试、bundle smoke 和 PWA 构建。
+`npm run check` 是确定性合并门，包含 Desktop 单向叠加检查、依赖审计、类型、测试、bundle smoke 和 PWA 构建。`desktop-overlay.json` 的 Slimming commit 必须在每次上游同步后更新。
 
 ## 本地生产包
 

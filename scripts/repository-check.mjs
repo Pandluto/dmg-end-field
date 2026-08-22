@@ -306,6 +306,9 @@ const thinShellElectronFiles = new Set([
   'electron/entitlements.mac.plist',
   'electron/legacy-fill-runtime.cjs',
   'electron/main.cjs',
+  'electron/dev-launch.cjs',
+  'electron/official-resource-proxy.cjs',
+  'electron/official-resource-proxy.test.cjs',
   'electron/preload.cjs',
   'electron/shell/index.html',
   'electron/shell/shell.css',
@@ -550,7 +553,7 @@ const agentModeOverlay = fs.readFileSync(
   path.join(root, 'src', 'components', 'AgentMode', 'AgentModeOverlay.tsx'),
   'utf8',
 );
-for (const required of ['launchNativeUi', 'agent-native-opencode-frame', '<iframe']) {
+for (const required of ['launchSessionSurface', 'agent-session-surface-frame', '<iframe']) {
   if (!agentModeOverlay.includes(required)) fail(`AI mode no longer hosts the native OpenCode UI: missing ${required}`);
 }
 for (const forbidden of ['ReactMarkdown', 'projectAgentTranscript', 'readSessionEvents(', 'startTurn(']) {

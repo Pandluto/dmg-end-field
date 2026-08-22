@@ -318,9 +318,6 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
-  // Agent Host responses are live, capability-bound protocol messages. They
-  // must never be read from or written to an application cache.
-  if (url.pathname.startsWith('/agent-host/')) return;
 
   // Keep the emergency recovery page independent from every installed page
   // version. It must always reach the server so it can unregister this worker

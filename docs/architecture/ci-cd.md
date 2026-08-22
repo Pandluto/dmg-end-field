@@ -4,7 +4,7 @@
 
 `.github/workflows/ci.yml` 在 `main` push 与 pull request 上使用 Node 24、npm 11、`npm ci` 和 `npm run check`。第三方 Actions 固定到完整 commit SHA。
 
-`npm run check` 以已提交的稳定通道和清单为准。若本机没有对应图片分片，会从国内正式站点的不可变版本路径下载，再逐片校验 SHA-256；不会访问 GitHub Release。
+`npm run check` 先验证 `desktop-overlay.json` 记录的 Slimming commit 是当前 Desktop 的祖先，并阻止共享源码产生未登记分叉；随后以已提交的稳定通道和清单为准。若本机没有对应图片分片，会从国内正式站点的不可变版本路径下载，再逐片校验 SHA-256；不会访问 GitHub Release。
 
 ## 本地构建与交付
 

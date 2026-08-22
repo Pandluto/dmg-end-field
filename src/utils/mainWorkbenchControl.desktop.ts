@@ -25,7 +25,7 @@ import {
   readAgentProductCatalogInput,
   type AgentCatalogDomain,
   type AgentProductCatalogStorage,
-} from '../core/services/agentProductCatalogService';
+} from '../platform/agent/agentProductCatalogService';
 import {
   compareCandidateLoadouts as compareAgentLoadoutCandidates,
   compareCurrentWithCandidate as compareCurrentAgentLoadoutWithCandidate,
@@ -36,7 +36,7 @@ import {
   recommendNamedSet as recommendAgentNamedSet,
   recommendWeapons as recommendAgentWeapons,
   type AgentLoadoutCapsule,
-} from '../core/services/agentLoadoutRecommendationService';
+} from '../platform/agent/agentLoadoutRecommendationService';
 import { getCandidateBuffList } from '../core/repositories';
 export const MAIN_WORKBENCH_COMMAND_QUEUE_KEY = 'def.main-workbench.command-queue.v1';
 export const MAIN_WORKBENCH_RESULT_LOG_KEY = 'def.main-workbench.result-log.v1';
