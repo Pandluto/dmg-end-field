@@ -85,8 +85,8 @@
     const engineLabel = engine?.state === 'ready'
       ? `引擎 ${engine.kind} 已就绪`
       : engine?.state === 'unavailable'
-        ? `引擎 ${engine.kind || 'opencode'} 不可用${engine.reason ? `：${engine.reason}` : ''}`
-        : `引擎 ${engine?.kind || 'opencode'} 正在检查`;
+        ? `引擎 ${engine.kind || 'def-runtime'} 不可用${engine.reason ? `：${engine.reason}` : ''}`
+        : `引擎 ${engine?.kind || 'def-runtime'} 正在检查`;
     element('agent-status').textContent = `${runtime?.reason || 'DEF Agent Host 状态未知'} · ${engineLabel}`;
   }
 

@@ -295,7 +295,12 @@ async function inspectBrowserWorkspace({ workspaceUrl, mcpUrl, clientConfigPath,
       agentPresentation.panel.height >= agentPresentation.viewport.height * 0.85,
       'AI 工作面板没有使用可用浏览器高度',
     );
-    assert.match(agentPresentation.body, /请先在左侧选择至少一名干员/u, '未选队伍时没有给出可操作的 AI 模式提示');
+    assert.match(agentPresentation.body, /AI 会话未能打开/u, 'Provider 未配置时没有显示明确的 AI 会话状态');
+    assert.match(
+      agentPresentation.body,
+      /Provider profile is not configured/u,
+      'Provider 未配置时没有显示可操作的 Shell 配置提示',
+    );
     assert.doesNotMatch(agentPresentation.body, /引擎待接入/u, '真实引擎阶段仍显示旧占位文案');
     await agentPage.close();
 
