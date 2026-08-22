@@ -7,6 +7,10 @@ import {
   type ResourceFileDescriptor,
 } from './resourceReleaseCore.ts';
 import { sha256Hex } from './resourceIntegrity';
+import {
+  resolveOfficialResourcePath,
+  shouldFallbackToBundledResources,
+} from './resourceTransport';
 
 const CHANNEL_PATH = 'resources/stable.json';
 const CONTEXT_TTL_MS = 30_000;
@@ -56,7 +60,7 @@ async function fetchVerifiedJson(
   label: string,
 ): Promise<unknown> {
   if (descriptor.size > 8 * 1024 * 1024) throw new Error(`${label}体积超出限制。`);
-  const url = appendFreshQuery(resolvePublicPath(descriptor.path), 'sha256');
+  const url = appendFreshQuery(resolveOfficialResourcePath(descriptor.path), 'sha256');
   const bytes = await responseBytes(await fetch(url, { cache: 'no-store' }), label);
   if (bytes.byteLength !== descriptor.size || await sha256Hex(bytes) !== descriptor.sha256) {
     throw new Error(`${label}校验失败。`);
@@ -82,8 +86,8 @@ async function fetchLegacyContext(): Promise<ResourceReleaseContext> {
   };
 }
 
-async function loadContext(): Promise<ResourceReleaseContext> {
-  const channelUrl = appendFreshQuery(resolvePublicPath(CHANNEL_PATH), 'channel');
+async function loadChannelContext(): Promise<ResourceReleaseContext> {
+  const channelUrl = appendFreshQuery(resolveOfficialResourcePath(CHANNEL_PATH), 'channel');
   let channelResponse: Response;
   try {
     channelResponse = await fetch(channelUrl, { cache: 'no-store' });
@@ -105,6 +109,15 @@ async function loadContext(): Promise<ResourceReleaseContext> {
     fetchVerifiedJson(deployment.delivery.imageManifest, '服务器图片清单'),
   ]);
   return { channel, deployment, dataManifest, imageManifest, legacy: false };
+}
+
+async function loadContext(): Promise<ResourceReleaseContext> {
+  try {
+    return await loadChannelContext();
+  } catch (error) {
+    if (!shouldFallbackToBundledResources()) throw error;
+    return fetchLegacyContext();
+  }
 }
 
 export function fetchCurrentResourceRelease(

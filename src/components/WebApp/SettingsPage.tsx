@@ -17,6 +17,7 @@ import {
   type InstalledImagePackage,
 } from '../../platform/resources/imagePackage';
 import { usePageVersionUpdate } from '../../platform/runtime/usePageVersionUpdate';
+import { getAppHostExtension } from '../../platform/host/appHost';
 import { workspaceLease } from '../../platform/runtime/workspaceLease';
 import { flushPersistentStorage } from '../../platform/storage/persistentStorage';
 import {
@@ -53,6 +54,10 @@ function formatDate(value: number | null): string {
 }
 
 export function SettingsPage() {
+  const hostUi = getAppHostExtension().ui;
+  const showPageVersionUpdate = hostUi?.showPageVersionUpdate !== false;
+  const showAccessSettings = hostUi?.showAccessSettings !== false;
+  const showLocalResourcePackager = hostUi?.showLocalResourcePackager !== false;
   const [databaseInfo] = useState<WebDatabaseInfo | null>(() => webDatabase.getInfo());
   const [storage, setStorage] = useState<StorageOverview>({ usage: 0, quota: 0, persisted: false });
   const [resourcePackage, setResourcePackage] = useState<InstalledResourcePackage | null>(null);
@@ -61,7 +66,7 @@ export function SettingsPage() {
   const [message, setMessage] = useState('');
   const [theme, setTheme] = useState<AppThemeId>(() => readAppTheme());
   const [loadingTheme, setLoadingTheme] = useState<AppThemeId | null>(null);
-  const { state: pageVersionUpdate, update: updatePageVersion } = usePageVersionUpdate();
+  const { state: pageVersionUpdate, update: updatePageVersion } = usePageVersionUpdate(showPageVersionUpdate);
   const pageVersionCanUpdate = ['update-available', 'update-failed']
     .includes(pageVersionUpdate.phase);
   const pageVersionTargetLabel = pageVersionUpdate.latestVersionLabel
@@ -198,7 +203,7 @@ export function SettingsPage() {
           ))}
         </div>
       </section>
-      <section className="settings-section">
+      {showPageVersionUpdate && <section className="settings-section">
         <div className="settings-section-heading">
           <div>
             <p>更新</p>
@@ -253,7 +258,7 @@ export function SettingsPage() {
                         : '稍后自动重试'}
           </button>
         </div>
-      </section>
+      </section>}
       <section className="settings-section">
         <div className="settings-section-heading">
           <div>
@@ -316,7 +321,7 @@ export function SettingsPage() {
           </div>
           <button type="button" onClick={handleRemovePackage}>移除资料包</button>
         </div>
-        {['127.0.0.1', 'localhost'].includes(window.location.hostname) && (
+        {showLocalResourcePackager && ['127.0.0.1', 'localhost'].includes(window.location.hostname) && (
           <div className="settings-action-row">
             <div>
               <strong>制作完整资源发布包</strong>
@@ -329,7 +334,7 @@ export function SettingsPage() {
         )}
       </section>
 
-      <section className="settings-section">
+      {showAccessSettings && <section className="settings-section">
         <div className="settings-section-heading">
           <div>
             <p>访问</p>
@@ -346,7 +351,7 @@ export function SettingsPage() {
         <p className="settings-security-note">
           当前是本地部署的纯前端门禁，用来过滤无效访问，不等同于服务器身份认证。
         </p>
-      </section>
+      </section>}
     </div>
   );
 }

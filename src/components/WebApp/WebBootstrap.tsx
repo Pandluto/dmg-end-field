@@ -29,6 +29,7 @@ import {
 import { ensureImageServiceWorkerController } from '../../platform/runtime/serviceWorkerRuntime';
 import { initializeAppTheme } from '../../platform/theme/appTheme';
 import { NotificationCenterProvider } from '../../platform/notifications/NotificationCenterProvider';
+import { getAppHostExtension } from '../../platform/host/appHost';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import { AccessGate } from './AccessGate';
 import { RuntimeFailurePage } from './RuntimeFailurePage';
@@ -39,7 +40,11 @@ import './web-app.css';
 type BootstrapPhase = 'checking-access' | 'locked' | 'starting' | 'secondary' | 'onboarding' | 'ready' | 'failed';
 
 export function WebBootstrap() {
-  const [phase, setPhase] = useState<BootstrapPhase>('checking-access');
+  const [hostExtension] = useState(() => getAppHostExtension());
+  const hostWorkspace = hostExtension.workspace;
+  const [phase, setPhase] = useState<BootstrapPhase>(
+    () => (hostWorkspace?.skipAccessGate ? 'starting' : 'checking-access'),
+  );
   const [failure, setFailure] = useState('');
   const [installedPackage, setInstalledPackage] = useState<InstalledResourcePackage | null>(null);
   const [installedImagePackage, setInstalledImagePackage] = useState<InstalledImagePackage | null>(null);
@@ -48,14 +53,20 @@ export function WebBootstrap() {
     setPhase('starting');
     setFailure('');
     try {
-      const role = await workspaceLease.start();
+      await hostWorkspace?.prepare?.();
+      let role = await workspaceLease.start();
+      if (role !== 'writer' && hostWorkspace?.requestControlWhenSecondary) {
+        role = await workspaceLease.requestControl();
+      }
       if (role !== 'writer') {
         setPhase('secondary');
         return;
       }
       await webDatabase.initialize();
+      await hostWorkspace?.afterDatabaseReady?.();
       await bootstrapPersistentStorage();
       await bootstrapUserWorkspaceBridge();
+      await hostWorkspace?.afterStorageReady?.();
       await initializeWebImageLibrary();
       await normalizeAppliedLocalDataImagePaths();
       void requestPersistentBrowserStorage();
@@ -64,9 +75,8 @@ export function WebBootstrap() {
         readInstalledImagePackage(),
       ]);
       if (imagePackage && !await ensureImageServiceWorkerController()) {
-        throw new Error(
-          '图片缓存服务没有接管当前页面。请保持联网后重新检查；本地存档不会受影响。',
-        );
+        const defaultMessage = '图片缓存服务没有接管当前页面。请保持联网后重新检查；本地存档不会受影响。';
+        throw new Error(hostWorkspace?.serviceWorkerFailureMessage?.(defaultMessage) || defaultMessage);
       }
       if (imagePackage) await initializeAppTheme().catch(() => undefined);
       setInstalledPackage(installed);
@@ -75,6 +85,10 @@ export function WebBootstrap() {
       if (complete && !hasAnyAppliedIndependentLibraries()) {
         await applyDefaultLocalDataPackage({ backup: false });
       }
+      await hostWorkspace?.afterResourcesReady?.({
+        resourcePackage: installed,
+        imagePackage,
+      });
       setPhase(complete ? 'ready' : 'onboarding');
       if (complete && (window.location.hash === '' || window.location.hash === '#/')) {
         navigateToAppPath(APP_ROUTE_PATHS.welcome);
@@ -83,7 +97,7 @@ export function WebBootstrap() {
       setFailure(error instanceof Error ? error.message : String(error));
       setPhase('failed');
     }
-  }, []);
+  }, [hostWorkspace]);
 
   const handleInstalled = useCallback(async (
     resourcePackage: InstalledResourcePackage,
@@ -93,11 +107,14 @@ export function WebBootstrap() {
     setFailure('');
     try {
       if (!await ensureImageServiceWorkerController()) {
-        throw new Error(
-          '图片缓存服务没有接管当前页面。请保持联网后重新检查；本地存档不会受影响。',
-        );
+        const defaultMessage = '图片缓存服务没有接管当前页面。请保持联网后重新检查；本地存档不会受影响。';
+        throw new Error(hostWorkspace?.serviceWorkerFailureMessage?.(defaultMessage) || defaultMessage);
       }
       await initializeAppTheme().catch(() => undefined);
+      await hostWorkspace?.afterResourcesInstalled?.({
+        resourcePackage,
+        imagePackage,
+      });
       setInstalledPackage(resourcePackage);
       setInstalledImagePackage(imagePackage);
       navigateToAppPath(APP_ROUTE_PATHS.welcome);
@@ -106,9 +123,13 @@ export function WebBootstrap() {
       setFailure(error instanceof Error ? error.message : String(error));
       setPhase('failed');
     }
-  }, []);
+  }, [hostWorkspace]);
 
   useEffect(() => {
+    if (hostWorkspace?.skipAccessGate) {
+      void initializeWorkspace();
+      return undefined;
+    }
     let cancelled = false;
     void readAccessLeaseStatus().then((status) => {
       if (cancelled) return;
@@ -121,11 +142,12 @@ export function WebBootstrap() {
     return () => {
       cancelled = true;
     };
-  }, [initializeWorkspace]);
+  }, [hostWorkspace, initializeWorkspace]);
 
   useEffect(() => {
     const handleReleaseRequest = async () => {
       try {
+        await hostWorkspace?.beforeRelease?.();
         await Promise.all([flushPersistentStorage(), flushUserWorkspaceState()]);
         await webDatabase.close();
       } finally {
@@ -137,7 +159,7 @@ export function WebBootstrap() {
     return () => {
       window.removeEventListener('dmg-workspace-release-requested', handleReleaseRequest);
     };
-  }, []);
+  }, [hostWorkspace]);
 
   useEffect(() => {
     const flushOnHide = () => {
@@ -152,7 +174,9 @@ export function WebBootstrap() {
       <main className="web-entry-screen">
         <div className="boot-indicator">
           <span />
-          <p>{phase === 'checking-access' ? '检查访问状态' : '正在打开浏览器工作区'}</p>
+          <p>{phase === 'checking-access'
+            ? '检查访问状态'
+            : hostWorkspace?.startupLabel?.() || '正在打开浏览器工作区'}</p>
         </div>
       </main>
     );
@@ -167,10 +191,13 @@ export function WebBootstrap() {
   }
 
   if (phase === 'failed') {
+    const retry = () => void initializeWorkspace();
+    const customFailure = hostWorkspace?.renderFailure?.(failure, retry);
+    if (customFailure) return customFailure;
     return (
       <RuntimeFailurePage
         error={failure}
-        onRetry={() => initializeWorkspace()}
+        onRetry={retry}
       />
     );
   }

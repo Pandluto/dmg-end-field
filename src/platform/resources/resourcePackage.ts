@@ -2,6 +2,7 @@ import { resolvePublicPath } from '../../utils/assetResolver';
 import { webDatabase } from '../database/webDatabase';
 import { fetchCurrentResourceRelease } from './resourceChannel';
 import { sha256Hex } from './resourceIntegrity';
+import { resolveOfficialResourcePath } from './resourceTransport';
 
 const DEFAULT_PACKAGE_ID = 'dmg-end-field-core-data';
 const RESOURCE_CACHE_NAME = 'dmg-resource-pack-v1';
@@ -169,7 +170,9 @@ export async function installDefaultResourcePackage(
   for (let index = 0; index < manifest.files.length; index += 1) {
     const entry = manifest.files[index];
     const url = resolvePublicPath(entry.path);
-    const downloadUrl = resolvePublicPath(entry.downloadPath || entry.path);
+    const downloadUrl = entry.downloadPath
+      ? resolveOfficialResourcePath(entry.downloadPath)
+      : resolvePublicPath(entry.path);
     const versionedUrl = `${downloadUrl}${downloadUrl.includes('?') ? '&' : '?'}sha256=${entry.sha256}`;
     let response: Response;
     try {

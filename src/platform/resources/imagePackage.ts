@@ -3,6 +3,7 @@ import { resolvePublicPath } from '../../utils/assetResolver';
 import { webDatabase } from '../database/webDatabase';
 import { fetchCurrentResourceRelease } from './resourceChannel';
 import { sha256Hex } from './resourceIntegrity';
+import { resolveOfficialResourcePath } from './resourceTransport';
 
 const IMAGE_PACKAGE_ID = 'dmg-end-field-image-pack';
 const IMAGE_CACHE_NAME = 'dmg-image-pack-v1';
@@ -129,7 +130,7 @@ async function downloadArchive(
 
   for (let index = 0; index < parts.length; index += 1) {
     const part = parts[index];
-    const response = await fetch(resolvePublicPath(part.path), { cache: 'no-store' });
+    const response = await fetch(resolveOfficialResourcePath(part.path), { cache: 'no-store' });
     if (!response.ok) {
       if (response.status === 404 || response.status === 410) {
         throw new ImageArchiveUnavailableError(
