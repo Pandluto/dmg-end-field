@@ -594,15 +594,35 @@ export function writeMainWorkbenchSnapshot(snapshot: MainWorkbenchSnapshot): voi
   writeJsonStorage(MAIN_WORKBENCH_SNAPSHOT_KEY, snapshot);
 }
 
+export type MainWorkbenchTransport = {
+  pullCommands?: () => Promise<void> | void;
+  pushCommandResult?: (entry: QueuedMainWorkbenchCommand) => Promise<void> | void;
+  pushSnapshot?: (snapshot: MainWorkbenchSnapshot) => Promise<void> | void;
+};
+
+const LOCAL_MAIN_WORKBENCH_TRANSPORT: Readonly<MainWorkbenchTransport> = Object.freeze({});
+let activeMainWorkbenchTransport: MainWorkbenchTransport = LOCAL_MAIN_WORKBENCH_TRANSPORT;
+
+export function installMainWorkbenchTransport(transport: MainWorkbenchTransport): () => void {
+  if (!transport || typeof transport !== 'object') {
+    throw new TypeError('Main Workbench transport must be an object.');
+  }
+  const previous = activeMainWorkbenchTransport;
+  const installed = Object.freeze({ ...transport });
+  activeMainWorkbenchTransport = installed;
+  return () => {
+    if (activeMainWorkbenchTransport === installed) activeMainWorkbenchTransport = previous;
+  };
+}
+
 export async function pullRemoteMainWorkbenchCommands(): Promise<void> {
-  // Retained as a no-op while local command consumers are migrated away from
-  // the removed remote REST transport.
+  await activeMainWorkbenchTransport.pullCommands?.();
 }
 
-export async function pushMainWorkbenchCommandResult(_entry: QueuedMainWorkbenchCommand): Promise<void> {
-  // Results already live in the page-local recovery log.
+export async function pushMainWorkbenchCommandResult(entry: QueuedMainWorkbenchCommand): Promise<void> {
+  await activeMainWorkbenchTransport.pushCommandResult?.(entry);
 }
 
-export async function pushMainWorkbenchSnapshot(_snapshot: MainWorkbenchSnapshot): Promise<void> {
-  // The local snapshot mirror is now authoritative.
+export async function pushMainWorkbenchSnapshot(snapshot: MainWorkbenchSnapshot): Promise<void> {
+  await activeMainWorkbenchTransport.pushSnapshot?.(snapshot);
 }

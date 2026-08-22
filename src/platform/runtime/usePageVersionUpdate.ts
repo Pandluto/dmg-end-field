@@ -35,12 +35,12 @@ function checkedState(result: PageVersionCheckResult): PageVersionUpdateState {
   };
 }
 
-export function usePageVersionUpdate(): {
+export function usePageVersionUpdate(enabled = true): {
   state: PageVersionUpdateState;
   update: () => Promise<void>;
 } {
   const [state, setState] = useState<PageVersionUpdateState>(() => ({
-    phase: navigator.onLine ? 'checking' : 'offline',
+    phase: enabled ? (navigator.onLine ? 'checking' : 'offline') : 'up-to-date',
     currentVersionLabel: APP_VERSION_LABEL,
     latestVersionLabel: null,
     latestShellVersion: null,
@@ -50,6 +50,7 @@ export function usePageVersionUpdate(): {
   const updatingRef = useRef(false);
 
   const check = useCallback(async () => {
+    if (!enabled) return;
     if (updatingRef.current) return;
     const sequence = checkSequenceRef.current + 1;
     checkSequenceRef.current = sequence;
@@ -70,9 +71,10 @@ export function usePageVersionUpdate(): {
         error: error instanceof Error ? error.message : String(error),
       }));
     }
-  }, []);
+  }, [enabled]);
 
   const update = useCallback(async () => {
+    if (!enabled) return;
     if (!['update-available', 'update-failed'].includes(state.phase)) return;
     updatingRef.current = true;
     checkSequenceRef.current += 1;
@@ -92,9 +94,10 @@ export function usePageVersionUpdate(): {
     } finally {
       updatingRef.current = false;
     }
-  }, [check, state.phase]);
+  }, [check, enabled, state.phase]);
 
   useEffect(() => {
+    if (!enabled) return undefined;
     const handleOnline = () => void check();
     const handleOffline = () => {
       checkSequenceRef.current += 1;
@@ -116,7 +119,7 @@ export function usePageVersionUpdate(): {
       window.removeEventListener('offline', handleOffline);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [check]);
+  }, [check, enabled]);
 
   return { state, update };
 }

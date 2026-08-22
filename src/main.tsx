@@ -1,5 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
+import { getAppHostExtension } from './platform/host/appHost'
 
 declare global {
   interface Window {
@@ -21,6 +22,7 @@ declare global {
 const root = ReactDOM.createRoot(document.getElementById('root')!)
 
 async function mountEntry() {
+  await getAppHostExtension().beforeMount?.()
   const isLocalResourcePackager = (
     ['127.0.0.1', 'localhost'].includes(window.location.hostname)
     && window.location.hash.split('?')[0] === '#/settings/resource-packager'

@@ -12,6 +12,7 @@ import {
   type OfflineAvailability,
 } from '../../platform/runtime/serviceWorkerRuntime';
 import { usePageVersionUpdate } from '../../platform/runtime/usePageVersionUpdate';
+import { getAppHostExtension } from '../../platform/host/appHost';
 import { useNotificationCenter } from '../../platform/notifications/NotificationCenterProvider';
 import { useResourceStatusNotifications } from '../../platform/notifications/useResourceStatusNotifications';
 import type { AppNotification } from '../../platform/notifications/notificationTypes';
@@ -141,6 +142,7 @@ function BrandLogo() {
 }
 
 export function AppShell({ currentPath, children, overlay }: AppShellProps) {
+  const showPageVersionUpdate = getAppHostExtension().ui?.showPageVersionUpdate !== false;
   const [menuOpen, setMenuOpen] = useState(false);
   const [isOnline, setIsOnline] = useState(
     () => typeof navigator === 'undefined' || navigator.onLine,
@@ -149,7 +151,7 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
     supported: true,
     ready: false,
   });
-  const { state: pageVersionUpdate, update: updatePageVersion } = usePageVersionUpdate();
+  const { state: pageVersionUpdate, update: updatePageVersion } = usePageVersionUpdate(showPageVersionUpdate);
   const {
     notifications,
     unreadCount,
@@ -164,6 +166,7 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
   useResourceStatusNotifications();
 
   useEffect(() => {
+    if (!showPageVersionUpdate) return undefined;
     if (pageVersionUpdate.phase !== 'update-available') {
       if (pageVersionUpdate.phase === 'up-to-date') pageUpdateAnnouncedRef.current = '';
       return;
@@ -314,7 +317,7 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
       window.removeEventListener('offline', handleOffline);
       navigator.serviceWorker?.removeEventListener('controllerchange', refreshOfflineAvailability);
     };
-  }, []);
+  }, [showPageVersionUpdate]);
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -480,7 +483,7 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
                 ))}
               </nav>
 
-              <button
+              {showPageVersionUpdate && <button
                 className={`web-shell-local-state is-${pageVersionUpdate.phase}`}
                 type="button"
                 disabled={!pageVersionCanUpdate}
@@ -547,7 +550,7 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
                           ? '!'
                           : '—'}
                 </span>
-              </button>
+              </button>}
             </div>
           )}
 

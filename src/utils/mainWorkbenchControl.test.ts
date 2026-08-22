@@ -3,7 +3,11 @@ import {
   enqueueMainWorkbenchCommand,
   enqueueMainWorkbenchCommands,
   getPendingMainWorkbenchCommands,
+  installMainWorkbenchTransport,
   patchMainWorkbenchCommand,
+  pullRemoteMainWorkbenchCommands,
+  pushMainWorkbenchCommandResult,
+  pushMainWorkbenchSnapshot,
   readMainWorkbenchCommandQueue,
   writeMainWorkbenchCommandQueue,
 } from './mainWorkbenchControl';
@@ -86,5 +90,23 @@ assert.equal(
   0,
   'error results must not be claimed again',
 );
+
+const transportCalls: string[] = [];
+const restoreTransport = installMainWorkbenchTransport({
+  pullCommands: () => { transportCalls.push('pull'); },
+  pushCommandResult: (entry) => { transportCalls.push(`result:${entry.id}`); },
+  pushSnapshot: (snapshot) => { transportCalls.push(`snapshot:${snapshot.schemaVersion}`); },
+});
+await pullRemoteMainWorkbenchCommands();
+await pushMainWorkbenchCommandResult(first);
+await pushMainWorkbenchSnapshot({
+  schemaVersion: 1,
+  updatedAt: Date.now(),
+  source: 'app',
+  selectedCharacters: [],
+  skillButtons: [],
+});
+restoreTransport();
+assert.deepEqual(transportCalls, ['pull', 'result:command-refresh', 'snapshot:1']);
 
 console.log('Main Workbench command queue lifecycle contract: PASS');

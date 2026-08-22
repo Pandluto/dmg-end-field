@@ -23,6 +23,7 @@ import {
   getTacticalShareId,
   getTimelineSkillDetailButtonId,
 } from './utils/appRoute';
+import { getAppHostExtension } from './platform/host/appHost';
 import './styles/global.css';
 
 const loadWorkbenchFrame = () => import('./components/WorkbenchFrame');
@@ -84,7 +85,8 @@ function isOverlayPath(path: string): boolean {
 
 function isWorkbenchPath(path: string): boolean {
   return path === APP_ROUTE_PATHS.timelineWorkspace
-    || path.startsWith(`${APP_ROUTE_PATHS.timelineSkillDetail}/`);
+    || path.startsWith(`${APP_ROUTE_PATHS.timelineSkillDetail}/`)
+    || getAppHostExtension().routes?.isWorkspacePath?.(path) === true;
 }
 
 function PageLoadingFallback() {
@@ -145,6 +147,7 @@ function IdleWorkbenchBackdrop() {
 }
 
 function App() {
+  const hostExtension = getAppHostExtension();
   const [currentPath, setCurrentPath] = useState(() => {
     if (typeof window === 'undefined') return APP_ROUTE_PATHS.root;
     return getCurrentAppPath(window.location);
@@ -212,6 +215,17 @@ function App() {
     };
   }, []);
 
+  const hostRoute = hostExtension.routes?.resolve?.(currentPath) ?? null;
+  if (hostRoute?.kind === 'exclusive') {
+    return (
+      <div className="app">
+        <RouteLoadBoundary key={hostRoute.boundaryKey || currentPath}>
+          <Suspense fallback={<PageLoadingFallback />}>{hostRoute.node}</Suspense>
+        </RouteLoadBoundary>
+      </div>
+    );
+  }
+
   let page: ReactNode;
   let overlay: ReactNode = null;
   if (isOverlayPath(currentPath)) {
@@ -236,6 +250,8 @@ function App() {
     page = <ImageManagerPage />;
   } else if (currentPath === APP_ROUTE_PATHS.operatorConfig) {
     page = <OperatorConfigPage />;
+  } else if (hostRoute) {
+    page = hostRoute.node;
   } else {
     const activeSkillButtonId = getTimelineSkillDetailButtonId(currentPath);
     page = <WorkbenchFrame activeSkillButtonId={activeSkillButtonId} />;
@@ -244,7 +260,7 @@ function App() {
   return (
     <div className="app">
       <AppShell currentPath={currentPath} overlay={overlay}>
-        <RouteLoadBoundary key={currentPath}>
+        <RouteLoadBoundary key={hostRoute?.boundaryKey || (isWorkbenchPath(currentPath) ? 'workbench' : currentPath)}>
           <Suspense fallback={<PageLoadingFallback />}>{page}</Suspense>
         </RouteLoadBoundary>
       </AppShell>
