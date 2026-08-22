@@ -138,6 +138,7 @@ import type {
 } from '../../agentKernel/timelineRepository/localTimelineClient';
 import type { AiTimelineRiskFlag } from '../../agentKernel/timelineWorktree/types';
 import { useTimelineSession } from '../../agentKernel/timelineRepository/useTimelineSession';
+import { shouldHydrateTimelineCheckoutOnCanvasMount } from '../../agentKernel/timelineRepository/timelineSession';
 import { runTimelineArchiveConversionForReload } from './timelineArchiveConversionFlow';
 import {
   browserAgentRuntime,
@@ -790,6 +791,7 @@ export function CanvasBoard({
     activeTimelineIsTemporary,
     checkoutRef: activeCheckoutRef,
     workingPayload: activeWorkingPayload,
+    workingPayloadSource,
     setWorkingPayload: setSessionWorkingPayload,
     activate: activateTimeline,
     refreshActiveDocument,
@@ -1173,9 +1175,9 @@ export function CanvasBoard({
     if (checkoutBootstrapIdentityRef.current === bootstrapIdentity) return;
     checkoutBootstrapIdentityRef.current = bootstrapIdentity;
     isCheckoutBootstrapPendingRef.current = true;
-    if (activeTimelineIsTemporary) {
-      // 临时 SQLite 的实时工作副本已由 user.sqlite 持久化。刷新或重启时
-      // 不能用它创建时的空快照覆盖这份未保存的内容。
+    if (!shouldHydrateTimelineCheckoutOnCanvasMount(activeTimelineIsTemporary, workingPayloadSource)) {
+      // 临时 SQLite 和当前标签页内已修改的实时工作副本都以 user.sqlite
+      // 投影为准。路由返回时不能再用 checkout payload 覆盖未保存内容。
       isCheckoutBootstrapPendingRef.current = false;
       setCheckoutBootstrapRevision((revision) => revision + 1);
       return;
@@ -1198,7 +1200,7 @@ export function CanvasBoard({
         }
       }
     })();
-  }, [activeCheckoutRef, activeTimelineId, activeTimelineIsTemporary, hydrateCheckoutRuntime, isTimelineSessionReady, loadedCharacters.length, readFormalCheckoutPayload]);
+  }, [activeCheckoutRef, activeTimelineId, activeTimelineIsTemporary, hydrateCheckoutRuntime, isTimelineSessionReady, loadedCharacters.length, readFormalCheckoutPayload, workingPayloadSource]);
 
   const findCharacterForWorkbenchCommand = (command: Extract<MainWorkbenchCommand, { op: 'addSkillButton' | 'removeSkillButton' | 'addBuff' | 'removeBuff' | 'setOperatorWeapon' | 'setOperatorEquipment' | 'setOperatorConfig' }>) => {
     if ('characterId' in command && command.characterId) {

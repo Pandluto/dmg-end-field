@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
-import { persistTimelineIdToStorages, readTimelineIdFromStorages } from './timelineSession';
+import {
+  persistTimelineIdToStorages,
+  readTimelineIdFromStorages,
+  shouldHydrateTimelineCheckoutOnCanvasMount,
+} from './timelineSession';
 
 function storage(initial: Record<string, string> = {}) {
   const values = new Map(Object.entries(initial));
@@ -23,5 +27,10 @@ persistTimelineIdToStorages('formal-b', tabB, sharedLocal);
 assert.equal(readTimelineIdFromStorages(tabA, sharedLocal), 'formal-a');
 assert.equal(readTimelineIdFromStorages(tabB, sharedLocal), 'formal-b');
 assert.equal(readTimelineIdFromStorages(storage(), sharedLocal), 'formal-b');
+
+assert.equal(shouldHydrateTimelineCheckoutOnCanvasMount(true, 'checkout'), false);
+assert.equal(shouldHydrateTimelineCheckoutOnCanvasMount(false, 'runtime'), false);
+assert.equal(shouldHydrateTimelineCheckoutOnCanvasMount(false, 'checkout'), true);
+assert.equal(shouldHydrateTimelineCheckoutOnCanvasMount(false, null), true);
 
 console.log('Timeline session tab-local SQLite identity contract: PASS');

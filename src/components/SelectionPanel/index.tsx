@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
-import { applySelectionWorkspaceTransition } from '../../core/services/selectionWorkspaceTransition';
+import {
+  applySelectionWorkspaceTransition,
+  createDetachedSelectionWorkspace,
+} from '../../core/services/selectionWorkspaceTransition';
 import {
   isLocalOperatorLibraryStorageKey,
   loadLocalOperatorCharacters,
@@ -35,7 +38,7 @@ export function SelectionPanel() {
   const [localCharacters, setLocalCharacters] = useState<Character[]>([]);
   const [draftCharacterIds, setDraftCharacterIds] = useState<string[]>([]);
   const [query, setQuery] = useState('');
-  const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
+  const [pendingWorkspaceAction, setPendingWorkspaceAction] = useState<'apply' | 'detached' | null>(null);
   const [workspaceError, setWorkspaceError] = useState('');
 
   const refreshLocalCharacters = () => {
@@ -98,6 +101,7 @@ export function SelectionPanel() {
 
   const isSelected = (characterId: string) => draftCharacterIds.includes(characterId);
   const isFull = draftCharacterIds.length >= 4;
+  const hasExistingWorkspace = selectedCharacters.length > 0;
 
   const toggleCharacter = (character: Character) => {
     if (isSelected(character.id)) {
@@ -117,29 +121,39 @@ export function SelectionPanel() {
     setDraftCharacterIds([]);
   };
 
-  const handleConfirm = async () => {
+  const applyDraftWorkspace = async (action: 'apply' | 'detached') => {
     if (draftCharacters.length === 0) {
       return;
     }
 
-    setIsCreatingWorkspace(true);
+    setPendingWorkspaceAction(action);
     setWorkspaceError('');
     try {
-      await applySelectionWorkspaceTransition({
+      const input = {
         activeTimelineId,
         activeTimelineIsTemporary,
         previousCharacters: selectedCharacters,
         nextCharacters: draftCharacters,
-        actor: 'user',
-      });
+        actor: 'user' as const,
+      };
+      if (action === 'detached') {
+        await createDetachedSelectionWorkspace(input);
+      } else {
+        await applySelectionWorkspaceTransition(input);
+      }
       dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: draftCharacters });
       dispatch({ type: 'SET_VIEW', view: 'canvas' });
     } catch (error) {
-      setWorkspaceError(error instanceof Error ? error.message : String(error));
+      const operation = action === 'detached' ? '新建存档' : '应用选人结果';
+      const message = error instanceof Error ? error.message : String(error);
+      setWorkspaceError(`${operation}失败：${message}`);
     } finally {
-      setIsCreatingWorkspace(false);
+      setPendingWorkspaceAction(null);
     }
   };
+
+  const handleConfirm = () => applyDraftWorkspace('apply');
+  const handleCreateDetachedWorkspace = () => applyDraftWorkspace('detached');
 
   const openOperatorDraft = () => {
     navigateToAppPath(APP_ROUTE_PATHS.draft);
@@ -210,15 +224,31 @@ export function SelectionPanel() {
               })}
             </div>
 
-            <button
-              type="button"
-              className="selection-confirm-button"
-              onClick={handleConfirm}
-              disabled={draftCharacters.length === 0 || isCreatingWorkspace}
-            >
-              {isCreatingWorkspace ? '正在应用选人结果…' : '开始排轴'}
-            </button>
-            {workspaceError && <p className="selection-error">应用选人结果失败：{workspaceError}</p>}
+            <div className={`selection-workspace-actions${hasExistingWorkspace ? '' : ' is-single'}`}>
+              {hasExistingWorkspace && (
+                <button
+                  type="button"
+                  className="selection-new-archive-button"
+                  onClick={handleCreateDetachedWorkspace}
+                  disabled={draftCharacters.length === 0 || pendingWorkspaceAction !== null}
+                  title="先自动保存当前排轴，再以所选队伍创建独立 SQLite"
+                >
+                  {pendingWorkspaceAction === 'detached' ? '正在新建…' : '新建存档'}
+                </button>
+              )}
+              <button
+                type="button"
+                className="selection-confirm-button"
+                onClick={handleConfirm}
+                disabled={draftCharacters.length === 0 || pendingWorkspaceAction !== null}
+                title={hasExistingWorkspace ? '自动保存当前排轴，并按所选队伍继续' : '以所选队伍开始排轴'}
+              >
+                {pendingWorkspaceAction === 'apply'
+                  ? '正在应用…'
+                  : hasExistingWorkspace ? '继续排轴' : '开始排轴'}
+              </button>
+            </div>
+            {workspaceError && <p className="selection-error">{workspaceError}</p>}
           </aside>
 
           <section className="selection-library">
