@@ -16,7 +16,7 @@
 - [1.8 LTS 首轮文档清理记录](./maintenance/1.8-lts-initial-document-cleanup.md)
 - [1.8 LTS 第二轮运行时清理记录](./maintenance/1.8-lts-runtime-cleanup.md)
 - [1.8 LTS Web 收口记录](./maintenance/1.8-lts-web-finalization.md)
-- [Desktop Shell 国内资源通道兼容缺口](./maintenance/desktop-cloud-resource-consumer-gap-20260822.md)
+- [Desktop Shell 国内资源兼容与 Slimming 下游叠加方案](./maintenance/desktop-cloud-resource-consumer-gap-20260822.md)
 
 ## 保留规则
 
