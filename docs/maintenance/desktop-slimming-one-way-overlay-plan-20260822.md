@@ -5,7 +5,7 @@
 > Slimming 研究基线：`codex/v1.8-lts-slimming@b16788ad`  
 > 状态：实施完成，候选分支等待本地点击验收与长期分支快进
 >
-> 已同步 Slimming 基线：`9443586b8f0a72d488bd53c6f99dac0cba8d20e8`
+> 已同步 Slimming 基线：`6e7230ea54d06a4592765c4c6adaa92aaad0daa0`
 >
 > 实施候选：`codex/v1.8-lts-desktop-overlay`
 >
