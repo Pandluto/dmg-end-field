@@ -3,11 +3,47 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { PreparedWorkNodeAtomicApplyError } from '../../platform/agent/preparedWorkNodeProposal';
 import {
+  assertSelectionWorkspaceCheckoutPublishable,
+  buildSelectionBootstrapPayload,
   runPreparedSelectionActivationTransaction,
   snapshotContentRevisionFromPayload,
   snapshotContentRevisionFromDigest,
   validatePreparedSelectionSemantics,
 } from './selectionWorkspaceTransition';
+
+{
+  const emptyCheckout = buildSelectionBootstrapPayload([]);
+  assert.doesNotThrow(() => assertSelectionWorkspaceCheckoutPublishable({
+    sourcePayload: emptyCheckout,
+    runtimePayload: null,
+    storedCharacterIds: [],
+    currentCharacterIds: [],
+  }));
+  assert.doesNotThrow(() => assertSelectionWorkspaceCheckoutPublishable({
+    sourcePayload: emptyCheckout,
+    runtimePayload: structuredClone(emptyCheckout),
+    storedCharacterIds: [],
+    currentCharacterIds: [],
+  }));
+  assert.throws(() => assertSelectionWorkspaceCheckoutPublishable({
+    sourcePayload: emptyCheckout,
+    runtimePayload: null,
+    storedCharacterIds: ['operator-a'],
+    currentCharacterIds: [],
+  }), /selection live draft differs from the formal checkout/u);
+  assert.throws(() => assertSelectionWorkspaceCheckoutPublishable({
+    sourcePayload: { ...emptyCheckout, selectedCharacters: ['operator-a'] },
+    runtimePayload: null,
+    storedCharacterIds: ['operator-a'],
+    currentCharacterIds: ['operator-a'],
+  }), /selection live draft differs from the formal checkout/u);
+  assert.throws(() => assertSelectionWorkspaceCheckoutPublishable({
+    sourcePayload: emptyCheckout,
+    runtimePayload: { ...emptyCheckout, selectedCharacters: ['operator-a'] },
+    storedCharacterIds: [],
+    currentCharacterIds: [],
+  }), /selection live draft differs from the formal checkout/u);
+}
 
 {
   const events: string[] = [];

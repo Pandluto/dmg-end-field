@@ -171,6 +171,42 @@ export function buildSelectionBootstrapPayload(characters: readonly Character[])
   return buildEmptySelectionPayload([...characters]);
 }
 
+const SELECTION_CHECKOUT_NOT_PUBLISHABLE =
+  'selection live draft differs from the formal checkout; writable binding is suspended.';
+
+function sameOrderedCharacterIds(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((characterId, index) => characterId === right[index]);
+}
+
+/**
+ * Keep Agent publication bound to the exact persisted checkout. An empty
+ * selection is the sole representation exception: timelineSnapshotStorage
+ * intentionally exposes it as `null`, even after the checkout payload was
+ * applied to sessionStorage. `ensureSelectionWorkspaceSourceCheckout` has
+ * already restored that persisted payload immediately before this guard.
+ */
+export function assertSelectionWorkspaceCheckoutPublishable(input: {
+  readonly sourcePayload: TimelineSnapshotPayload;
+  readonly runtimePayload: TimelineSnapshotPayload | null;
+  readonly storedCharacterIds: readonly string[];
+  readonly currentCharacterIds: readonly string[];
+}): void {
+  const sourceCharacterIds = input.sourcePayload.selectedCharacters;
+  if (
+    !sameOrderedCharacterIds(input.storedCharacterIds, sourceCharacterIds)
+    || !sameOrderedCharacterIds(input.currentCharacterIds, sourceCharacterIds)
+  ) {
+    throw new Error(SELECTION_CHECKOUT_NOT_PUBLISHABLE);
+  }
+  if (!input.runtimePayload) {
+    if (sourceCharacterIds.length === 0) return;
+    throw new Error(SELECTION_CHECKOUT_NOT_PUBLISHABLE);
+  }
+  if (diffPreparedPayloads(input.sourcePayload, input.runtimePayload).changes.length !== 0) {
+    throw new Error(SELECTION_CHECKOUT_NOT_PUBLISHABLE);
+  }
+}
+
 /**
  * Normal Product bootstrap for the selection page. It runs before Agent
  * publication and creates a stable initial snapshot only when the active

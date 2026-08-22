@@ -47,6 +47,7 @@ import {
   abandonReviewedSelectionProposal,
   applyReviewedSelectionProposal,
   applySelectionWorkspaceTransition,
+  assertSelectionWorkspaceCheckoutPublishable,
   ensureSelectionWorkspaceSourceCheckout,
   prepareReviewedSelectionProposal,
   type PersistedWorkspaceCheckout,
@@ -83,7 +84,6 @@ import {
   emptyAiTimelineNodeReviewProjection,
 } from '../agentKernel/timelineWorktree/nodeReview';
 import { browserAgentRuntime } from '../platform/agent/browserAgentRuntime';
-import { diffPreparedPayloads } from '../platform/agent/preparedWorkNodeProposal';
 import { getCurrentTimelineSnapshotPayload } from '../utils/timelineSnapshotStorage';
 import { calculateNodeNumber } from '../utils/nodeNumbering';
 
@@ -1075,15 +1075,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const sourceIds = source.payload.selectedCharacters;
         const storedIds = getSelectedCharacterIds();
         const currentIds = stateRef.current.selectedCharacters.map((character) => character.id);
-        const liveMatchesFormalCheckout = Boolean(
-          runtimePayload
-          && diffPreparedPayloads(source.payload, runtimePayload).changes.length === 0
-          && JSON.stringify(storedIds) === JSON.stringify(sourceIds)
-          && JSON.stringify(currentIds) === JSON.stringify(sourceIds)
-        );
-        if (!liveMatchesFormalCheckout) {
-          throw new Error('selection live draft differs from the formal checkout; writable binding is suspended.');
-        }
+        assertSelectionWorkspaceCheckoutPublishable({
+          sourcePayload: source.payload,
+          runtimePayload,
+          storedCharacterIds: storedIds,
+          currentCharacterIds: currentIds,
+        });
         const resolvedCharacters = exactCharacterRosterFromPayload(
           sourceIds,
           stateRef.current.loadedCharacters,
