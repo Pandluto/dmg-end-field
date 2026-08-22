@@ -77,7 +77,7 @@ for (const required of [
 
 const nativeUiRoot = path.join(unpackedRoot, 'dist', 'agent', 'ui');
 const nativeUiIndex = fs.readFileSync(path.join(nativeUiRoot, 'index.html'), 'utf8');
-assert.match(nativeUiIndex, /<div id="root"\b/u, '桌面 Agent UI 缺少根节点');
+assert.match(nativeUiIndex, /<div id="root"(?:\s|>)/u, '桌面 Agent UI 缺少根节点');
 for (const asset of [...nativeUiIndex.matchAll(/(?:src|href)="\.\/(assets\/[^"?#]+)"/gu)]) {
   assert.equal(
     fs.statSync(path.join(nativeUiRoot, ...asset[1].split('/'))).isFile(),
