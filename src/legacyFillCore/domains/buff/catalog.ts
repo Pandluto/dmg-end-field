@@ -746,7 +746,7 @@ export const BUFF_EXTRA_HIT_RULE: BuffExtraHitCatalogRule = {
   allowedDamageTypes: ['physical', 'magic', 'fire', 'electric', 'ice', 'nature'],
   positivePatterns: ['额外造成一次伤害', '追加一段伤害', '触发一次额外打击', '额外攻击段'],
   negativePatterns: ['伤害提高', '易伤', '增幅', '倍率提高'],
-  notes: '只有文本明确存在额外伤害段时才允许使用 extraHit。',
+  notes: '只有文本明确存在独立额外伤害段时才允许使用 extraHit；倍率提高仍使用 multiplierBonus。extraHit 未明确计层时 category=condition；明确计层时 category=countable，maxStacks 缺省为 1。公式缺省 inherited；只有文本明确说明受源石技艺强度提升时才使用 sourceSkill，并按物理异常或碎冰/法术爆发选择 levelCurve。',
 };
 
 export function buildBuffTypeCatalogPromptSection() {
@@ -757,6 +757,9 @@ export function buildBuffTypeCatalogPromptSection() {
     '3. 宁可少提取，也不能为了完整覆盖而输出白名单外机制。',
     '4. 伤害免疫、治疗/回血、技力回复、持续时间增加、能量消耗降低、概率触发类特殊机制，默认视为当前版本不支持，直接舍弃。',
     '5. 只有 effectKind=extraHit 时，type 才允许为空字符串。',
+    '6. extraHit 只允许 category=condition/countable；没有明确计层证据时使用 condition，禁止写 passive。countable 缺省 maxStacks=1；1 表示普通单段，大于 1 表示按当前层数生成多个独立伤害段。',
+    '7. extraHitConfig.formulaMode 缺省 inherited。只有文本明确说明该独立伤害受源石技艺强度提升时才用 sourceSkill；物理异常选择 levelCurve=physicalAnomaly，碎冰或法术爆发选择 artsBurst。',
+    '8. “倍率提高/倍率增加”默认使用 modifier.type=multiplierBonus；只有明确追加独立 hit 时才使用 extraHit。',
     '',
     'modifier.type 白名单：',
   ].join('\n');

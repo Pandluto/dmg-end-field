@@ -7,6 +7,8 @@
     "Read the core-generated schema/template for the selected domain; never infer a field whitelist from this strategy.",
     "Do not invent an effect type when the schema or template does not support it.",
     "Treat passive, conditional, and countable classifications as semantic choices supported by evidence; stack-count heuristics are review strategy, not protocol.",
+    "For effectKind=extraHit, use category=condition unless the source explicitly describes countable segments; never use passive. countable defaults maxStacks to 1, where 1 is a normal single independent segment.",
+    "For extraHitConfig, keep formulaMode=inherited unless the source explicitly says the independent hit scales with Originium Arts/source-skill strength. In sourceSkill mode use levelCurve=physicalAnomaly for physical abnormal damage and artsBurst for shatter or Arts burst.",
     "Preserve level-specific values instead of repeating a maximum-level value across every level.",
     "Run fill_validate before proposal_create and attach concise source evidence.",
     "After a real user saves in the Electron Host, reread the next Host snapshot instead of assuming the write succeeded."

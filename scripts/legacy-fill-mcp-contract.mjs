@@ -162,6 +162,125 @@ try {
     }
   }
 
+  const extraHitConfig = {
+    key: 'contract-extra-hit',
+    damageType: 'magic',
+    skillType: 'E',
+    baseMultiplier: 1.5,
+    imbalanceValue: 0,
+    cooldownSeconds: 0,
+    trigger: 'physicalAbnormal',
+    formulaMode: 'sourceSkill',
+    levelCurve: 'artsBurst',
+  };
+  const validateDraft = async (domain, draft) => structured(await httpA1.client.callTool({
+    name: 'fill_validate',
+    arguments: { domain, schemaVersion: 1, draft },
+  }));
+
+  const buffTemplate = structured(await httpA1.client.callTool({
+    name: 'fill_get_template',
+    arguments: { domain: 'buff', schemaVersion: 1 },
+  }));
+  const buffExtraHitSchema = buffTemplate.data.schema.properties.items.items.properties.effects.items.oneOf[1];
+  assert.deepEqual(buffExtraHitSchema.properties.category.enum, ['condition', 'countable']);
+  assert.deepEqual(buffExtraHitSchema.properties.extraHitConfig.properties.formulaMode.enum, ['inherited', 'sourceSkill']);
+  assert.deepEqual(buffExtraHitSchema.properties.extraHitConfig.properties.levelCurve.enum, ['physicalAnomaly', 'artsBurst']);
+
+  const buffExtraHitDraft = structuredClone(fixture.domains.buff.draft);
+  buffExtraHitDraft.items[0].effects = [{
+    ...buffExtraHitDraft.items[0].effects[0],
+    displayName: 'Source-skill extra hit',
+    name: 'Source-skill extra hit',
+    description: 'Independent hit scaled by source-skill strength.',
+    effectKind: 'extraHit',
+    type: '',
+    value: 0,
+    evidenceText: '额外造成一次伤害，且受源石技艺强度提升。',
+    extraHitConfig,
+  }];
+  const normalizedBuffExtraHit = await validateDraft('buff', buffExtraHitDraft);
+  assert.equal(normalizedBuffExtraHit.data.valid, true);
+  assert.equal(normalizedBuffExtraHit.data.normalized.items['item-1'].effects['buff-1'].category, 'condition');
+  assert.equal(normalizedBuffExtraHit.data.normalized.items['item-1'].effects['buff-1'].extraHitConfig.formulaMode, 'sourceSkill');
+  assert.equal(normalizedBuffExtraHit.data.normalized.items['item-1'].effects['buff-1'].extraHitConfig.levelCurve, 'artsBurst');
+  const countableBuffExtraHitDraft = structuredClone(buffExtraHitDraft);
+  countableBuffExtraHitDraft.items[0].effects[0].category = 'countable';
+  const countableBuffExtraHit = await validateDraft('buff', countableBuffExtraHitDraft);
+  assert.equal(countableBuffExtraHit.data.valid, true);
+  assert.equal(countableBuffExtraHit.data.normalized.items['item-1'].effects['buff-1'].maxStacks, 1);
+  const passiveBuffExtraHitDraft = structuredClone(buffExtraHitDraft);
+  passiveBuffExtraHitDraft.items[0].effects[0].category = 'passive';
+  assert.equal((await validateDraft('buff', passiveBuffExtraHitDraft)).data.valid, false);
+
+  const weaponTemplate = structured(await httpA1.client.callTool({
+    name: 'fill_get_template',
+    arguments: { domain: 'weapon', schemaVersion: 1 },
+  }));
+  assert.match(weaponTemplate.data.schema.effect.extraHitConfig, /formulaMode/);
+  const weaponExtraHitDraft = structuredClone(fixture.domains.weapon.draft);
+  weaponExtraHitDraft.skills.skill3.effects.extra = {
+    name: 'Source-skill extra hit',
+    type: '',
+    category: 'countable',
+    levels: { 1: 0 },
+    effectKind: 'extraHit',
+    extraHitConfig,
+  };
+  const normalizedWeaponExtraHit = await validateDraft('weapon', weaponExtraHitDraft);
+  assert.equal(normalizedWeaponExtraHit.data.valid, true);
+  assert.equal(normalizedWeaponExtraHit.data.normalized.skills.skill3.effects.extra.maxStacks, 1);
+  assert.equal(normalizedWeaponExtraHit.data.normalized.skills.skill3.effects.extra.extraHitConfig.formulaMode, 'sourceSkill');
+  const passiveWeaponExtraHitDraft = structuredClone(weaponExtraHitDraft);
+  passiveWeaponExtraHitDraft.skills.skill3.effects.extra.category = 'passive';
+  assert.equal((await validateDraft('weapon', passiveWeaponExtraHitDraft)).data.valid, false);
+
+  const operatorTemplate = structured(await httpA1.client.callTool({
+    name: 'fill_get_template',
+    arguments: { domain: 'operator', schemaVersion: 1 },
+  }));
+  assert.match(operatorTemplate.data.template.schema.buffEffect.extraHit, /formulaMode/);
+  const operatorExtraHitDraft = structuredClone(fixture.domains.operator.draft);
+  operatorExtraHitDraft.buffs.skill.effects.extra = {
+    effectId: 'extra',
+    name: 'Source-skill extra hit',
+    type: '',
+    category: 'countable',
+    effectKind: 'extraHit',
+    extraHitConfig,
+  };
+  const normalizedOperatorExtraHit = await validateDraft('operator', operatorExtraHitDraft);
+  assert.equal(normalizedOperatorExtraHit.data.valid, true);
+  assert.equal(normalizedOperatorExtraHit.data.normalized.buffs.skill.effects.extra.maxStacks, 1);
+  assert.equal(normalizedOperatorExtraHit.data.normalized.buffs.skill.effects.extra.extraHitConfig.levelCurve, 'artsBurst');
+  const passiveOperatorExtraHitDraft = structuredClone(operatorExtraHitDraft);
+  passiveOperatorExtraHitDraft.buffs.skill.effects.extra.category = 'passive';
+  assert.equal((await validateDraft('operator', passiveOperatorExtraHitDraft)).data.valid, false);
+
+  const equipmentTemplate = structured(await httpA1.client.callTool({
+    name: 'fill_get_template',
+    arguments: { domain: 'equipment', schemaVersion: 1 },
+  }));
+  assert.match(equipmentTemplate.data.template.schema.extraHitConfig, /formulaMode/);
+  const equipmentExtraHitDraft = structuredClone(fixture.domains.equipment.draft);
+  equipmentExtraHitDraft.gearSets['fixture-set'].threePieceBuff = {
+    effectId: 'extra',
+    name: 'Source-skill extra hit',
+    category: 'countable',
+    typeKey: '',
+    value: 0,
+    unit: 'flat',
+    effectKind: 'extraHit',
+    extraHitConfig,
+  };
+  const normalizedEquipmentExtraHit = await validateDraft('equipment', equipmentExtraHitDraft);
+  assert.equal(normalizedEquipmentExtraHit.data.valid, true);
+  assert.equal(normalizedEquipmentExtraHit.data.normalized.gearSets['fixture-set'].threePieceBuff.maxStacks, 1);
+  assert.equal(normalizedEquipmentExtraHit.data.normalized.gearSets['fixture-set'].threePieceBuff.extraHitConfig.formulaMode, 'sourceSkill');
+  const passiveEquipmentExtraHitDraft = structuredClone(equipmentExtraHitDraft);
+  passiveEquipmentExtraHitDraft.gearSets['fixture-set'].threePieceBuff.category = 'passive';
+  assert.equal((await validateDraft('equipment', passiveEquipmentExtraHitDraft)).data.valid, false);
+
   const baseSnapshot = structured(await httpA1.client.callTool({ name: 'fill_get_current', arguments: { domain: 'weapon' } }));
   const createArguments = {
     ownerNamespace: ownerA,

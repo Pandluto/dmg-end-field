@@ -1,7 +1,12 @@
 import type { BuffDraft } from '../../../types/buffFill';
 import { BUFF_EXTRA_HIT_RULE, BUFF_MODIFIER_TYPE_IDS, type BuffModifierType } from './catalog';
 import type { BuffFillAiDraft } from './schema';
-import { normalizeExtraHitConfig } from '../../../core/services/buffExtraHit';
+import {
+  EXTRA_HIT_FORMULA_MODES,
+  EXTRA_HIT_LEVEL_CURVES,
+  normalizeExtraHitCategory,
+  normalizeExtraHitConfig,
+} from '../../../core/services/buffExtraHit';
 import { normalizeBuffMultiplier } from '../../../core/domain/buffMultiplier';
 import { isMultiplierSupportedBuffType } from '../../../core/domain/buffTypeRegistry';
 
@@ -189,7 +194,7 @@ export function validateBuffFillAiDraft(candidate: unknown): BuffFillValidationR
       }
 
       if (effect.effectKind === 'extraHit') {
-        const category = effect.category === 'countable' ? 'countable' : 'passive';
+        const category = normalizeExtraHitCategory(effect.category);
         if (effect.type !== '') {
           errors.push(`${effectPath}.type 在 extraHit 下必须为空字符串`);
         }
@@ -200,8 +205,8 @@ export function validateBuffFillAiDraft(candidate: unknown): BuffFillValidationR
           errors.push(`${effectPath}.extraHitConfig 在 extraHit 下必须存在`);
           return;
         }
-        if (effect.category !== undefined && effect.category !== 'passive' && effect.category !== 'countable') {
-          errors.push(`${effectPath}.category 在 extraHit 下必须是 passive 或 countable`);
+        if (effect.category !== undefined && effect.category !== 'condition' && effect.category !== 'countable') {
+          errors.push(`${effectPath}.category 在 extraHit 下必须是 condition 或 countable`);
         }
         if (category === 'countable') {
           const maxStacks = Number(effect.maxStacks ?? 1);
@@ -218,6 +223,18 @@ export function validateBuffFillAiDraft(candidate: unknown): BuffFillValidationR
         }
         if (!['', 'A', 'B', 'E', 'Q', 'Dot'].includes(String(effect.extraHitConfig.skillType ?? ''))) {
           errors.push(`${effectPath}.extraHitConfig.skillType 不合法`);
+        }
+        if (
+          effect.extraHitConfig.formulaMode !== undefined
+          && !EXTRA_HIT_FORMULA_MODES.includes(effect.extraHitConfig.formulaMode as never)
+        ) {
+          errors.push(`${effectPath}.extraHitConfig.formulaMode 不合法`);
+        }
+        if (
+          effect.extraHitConfig.levelCurve !== undefined
+          && !EXTRA_HIT_LEVEL_CURVES.includes(effect.extraHitConfig.levelCurve as never)
+        ) {
+          errors.push(`${effectPath}.extraHitConfig.levelCurve 不合法`);
         }
         for (const field of ['key']) {
           if (typeof effect.extraHitConfig[field] !== 'string') {
@@ -264,7 +281,7 @@ export function convertBuffFillAiDraftToBuffDraft(candidate: BuffFillAiDraft): B
         type: effect.effectKind === 'extraHit' ? '' : effect.type as BuffModifierType,
         value: effect.effectKind === 'extraHit' ? 0 : effect.value,
         category: effect.effectKind === 'extraHit'
-          ? effect.category === 'countable' ? 'countable' : 'passive'
+          ? normalizeExtraHitCategory(effect.category)
           : multiplier
             ? 'condition'
           : effect.category === 'countable'

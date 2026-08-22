@@ -1,5 +1,9 @@
 import type { BuffEffectKind, BuffExtraHitConfig } from '../../core/domain/buff';
-import { normalizeExtraHitConfig, validateExtraHitConfig } from '../../core/services/buffExtraHit';
+import {
+  normalizeExtraHitCategory,
+  normalizeExtraHitConfig,
+  validateExtraHitConfig,
+} from '../../core/services/buffExtraHit';
 import { createLegacyFillDomainCore, createLegacyFillSchemaTemplate, type LegacyFillValidationResult } from '../index';
 import { preserveExistingWeaponImageUrlValue } from '../preserveAssets';
 
@@ -146,7 +150,7 @@ const EFFECT_TYPE_ALIASES: Record<string, string> = {
   elementalDmgBonus: 'allDmgBonus',
 };
 
-export const WEAPON_FILL_CONTRACT_VERSION = 'weapon-fill-20260614-extra-hit-v4';
+export const WEAPON_FILL_CONTRACT_VERSION = 'weapon-fill-20260822-extra-hit-v5';
 
 export const WEAPON_FILL_AI_DRAFT_SCHEMA = {
   id: 'string',
@@ -163,6 +167,11 @@ export const WEAPON_FILL_AI_DRAFT_SCHEMA = {
     skill2: 'WeaponFillSkill optional',
     skill3: 'WeaponFillSkill optional',
   },
+  effect: {
+    fields: ['name', 'effectKind?', 'type', 'category', 'levels', 'maxStacks?', 'extraHitConfig?'],
+    extraHitCategory: 'condition/countable only; never passive. countable defaults maxStacks to 1; 1 is a normal single segment and values greater than 1 create multiple independent segments',
+    extraHitConfig: '{ key, damageType, skillType, baseMultiplier, imbalanceValue, cooldownSeconds, trigger, formulaMode?, levelCurve? }; formulaMode defaults inherited. Use sourceSkill only with explicit source-skill-strength evidence; physical abnormal damage uses levelCurve=physicalAnomaly, shatter/Arts burst uses artsBurst',
+  },
 };
 
 export function getWeaponFillAdapterDiagnostics() {
@@ -171,6 +180,9 @@ export function getWeaponFillAdapterDiagnostics() {
     validEffectCategories: [...VALID_EFFECT_CATEGORIES],
     supportedEffectTypeCount: SUPPORTED_EFFECT_TYPES.length,
     supportedEffectTypes: [...SUPPORTED_EFFECT_TYPES],
+    extraHitCategories: ['condition', 'countable'],
+    extraHitFormulaModes: ['inherited', 'sourceSkill'],
+    extraHitLevelCurves: ['physicalAnomaly', 'artsBurst'],
     rejectsLegacyUrl: true,
     preservedEffectSkill: 'skill3',
   };
@@ -224,11 +236,41 @@ export function validateWeaponProposalPayload(payload: unknown): LegacyFillValid
       }
       if (typeof skill.name !== 'string') errors.push(`skills.${skillKey}.name must be string`);
       if (typeof skill.statType !== 'string') errors.push(`skills.${skillKey}.statType must be string`);
-      if (!isRecord(skill.effects)) errors.push(`skills.${skillKey}.effects must be object`);
+      if (!isRecord(skill.effects)) {
+        errors.push(`skills.${skillKey}.effects must be object`);
+      } else {
+        for (const [effectKey, rawEffect] of Object.entries(skill.effects)) {
+          if (!isRecord(rawEffect)) {
+            errors.push(`skills.${skillKey}.effects.${effectKey} must be object`);
+            continue;
+          }
+          const effectKind = rawEffect.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
+          if (typeof rawEffect.name !== 'string') errors.push(`skills.${skillKey}.effects.${effectKey}.name must be string`);
+          if (effectKind === 'modifier' && (typeof rawEffect.type !== 'string' || !SUPPORTED_EFFECT_TYPES.includes(normalizeEffectType(rawEffect.type)))) {
+            errors.push(`skills.${skillKey}.effects.${effectKey}.type unsupported`);
+          }
+          if (typeof rawEffect.category !== 'string' || !VALID_EFFECT_CATEGORIES.includes(rawEffect.category)) {
+            errors.push(`skills.${skillKey}.effects.${effectKey}.category must be condition/passive/countable`);
+          }
+          if (effectKind === 'extraHit') {
+            if (rawEffect.category !== 'condition' && rawEffect.category !== 'countable') {
+              errors.push(`skills.${skillKey}.effects.${effectKey}.category must be condition or countable for extraHit`);
+            }
+            validateExtraHitConfig(rawEffect.extraHitConfig, `skills.${skillKey}.effects.${effectKey}.extraHitConfig`, errors);
+          }
+          const countableMaxStacks = effectKind === 'extraHit' ? Number(rawEffect.maxStacks ?? 1) : rawEffect.maxStacks;
+          if (rawEffect.category === 'countable' && (typeof countableMaxStacks !== 'number' || !Number.isFinite(countableMaxStacks) || countableMaxStacks <= 0)) {
+            errors.push(`skills.${skillKey}.effects.${effectKey}.maxStacks must be positive number for countable`);
+          }
+          if (!isRecord(rawEffect.levels)) errors.push(`skills.${skillKey}.effects.${effectKey}.levels must be object`);
+        }
+      }
       if (!isRecord(skill.levels)) errors.push(`skills.${skillKey}.levels must be object`);
     }
   }
-  return errors.length ? { ok: false, errors } : { ok: true, errors: [], normalized: payload as unknown as WeaponDraft };
+  return errors.length
+    ? { ok: false, errors }
+    : { ok: true, errors: [], normalized: convertWeaponFillAiDraftToWeaponDraft(payload as unknown as WeaponFillAiDraft) };
 }
 
 export function preserveExistingImageUrl(nextPayload: WeaponDraft, currentDraft?: WeaponDraft): WeaponDraft {
@@ -339,12 +381,13 @@ export function validateWeaponFillAiDraft(candidate: unknown): LegacyFillValidat
           errors.push(`skills.${skillKey}.effects.${effectKey}.category 必须是 condition、passive 或 countable`);
         }
         if (effectKind === 'extraHit') {
-          if (effect.category !== 'passive' && effect.category !== 'countable') {
-            errors.push(`skills.${skillKey}.effects.${effectKey}.category 在 extraHit 时必须是 passive 或 countable`);
+          if (effect.category !== 'condition' && effect.category !== 'countable') {
+            errors.push(`skills.${skillKey}.effects.${effectKey}.category 在 extraHit 时必须是 condition 或 countable`);
           }
           validateExtraHitConfig(effect.extraHitConfig, `skills.${skillKey}.effects.${effectKey}.extraHitConfig`, errors);
         }
-        if (effect.category === 'countable' && (typeof effect.maxStacks !== 'number' || !Number.isFinite(effect.maxStacks) || effect.maxStacks <= 0)) {
+        const countableMaxStacks = effectKind === 'extraHit' ? Number(effect.maxStacks ?? 1) : effect.maxStacks;
+        if (effect.category === 'countable' && (typeof countableMaxStacks !== 'number' || !Number.isFinite(countableMaxStacks) || countableMaxStacks <= 0)) {
           errors.push(`skills.${skillKey}.effects.${effectKey}.maxStacks 在 countable 时必须是正数`);
         }
         const levels = effect.levels;
@@ -397,16 +440,20 @@ function convertWeaponFillAiDraftToWeaponDraft(candidate: WeaponFillAiDraft): We
       if (key !== 'skill3') {
         continue;
       }
+      const effectKind: BuffEffectKind = effect.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
+      const category = effectKind === 'extraHit'
+        ? normalizeExtraHitCategory(effect.category)
+        : normalizeEffectCategory(effect.category || '');
       skillData.effects[effectKey] = {
         name: effect.name || effectKey,
-        type: effect.effectKind === 'extraHit' ? '' : normalizeEffectType(effect.type || ''),
-        category: normalizeEffectCategory(effect.category || ''),
+        type: effectKind === 'extraHit' ? '' : normalizeEffectType(effect.type || ''),
+        category,
         levels: normalizeNumericRecord(effect.levels),
-        ...(effect.category === 'countable' && typeof effect.maxStacks === 'number'
-          ? { maxStacks: Math.max(1, Math.floor(effect.maxStacks)) }
+        ...(category === 'countable'
+          ? { maxStacks: Math.max(1, Math.floor(Number(effect.maxStacks ?? 1))) }
           : {}),
-        effectKind: effect.effectKind === 'extraHit' ? 'extraHit' : 'modifier',
-        ...(effect.effectKind === 'extraHit'
+        effectKind,
+        ...(effectKind === 'extraHit'
           ? { extraHitConfig: normalizeExtraHitConfig(effect.extraHitConfig, `${effectKey}-extra-hit`) }
           : {}),
       };

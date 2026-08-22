@@ -1,5 +1,9 @@
 import type { BuffEffectKind, BuffExtraHitConfig } from '../../core/domain/buff';
-import { normalizeExtraHitConfig, validateExtraHitConfig } from '../../core/services/buffExtraHit';
+import {
+  normalizeExtraHitCategory,
+  normalizeExtraHitConfig,
+  validateExtraHitConfig,
+} from '../../core/services/buffExtraHit';
 import {
   createLegacyFillDomainCore,
   createLegacyFillSchemaTemplate,
@@ -247,10 +251,11 @@ function validateThreePieceBuff(raw: Record<string, unknown>, path: string, erro
   if (effectKind === 'modifier' && (typeof raw.value !== 'number' || !Number.isFinite(raw.value))) errors.push(`${path}.value must be number`);
   if (typeof raw.unit !== 'string' || !UNITS.includes(raw.unit as never)) errors.push(`${path}.unit must be flat/percent`);
   if (effectKind === 'extraHit') {
-    if (raw.category !== 'passive' && raw.category !== 'countable') errors.push(`${path}.category must be passive or countable for extraHit`);
+    if (raw.category !== 'condition' && raw.category !== 'countable') errors.push(`${path}.category must be condition or countable for extraHit`);
     validateExtraHitConfig(raw.extraHitConfig, `${path}.extraHitConfig`, errors);
   }
-  if (raw.category === 'countable' && (typeof raw.maxStacks !== 'number' || !Number.isFinite(raw.maxStacks) || raw.maxStacks <= 0)) {
+  const countableMaxStacks = effectKind === 'extraHit' ? Number(raw.maxStacks ?? 1) : raw.maxStacks;
+  if (raw.category === 'countable' && (typeof countableMaxStacks !== 'number' || !Number.isFinite(countableMaxStacks) || countableMaxStacks <= 0)) {
     errors.push(`${path}.maxStacks must be positive number for countable`);
   }
 }
@@ -260,16 +265,19 @@ function normalizeThreePieceBuff(raw: Record<string, unknown>, fallbackKey: stri
   const typeKey = effectKind === 'extraHit' ? '' : String(raw.typeKey || '');
   const unit = raw.unit as EquipmentUnit;
   const rawValue = Number(raw.value || 0);
+  const category = effectKind === 'extraHit'
+    ? normalizeExtraHitCategory(raw.category)
+    : raw.category as EquipmentThreePieceBuff['category'];
   return {
     effectId: String(raw.effectId || fallbackKey),
     name: String(raw.name || fallbackKey),
-    category: raw.category as EquipmentThreePieceBuff['category'],
+    category,
     typeKey,
     value: effectKind === 'extraHit' ? 0 : normalizeLegacyEquipmentPercentValue(typeKey, unit, rawValue, raw.raw),
     unit,
     raw: typeof raw.raw === 'string' ? raw.raw : '',
-    ...(raw.category === 'countable' && typeof raw.maxStacks === 'number'
-      ? { maxStacks: Math.max(1, Math.floor(raw.maxStacks)) }
+    ...(category === 'countable'
+      ? { maxStacks: Math.max(1, Math.floor(Number(raw.maxStacks ?? 1))) }
       : {}),
     effectKind,
     ...(effectKind === 'extraHit'
@@ -387,7 +395,8 @@ export function createEquipmentFillDraftSchema(): Readonly<Record<string, unknow
     unit: EQUIPMENT_UNITS,
     threePieceEffectKind: ['modifier', 'extraHit'],
     threePieceCategory: EQUIPMENT_THREE_PIECE_CATEGORIES,
-    extraHitConfig: '{ key, damageType, skillType, baseMultiplier, imbalanceValue, cooldownSeconds, trigger }; skillType empty/A/B/E/Q/Dot (250%=2.5)',
+    extraHitCategory: 'condition/countable only; never passive. countable defaults maxStacks to 1; 1 is a normal single segment and values greater than 1 create multiple independent segments',
+    extraHitConfig: '{ key, damageType, skillType, baseMultiplier, imbalanceValue, cooldownSeconds, trigger, formulaMode?, levelCurve? }; skillType empty/A/B/E/Q/Dot (250%=2.5). formulaMode defaults inherited. Use sourceSkill only with explicit source-skill-strength evidence; physical abnormal damage uses levelCurve=physicalAnomaly, shatter/Arts burst uses artsBurst',
   });
 }
 

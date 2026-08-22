@@ -1,7 +1,11 @@
 import type { BuffEffectKind, BuffExtraHitConfig, BuffMultiplier } from '../../core/domain/buff';
 import { normalizeBuffMultiplier, validateBuffMultiplierDefinition } from '../../core/domain/buffMultiplier';
 import { getMultiplierSupportedBuffTypes } from '../../core/domain/buffTypeRegistry';
-import { normalizeExtraHitConfig, validateExtraHitConfig } from '../../core/services/buffExtraHit';
+import {
+  normalizeExtraHitCategory,
+  normalizeExtraHitConfig,
+  validateExtraHitConfig,
+} from '../../core/services/buffExtraHit';
 import {
   createLegacyFillDomainCore,
   createLegacyFillSchemaTemplate,
@@ -266,7 +270,7 @@ function normalizeOperatorBuffEffect(effectKey: string, rawEffect: Record<string
         ? { coefficient: rawEffect.value }
         : undefined);
   const category = effectKind === 'extraHit'
-    ? (normalizedCategory === 'countable' ? 'countable' : 'passive')
+    ? normalizeExtraHitCategory(normalizedCategory)
     : normalizedMultiplier
       ? 'condition'
       : (normalizedCategory ?? 'passive');
@@ -283,8 +287,8 @@ function normalizeOperatorBuffEffect(effectKey: string, rawEffect: Record<string
     type: effectKind === 'extraHit' ? '' : isLegacySkillMultiplier ? 'multiplierBonus' : String(rawEffect.type || ''),
     category,
     ...(!isLegacySkillMultiplier && typeof rawEffect.value === 'number' && Number.isFinite(rawEffect.value) ? { value: rawEffect.value } : {}),
-    ...(category === 'countable' && typeof rawEffect.maxStacks === 'number' && Number.isFinite(rawEffect.maxStacks)
-      ? { maxStacks: Math.max(1, Math.floor(rawEffect.maxStacks)) }
+    ...(category === 'countable'
+      ? { maxStacks: Math.max(1, Math.floor(Number(rawEffect.maxStacks ?? 1))) }
       : {}),
     ...(typeof rawEffect.unit === 'string' && rawEffect.unit ? { unit: rawEffect.unit } : {}),
     valueMode,
@@ -463,11 +467,12 @@ export function validateOperatorDraftShape(raw: unknown): LegacyFillValidationRe
           const buffCategory = findAllowedValue(rawEffect.category, BUFF_CATEGORIES)
             || (normalizeEnumText(rawEffect.category) === 'positive' ? 'passive' : undefined);
           if (!buffCategory) errors.push(formatInvalidEnum(`buffs.${groupKey}.effects.${effectKey}.category`, rawEffect.category, BUFF_CATEGORIES));
-          if (effectKind === 'extraHit' && buffCategory === 'condition') {
-            errors.push(`buffs.${groupKey}.effects.${effectKey}.category must be passive or countable for extraHit`);
+          if (effectKind === 'extraHit' && buffCategory !== undefined && buffCategory !== 'condition' && buffCategory !== 'countable') {
+            errors.push(`buffs.${groupKey}.effects.${effectKey}.category must be condition or countable for extraHit`);
           }
           if (buffCategory === 'countable') {
-            if (typeof rawEffect.maxStacks !== 'number' || !Number.isFinite(rawEffect.maxStacks) || rawEffect.maxStacks <= 0) {
+            const maxStacks = effectKind === 'extraHit' ? Number(rawEffect.maxStacks ?? 1) : rawEffect.maxStacks;
+            if (typeof maxStacks !== 'number' || !Number.isFinite(maxStacks) || maxStacks <= 0) {
               errors.push(`buffs.${groupKey}.effects.${effectKey}.maxStacks must be positive number when category is countable`);
             }
             if (rawEffect.valueMode === 'derived' || rawEffect.derivedValue !== undefined) {
@@ -595,8 +600,8 @@ export function createOperatorFillDraftSchema(): Readonly<Record<string, unknown
         canonicalSkillMultiplierType: 'multiplierBonus',
         legacyAcceptedInput: 'type=multiplierMultiplier with positive value is accepted only for compatibility and normalized to type=multiplierBonus with multiplier.coefficient=value',
       },
-      countable: 'category=countable requires maxStacks; countable only supports fixed value and no derivedValue; countable extraHit creates one independent damage segment per active stack',
-      extraHit: 'effectKind=extraHit requires extraHitConfig { key, damageType, skillType, baseMultiplier, imbalanceValue, cooldownSeconds, trigger }; category may be passive/countable; skillType is empty/A/B/E/Q/Dot; 250% is baseMultiplier=2.5; extraHit does not support derivedValue',
+      countable: 'modifier category=countable requires maxStacks. extraHit category=countable defaults maxStacks to 1; 1 is an ordinary single segment and values greater than 1 create one independent damage segment per active stack. countable only supports fixed value and no derivedValue',
+      extraHit: 'effectKind=extraHit requires extraHitConfig { key, damageType, skillType, baseMultiplier, imbalanceValue, cooldownSeconds, trigger, formulaMode?, levelCurve? }; category is condition/countable and must never be passive; non-countable input normalizes to condition. formulaMode defaults to inherited. Use sourceSkill only when evidence explicitly says the independent hit scales with Originium Arts/source-skill strength; then levelCurve is physicalAnomaly for physical abnormal damage or artsBurst for shatter/Arts burst. skillType is empty/A/B/E/Q/Dot; 250% is baseMultiplier=2.5; extraHit does not support derivedValue',
       valueMode: OPERATOR_BUFF_VALUE_MODES,
       derivedValue: {
         meaning: 'source value derived Buff; runtime value = selected source value * perPointValue',

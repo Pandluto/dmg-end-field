@@ -1,4 +1,10 @@
-import type { BuffExtraHitDamageType, BuffExtraHitSkillType, BuffExtraHitTrigger } from '../../../core/domain/buff';
+import type {
+  BuffExtraHitDamageType,
+  BuffExtraHitFormulaMode,
+  BuffExtraHitLevelCurve,
+  BuffExtraHitSkillType,
+  BuffExtraHitTrigger,
+} from '../../../core/domain/buff';
 import { BUFF_EXTRA_HIT_RULE, BUFF_MODIFIER_TYPE_IDS } from './catalog';
 
 export interface JsonSchemaObject {
@@ -31,6 +37,8 @@ export interface BuffFillAiEffect {
     imbalanceValue: number;
     cooldownSeconds: number;
     trigger: BuffExtraHitTrigger;
+    formulaMode?: BuffExtraHitFormulaMode;
+    levelCurve?: BuffExtraHitLevelCurve;
   };
 }
 
@@ -144,8 +152,16 @@ export function createBuffFillAiDraftSchema(): JsonSchemaObject {
                       effectKind: { type: 'string', enum: ['extraHit'] },
                       type: { type: 'string', enum: [''] },
                       value: { type: 'number', enum: [0] },
-                      category: { type: 'string', enum: ['passive', 'countable'] },
-                      maxStacks: { type: 'number' },
+                      category: {
+                        type: 'string',
+                        enum: ['condition', 'countable'],
+                        description: '缺省按 condition 单段处理；只有明确可计层时使用 countable。',
+                      },
+                      maxStacks: {
+                        type: 'number',
+                        minimum: 1,
+                        description: '仅 countable 使用；缺省为 1，1 表示普通单段，大于 1 表示按当前层数生成多段。',
+                      },
                       extraHitConfig: {
                         type: 'object',
                         additionalProperties: false,
@@ -158,6 +174,16 @@ export function createBuffFillAiDraftSchema(): JsonSchemaObject {
                           imbalanceValue: { type: 'number' },
                           cooldownSeconds: { type: 'number' },
                           trigger: { type: 'string', enum: [BUFF_EXTRA_HIT_RULE.trigger] },
+                          formulaMode: {
+                            type: 'string',
+                            enum: ['inherited', 'sourceSkill'],
+                            description: '缺省 inherited；只有文本明确说明伤害受源石技艺强度提升时使用 sourceSkill。',
+                          },
+                          levelCurve: {
+                            type: 'string',
+                            enum: ['physicalAnomaly', 'artsBurst'],
+                            description: 'sourceSkill 模式的等级系数：物理异常用 physicalAnomaly，碎冰或法术爆发用 artsBurst。',
+                          },
                         },
                       },
                     },
