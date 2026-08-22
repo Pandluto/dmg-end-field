@@ -18,6 +18,7 @@ import { calculateBuffedPanel } from '../calculators/buffCalculator';
 import { getCharacterComputed } from '../../utils/storage';
 import { normalizeBuffMultiplier } from '../domain/buffMultiplier';
 import { detachBuffFromSkillButton } from './skillButtonPanelConfig';
+import { normalizeExtraHitConfig } from './buffExtraHit';
 
 // 运行时缓存（用于快速访问）
 let buffCache: Record<string, SkillButtonBuff> = {};
@@ -34,7 +35,10 @@ function getEffectiveModifierBuffs(
   return buffs.filter((buff) => isModifierBuff(buff) && !disabledBuffIds.has(buff.id));
 }
 
-function normalizeBuffCategory(category: unknown): 'condition' | 'countable' | 'passive' {
+function normalizeBuffCategory(category: unknown, effectKind?: unknown): 'condition' | 'countable' | 'passive' {
+  if (effectKind === 'extraHit') {
+    return category === 'countable' ? 'countable' : 'condition';
+  }
   if (category === 'countable' || category === 'passive' || category === 'condition') {
     return category;
   }
@@ -49,7 +53,7 @@ function normalizeMaxStacks(value: unknown): number {
 }
 
 function readButtonBuffStackCount(button: { buffStackCounts?: Record<string, number> }, buffId: string, buff: SkillButtonBuff): number {
-  if (normalizeBuffCategory(buff.category) !== 'countable') return 1;
+  if (normalizeBuffCategory(buff.category, buff.effectKind) !== 'countable') return 1;
   const maxStacks = normalizeMaxStacks(buff.maxStacks);
   const rawCount = button.buffStackCounts?.[buffId];
   const count = typeof rawCount === 'number' && Number.isFinite(rawCount) ? Math.floor(rawCount) : maxStacks;
@@ -63,7 +67,7 @@ function withBuffStackCount(
   nextCount: number | null,
 ) {
   const nextStackCounts = { ...(button.buffStackCounts ?? {}) };
-  if (nextCount === null || normalizeBuffCategory(buff.category) !== 'countable') {
+  if (nextCount === null || normalizeBuffCategory(buff.category, buff.effectKind) !== 'countable') {
     delete nextStackCounts[buffId];
   } else {
     nextStackCounts[buffId] = Math.min(Math.max(Math.floor(nextCount), 0), normalizeMaxStacks(buff.maxStacks));
@@ -78,11 +82,14 @@ function withBuffStackCount(
  */
 export function getBuffIdentityKey(buff: Pick<SkillButtonBuff, 'name' | 'displayName' | 'sourceName' | 'level' | 'type' | 'value' | 'condition' | 'source' | 'target' | 'effectKind' | 'extraHitConfig' | 'category' | 'maxStacks' | 'multiplier' | 'ownerBuffDomain' | 'ownerCharacterId' | 'ownerBuffGroup' | 'valueMode' | 'derivedValue'>): string {
   const targetStr = buff.target ? JSON.stringify(buff.target) : 'all';
-  const extraHitStr = buff.extraHitConfig ? JSON.stringify(buff.extraHitConfig) : '';
+  const extraHitStr = buff.effectKind === 'extraHit'
+    ? JSON.stringify(normalizeExtraHitConfig(buff.extraHitConfig))
+    : '';
   const multiplier = normalizeBuffMultiplier(buff.multiplier);
   const multiplierStr = multiplier ? String(multiplier.coefficient) : '';
   const derivedValueStr = buff.derivedValue ? JSON.stringify(buff.derivedValue) : '';
-  return `${buff.name}||${buff.displayName}||${buff.sourceName}||${buff.level}||${buff.type}||${buff.value}||${buff.condition}||${buff.source}||${targetStr}||${buff.effectKind || 'modifier'}||${extraHitStr}||${normalizeBuffCategory(buff.category)}||${normalizeBuffCategory(buff.category) === 'countable' ? normalizeMaxStacks(buff.maxStacks) : ''}||${multiplierStr}||${buff.ownerBuffDomain ?? ''}||${buff.ownerCharacterId ?? ''}||${buff.ownerBuffGroup ?? ''}||${buff.valueMode ?? 'fixed'}||${derivedValueStr}`;
+  const category = normalizeBuffCategory(buff.category, buff.effectKind);
+  return `${buff.name}||${buff.displayName}||${buff.sourceName}||${buff.level}||${buff.type}||${buff.value}||${buff.condition}||${buff.source}||${targetStr}||${buff.effectKind || 'modifier'}||${extraHitStr}||${category}||${category === 'countable' ? normalizeMaxStacks(buff.maxStacks) : ''}||${multiplierStr}||${buff.ownerBuffDomain ?? ''}||${buff.ownerCharacterId ?? ''}||${buff.ownerBuffGroup ?? ''}||${buff.valueMode ?? 'fixed'}||${derivedValueStr}`;
 }
 
 /**
@@ -169,11 +176,13 @@ export function addBuffToButton(
   const currentSelectedBuff = button.selectedBuff || [];
 
   // 2. 检查是否已存在相同内容的 Buff（当前按钮内），用 getBuffIdentityKey 统一判重
+  const normalizedCategory = normalizeBuffCategory(buff.category, buff.effectKind);
   const normalizedBuff = {
     ...buff,
-    category: normalizeBuffCategory(buff.category),
-    ...(normalizeBuffCategory(buff.category) === 'countable' ? { maxStacks: normalizeMaxStacks(buff.maxStacks) } : {}),
-    multiplier: normalizeBuffMultiplier(buff.multiplier),
+    category: normalizedCategory,
+    maxStacks: normalizedCategory === 'countable' ? normalizeMaxStacks(buff.maxStacks) : undefined,
+    multiplier: buff.effectKind === 'extraHit' ? undefined : normalizeBuffMultiplier(buff.multiplier),
+    extraHitConfig: buff.effectKind === 'extraHit' ? normalizeExtraHitConfig(buff.extraHitConfig) : undefined,
   };
   const targetKey = getBuffIdentityKey(normalizedBuff);
   const existsInButton = currentSelectedBuff.some(id => {
@@ -187,7 +196,7 @@ export function addBuffToButton(
       return existingBuff ? getBuffIdentityKey(existingBuff) === targetKey : false;
     });
     const existingBuff = existingBuffId ? buffCache[existingBuffId] || getBuffById(existingBuffId) : null;
-    if (existingBuffId && existingBuff && normalizeBuffCategory(existingBuff.category) === 'countable') {
+    if (existingBuffId && existingBuff && normalizeBuffCategory(existingBuff.category, existingBuff.effectKind) === 'countable') {
       const currentCount = readButtonBuffStackCount(button, existingBuffId, existingBuff);
       const nextStackCounts = withBuffStackCount(button, existingBuffId, existingBuff, currentCount + 1);
       upsertSkillButton({
@@ -232,7 +241,7 @@ export function addBuffToButton(
 
   const nextSelectedBuff = [...currentSelectedBuff, buffId];
   const savedBuff = buffCache[buffId] || getBuffById(buffId);
-  const nextStackCounts = savedBuff && normalizeBuffCategory(savedBuff.category) === 'countable'
+  const nextStackCounts = savedBuff && normalizeBuffCategory(savedBuff.category, savedBuff.effectKind) === 'countable'
     ? withBuffStackCount(button, buffId, savedBuff, normalizeMaxStacks(savedBuff.maxStacks))
     : { ...(button.buffStackCounts ?? {}) };
 
@@ -299,7 +308,7 @@ export function removeBuffFromButton(buttonId: string, buffId: string): void {
 export function decrementBuffStackOnButton(buttonId: string, buffId: string): void {
   const button = getSkillButtonById(buttonId);
   const buff = getBuffById(buffId);
-  if (!button || !buff || normalizeBuffCategory(buff.category) !== 'countable') {
+  if (!button || !buff || normalizeBuffCategory(buff.category, buff.effectKind) !== 'countable') {
     removeBuffFromButton(buttonId, buffId);
     return;
   }
@@ -551,7 +560,7 @@ export function attachExistingBuffsToButton(buttonId: string, buffIds: string[])
   const nextStackCounts = { ...(button.buffStackCounts ?? {}) };
   buffIds.forEach((buffId) => {
     const buff = getBuffById(buffId);
-    if (buff && normalizeBuffCategory(buff.category) === 'countable' && nextStackCounts[buffId] === undefined) {
+    if (buff && normalizeBuffCategory(buff.category, buff.effectKind) === 'countable' && nextStackCounts[buffId] === undefined) {
       nextStackCounts[buffId] = normalizeMaxStacks(buff.maxStacks);
     }
   });

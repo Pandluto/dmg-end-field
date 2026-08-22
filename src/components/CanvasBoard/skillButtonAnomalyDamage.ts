@@ -7,6 +7,10 @@ import {
   type HitBuffZoneResults,
 } from '../../core/calculators/buffZoneCalculator';
 import { getBuffTypeRegistryEntry } from '../../core/domain/buffTypeRegistry';
+import {
+  resolveExtraHitBaseScaling,
+  resolveSpecialDamageLevelCoefficient,
+} from '../../core/services/buffExtraHit';
 import type { AppliedBuffTagViewModel, SkillDamagePanel, SkillDamagePanelBase } from '../../core/calculators/skillDamage.types';
 import type { ElementType, HitSkillType } from '../../types';
 import type { DamageBonusSnapshot, HitResistanceInput, SkillButtonBuff } from '../../types/storage';
@@ -190,10 +194,10 @@ function resolveBurnDamageMode(card: SelectedAnomalyCard): BurnDamageMode {
 }
 
 function resolveLevelCoefficient(card: SelectedAnomalyCard, operatorLevel: number): number {
-  if (card.key === 'shatter-ice' || card.category === 'magic') {
-    return 1 + (operatorLevel - 1) / 196;
-  }
-  return 1 + (operatorLevel - 1) / 392;
+  return resolveSpecialDamageLevelCoefficient(
+    card.key === 'shatter-ice' || card.category === 'magic' ? 'artsBurst' : 'physicalAnomaly',
+    operatorLevel,
+  );
 }
 
 function resolveElementText(card: SelectedAnomalyCard, fallbackElement?: string): string {
@@ -549,13 +553,19 @@ export function buildAnomalyDamageSegments({
       }
 
       const buffTotals = calculateBuffTotals(combinedAppliedBuffs, segmentStackCounts);
+      const currentCharacterSourceSkillBoost = getEffectiveCharacterSourceSkillBoost(buttonCharacterId, combinedAppliedBuffs);
+      const baseScaling = resolveExtraHitBaseScaling(
+        extraHitConfig,
+        currentCharacterSourceSkillBoost,
+        currentOperatorLevel,
+      );
       const zoneResults = calculateSpecialHitBuffZones({
         element: elementKey,
         skillType: extraHitConfig.skillType,
         buffs: combinedAppliedBuffs,
         stackCounts: segmentStackCounts,
         damageBonus,
-        baseSkillMultiplier: extraHitConfig.baseMultiplier,
+        baseSkillMultiplier: baseScaling.scaledBaseMultiplier,
       });
       const elementBonus = readPanelElementBonus(damageBonus, elementKey)
         + sumAdditiveContributions(zoneResults, ELEMENT_DAMAGE_BONUS_TYPES);
@@ -600,19 +610,21 @@ export function buildAnomalyDamageSegments({
         panelAtkText: extraHitAtk.toFixed(0),
         critRateText: `${(extraHitCritRate * 100).toFixed(1)}%`,
         critDmgText: `${(extraHitCritDmg * 100).toFixed(1)}%`,
-        sourceSkillBoostText: '-',
-        levelCoefficientText: '-',
-        sourceSkillZoneText: '-',
+        sourceSkillBoostText: baseScaling.formulaMode === 'sourceSkill' ? baseScaling.sourceSkill.toFixed(1) : '-',
+        levelCoefficientText: baseScaling.formulaMode === 'sourceSkill' ? baseScaling.levelCoefficient.toFixed(3) : '-',
+        sourceSkillZoneText: baseScaling.formulaMode === 'sourceSkill' ? baseScaling.sourceSkillZone.toFixed(3) : '-',
         baseMultiplierText: `${(extraHitConfig.baseMultiplier * 100).toFixed(1)}%`,
         multiplierText: `${(finalMultiplier * 100).toFixed(1)}%`,
-        multiplierFormulaText: `(${(extraHitConfig.baseMultiplier * 100).toFixed(1)}% + ${(zoneResults.skillMultiplier.additiveTotal * 100).toFixed(1)}%) × ${zoneResults.skillMultiplier.multiplierProduct.toFixed(3)}`,
+        multiplierFormulaText: `(${(baseScaling.scaledBaseMultiplier * 100).toFixed(1)}% + ${(zoneResults.skillMultiplier.additiveTotal * 100).toFixed(1)}%) × ${zoneResults.skillMultiplier.multiplierProduct.toFixed(3)}`,
         expectedText: expected.toFixed(0),
         critText: crit.toFixed(0),
         nonCritText: nonCrit.toFixed(0),
         expectedValue: expected,
         critValue: crit,
         nonCritValue: nonCrit,
-        formulaText: `${extraHitAtk.toFixed(0)} × ${(extraHitConfig.baseMultiplier * 100).toFixed(1)}% 经 Buff 修正后 = ${(finalMultiplier * 100).toFixed(1)}%`,
+        formulaText: baseScaling.formulaMode === 'sourceSkill'
+          ? `(${(extraHitConfig.baseMultiplier * 100).toFixed(1)}% × ${baseScaling.levelCoefficient.toFixed(3)} × ${baseScaling.sourceSkillZone.toFixed(3)} + ${(zoneResults.skillMultiplier.additiveTotal * 100).toFixed(1)}%) × ${zoneResults.skillMultiplier.multiplierProduct.toFixed(3)} = ${(finalMultiplier * 100).toFixed(1)}%`
+          : `(${(extraHitConfig.baseMultiplier * 100).toFixed(1)}% + ${(zoneResults.skillMultiplier.additiveTotal * 100).toFixed(1)}%) × ${zoneResults.skillMultiplier.multiplierProduct.toFixed(3)} = ${(finalMultiplier * 100).toFixed(1)}%`,
         elementBonusText: `${(elementBonus * 100).toFixed(1)}%`,
         skillBonusText: `${(skillBonus * 100).toFixed(1)}%`,
         allDamageBonusText: `${(allDamageBonus * 100).toFixed(1)}%`,

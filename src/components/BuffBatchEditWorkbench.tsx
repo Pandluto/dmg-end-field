@@ -7,6 +7,7 @@ import {
   LINE_ROW_INDICES,
 } from '../core/calculators/gridSnapLayout';
 import { normalizeAssetUrl } from '../utils/assetResolver';
+import { formatExtraHitFormulaLabel } from '../core/services/buffExtraHit';
 import type { Character } from '../types';
 import type { PersistedSkillButton } from '../types/storage';
 import { BuffEditSkillButton } from './BuffEditSkillButton';
@@ -543,7 +544,7 @@ export function BuffBatchEditWorkbench({
                         </div>
                         <p>{entry.groupName}{entry.itemName ? ` / ${entry.itemName}` : ''}</p>
                         <p>{entry.effectKind === 'extraHit'
-                          ? `倍率: ${((entry.extraHitConfig?.baseMultiplier ?? 0) * 100).toFixed(1)}% / ${entry.extraHitConfig?.damageType || 'physical'} / ${entry.extraHitConfig?.skillType || '空'} / CD ${entry.extraHitConfig?.cooldownSeconds ?? 0}s`
+                          ? `${entry.extraHitConfig ? formatExtraHitFormulaLabel(entry.extraHitConfig) : '普通继承段'} / 倍率: ${((entry.extraHitConfig?.baseMultiplier ?? 0) * 100).toFixed(1)}% / ${entry.extraHitConfig?.damageType || 'physical'} / ${entry.extraHitConfig?.skillType || '空'} / CD ${entry.extraHitConfig?.cooldownSeconds ?? 0}s`
                           : `数值: ${entry.value ?? '-'}${entry.condition ? ` / ${entry.condition}` : ''}`}</p>
                       </button>
                     ))

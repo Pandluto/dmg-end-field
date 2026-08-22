@@ -317,7 +317,7 @@ export function formatBuffEffectValueText(effect: Partial<BuffEffectDraft>) {
 
 export function applyBuffEffectKind(effect: BuffEffectDraft, nextKind: BuffEffectKind): BuffEffectDraft {
   if (nextKind === 'extraHit') {
-    const category = normalizeBuffCategory(effect.category) === 'countable' ? 'countable' : 'passive';
+    const category = normalizeBuffCategory(effect.category) === 'countable' ? 'countable' : 'condition';
     return {
       ...effect,
       effectKind: 'extraHit',
@@ -339,8 +339,8 @@ export function applyBuffEffectKind(effect: BuffEffectDraft, nextKind: BuffEffec
 export function applyBuffCategory(effect: BuffEffectDraft, nextCategory: BuffCategory): BuffEffectDraft {
   const category = getBuffEffectMultiplier(effect)
     ? 'condition'
-    : effect.effectKind === 'extraHit' && nextCategory === 'condition'
-      ? 'passive'
+    : effect.effectKind === 'extraHit' && nextCategory !== 'countable'
+      ? 'condition'
       : nextCategory;
   return {
     ...effect,
@@ -392,7 +392,7 @@ export function normalizeEffect(effectKey: string, effect: Partial<BuffEffectDra
   const effectKind = normalizedEffect.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
   const normalizedCategory = normalizeBuffCategory(normalizedEffect.category);
   const rawCategory = effectKind === 'extraHit' && normalizedCategory !== 'countable'
-    ? 'passive'
+    ? 'condition'
     : normalizedCategory;
   const type = effectKind === 'extraHit' ? '' : normalizeLegacyBuffType(normalizedEffect.type ?? fallback.type);
   const multiplier = effectKind === 'modifier' && rawCategory !== 'countable' && canUseBuffMultiplier(type)
@@ -644,7 +644,9 @@ export function buildBuffSheetRows(draft: BuffDraft): BuffSheetRow[] {
           ? '额外伤害段'
           : `${getBuffEffectMultiplier(effect) ? '乘算 · ' : ''}${effect.type ? getBuffTypeDisplayLabel(effect.type) : '暂无'}`,
         valueText: formatBuffEffectValueText(effect),
-        categoryText: `${BUFF_CATEGORY_LABELS[normalizeBuffCategory(effect.category)]}${normalizeBuffCategory(effect.category) === 'countable' ? `/${effect.maxStacks ?? 1}` : ''}`,
+        categoryText: effect.effectKind === 'extraHit'
+          ? normalizeBuffCategory(effect.category) === 'countable' ? `计段/${effect.maxStacks ?? 1}` : '条件单段'
+          : `${BUFF_CATEGORY_LABELS[normalizeBuffCategory(effect.category)]}${normalizeBuffCategory(effect.category) === 'countable' ? `/${effect.maxStacks ?? 1}` : ''}`,
         sourceName: effect.sourceName || item.sourceName || draft.sourceName,
         condition: effect.condition || '-',
         description: effect.description || '-',

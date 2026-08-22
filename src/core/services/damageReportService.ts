@@ -34,6 +34,7 @@ import {
 import type { ResistanceZoneResult } from '../calculators/buffCalculator';
 import type { BuffContribution, ZoneCalculationResult } from '../calculators/buffZoneCalculator';
 import { persistentLocalStorage } from '../../platform/storage/persistentStorage';
+import { resolveExtraHitBaseScaling, resolveSpecialDamageLevelCoefficient } from './buffExtraHit';
 
 export interface DamageReportBuffRow {
   id: string;
@@ -717,11 +718,9 @@ function resolveBurnDamageMode(card: PersistedAnomalyCard): NonNullable<Persiste
 }
 
 function resolveAnomalyLevelCoefficient(card: PersistedAnomalyCard): number {
-  const currentOperatorLevel = 90;
-  if (card.key === 'shatter-ice' || card.category === 'magic') {
-    return 1 + (currentOperatorLevel - 1) / 196;
-  }
-  return 1 + (currentOperatorLevel - 1) / 392;
+  return resolveSpecialDamageLevelCoefficient(
+    card.key === 'shatter-ice' || card.category === 'magic' ? 'artsBurst' : 'physicalAnomaly',
+  );
 }
 
 function resolveAnomalyElementKey(card: PersistedAnomalyCard, fallbackElement: string | undefined): string {
@@ -871,9 +870,11 @@ function buildAnomalyReportHits(
       const appliedBuffs = modifierBuffList.filter((item) => !disabledBuffIds.has(item.id));
       const segmentPanel = buildDamageReportPanel(panelBase, panel, appliedBuffs, stackCounts);
       const buffTotals = calculateBuffTotals(appliedBuffs, stackCounts);
+      const sourceSkill = baseSourceSkill + buffTotals.sourceSkillBoost;
+      const baseScaling = resolveExtraHitBaseScaling(config, sourceSkill);
       const damageBonusRate = 1
         + calculateElementDmgBonus(elementKey, parsedDamageBonusRecord, buffTotals)
-        + calculateSkillDmgBonus('', parsedDamageBonusRecord, buffTotals)
+        + calculateSkillDmgBonus(config.skillType, parsedDamageBonusRecord, buffTotals)
         + (characterDamageBonus.allDmgBonus || 0)
         + (buffTotals.allDmgBonus || 0);
       const resistance = calculateResistanceZone(elementKey, button.resistanceConfig?.targetResistance, buffTotals);
@@ -883,7 +884,7 @@ function buildAnomalyReportHits(
       const comboDamageBonus = buffTotals.comboDamageBonus;
       const imbalanceDamageBonus = buffTotals.imbalanceDamageBonus + (elementKey === 'physical' ? (characterDamageBonus.imbalanceDmgBonus || 0) : 0);
       const defenseZone = 0.5;
-      const finalMultiplier = (config.baseMultiplier + buffTotals.multiplierBonus) * buffTotals.multiplierMultiplier;
+      const finalMultiplier = (baseScaling.scaledBaseMultiplier + buffTotals.multiplierBonus) * buffTotals.multiplierMultiplier;
       const expected = calculateBreakdown(segmentPanel.atk, finalMultiplier, 1 + segmentPanel.critRate * segmentPanel.critDmg, damageBonusRate, defenseZone, resistance.resistanceZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
       const nonCrit = calculateBreakdown(segmentPanel.atk, finalMultiplier, 1, damageBonusRate, defenseZone, resistance.resistanceZone, amplifyRate, fragileRate, vulnerabilityRate, comboDamageBonus, imbalanceDamageBonus);
 
@@ -892,7 +893,7 @@ function buildAnomalyReportHits(
         title: `${normalHitCount + anomalyRows.length + extraHitSequenceOffset + hitIndex + 1}段 · ${buff.displayName}${hitCount > 1 ? ` ${hitIndex + 1}/${hitCount}` : ''}`,
         sourceKind: 'extraHit' as const,
         damageSourceLabel: formatDamageSourceLabel('extraHit'),
-        skillTypeLabel: formatSkillTypeLabel(button.skillType),
+        skillTypeLabel: formatSkillTypeLabel(config.skillType),
         elementLabel: formatElementLabel(elementKey),
         damage: expected,
         expected,

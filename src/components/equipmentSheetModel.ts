@@ -209,7 +209,7 @@ export const EQUIPMENT_BUFF_BUSINESS_TYPE_OPTIONS = buffModel.OPERATOR_BUFF_BUSI
         ? '计层 · countable'
         : value === 'multiplier'
           ? '乘算 · multiplier'
-          : '计层额外伤害段 · countable extraHit',
+          : '额外伤害段（普通继承 / 源石技艺）',
 }));
 
 export function getEquipmentBuffBusinessType(buff: EquipmentThreePieceBuff | undefined) {

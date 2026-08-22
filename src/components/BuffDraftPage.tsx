@@ -1024,9 +1024,13 @@ export function BuffDraftSheetPage() {
                 disabled={Boolean(getBuffEffectMultiplier(selectedEffect))}
               >
                 {BUFF_CATEGORY_OPTIONS
-                  .filter((option) => selectedEffect.effectKind !== 'extraHit' || option !== 'condition')
+                  .filter((option) => selectedEffect.effectKind !== 'extraHit' || option !== 'passive')
                   .map((option) => (
-                    <option key={option} value={option}>{BUFF_CATEGORY_LABELS[option]}</option>
+                    <option key={option} value={option}>
+                      {selectedEffect.effectKind === 'extraHit'
+                        ? option === 'countable' ? '计段' : '条件单段'
+                        : BUFF_CATEGORY_LABELS[option]}
+                    </option>
                   ))}
               </select>
               {normalizeBuffCategory(selectedEffect.category) === 'countable' && (
@@ -1038,7 +1042,7 @@ export function BuffDraftSheetPage() {
                   step={1}
                   value={selectedEffect.maxStacks ?? 1}
                   onChange={(event) => updateSelectedEffect((prev) => setBuffMaxStacks(prev, Number(event.target.value)))}
-                  placeholder="最大层数"
+                  placeholder={selectedEffect.effectKind === 'extraHit' ? '最大段数' : '最大层数'}
                 />
               )}
             </div>

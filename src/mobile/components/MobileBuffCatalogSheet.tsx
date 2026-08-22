@@ -3,6 +3,7 @@ import type { ConfigSnapshot } from '../../core/calculators/operatorPanelCalcula
 import type { Character } from '../../types';
 import type { SkillButtonBuff } from '../../types/storage';
 import type { MobileTimelineAction } from '../model';
+import { formatExtraHitFormulaLabel } from '../../core/services/buffExtraHit';
 import {
   MOBILE_ANOMALY_GROUPS,
   MOBILE_ANOMALY_STATE_OPTIONS,
@@ -57,7 +58,7 @@ function getModeTitle(mode: MobileBuffCatalogMode): string {
 function getBuffMeta(buff: SkillButtonBuff): string {
   if (buff.effectKind === 'extraHit' && buff.extraHitConfig) {
     const { damageType, skillType, baseMultiplier, imbalanceValue, cooldownSeconds } = buff.extraHitConfig;
-    return `${damageType} · ${skillType || '独立'} · ${(baseMultiplier * 100).toFixed(0)}% · 失衡 ${imbalanceValue} · CD ${cooldownSeconds}s`;
+    return `${formatExtraHitFormulaLabel(buff.extraHitConfig)} · ${damageType} · ${skillType || '独立'} · ${(baseMultiplier * 100).toFixed(0)}% · 失衡 ${imbalanceValue} · CD ${cooldownSeconds}s`;
   }
   return [buff.sourceName, buff.type, buff.level].filter(Boolean).join(' · ');
 }

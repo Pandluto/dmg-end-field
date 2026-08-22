@@ -483,7 +483,7 @@ export const EFFECT_CATEGORY_OPTIONS = [
   { value: 'condition', label: '条件 · condition' },
   { value: 'countable', label: '计层 · countable' },
   { value: 'multiplier', label: '乘算 · multiplier' },
-  { value: 'extraHit', label: '计层额外伤害段 · countable extraHit' },
+  { value: 'extraHit', label: '额外伤害段（普通继承 / 源石技艺）' },
 ];
 
 export function getEffectCategoryLabel(category: string) {

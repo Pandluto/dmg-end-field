@@ -327,6 +327,8 @@ assert.deepEqual(normalizedExtraHit.extraHitConfig, {
   imbalanceValue: 12,
   cooldownSeconds: 7,
   trigger: 'physicalAbnormal',
+  formulaMode: 'inherited',
+  levelCurve: 'physicalAnomaly',
 });
 assert.deepEqual(normalizedBuffs.talent.effects.derived.derivedValue, { source: 'atk', perPointValue: 2 });
 assert.equal(normalizedBuffs.talent.effects.malformed.schemaVersion, 2);
