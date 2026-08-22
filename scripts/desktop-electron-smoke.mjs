@@ -249,7 +249,12 @@ async function inspectBrowserWorkspace({ workspaceUrl, mcpUrl, clientConfigPath,
     assert.equal(
       registeredAgentState?.consumer?.binding?.workspaceId?.length > 0,
       true,
-      'AI 模式没有在时限内注册完整 Browser Workbench consumer',
+      `AI 模式没有在时限内注册完整 Browser Workbench consumer：${JSON.stringify({
+        registeredAgentState,
+        agentTraffic,
+        browserLogs,
+        body: await agentPage.locator('body').innerText().catch(() => ''),
+      })}`,
     );
     // The first Main Workbench render can publish more than one snapshot while
     // it settles its active timeline. Verify the post-settlement consumer, not
@@ -273,7 +278,7 @@ async function inspectBrowserWorkspace({ workspaceUrl, mcpUrl, clientConfigPath,
       })(),
       locks: typeof navigator.locks?.query === 'function' ? await navigator.locks.query() : null,
     }));
-    assert.equal(agentState.engine?.kind, 'opencode');
+    assert.equal(agentState.engine?.kind, 'def-runtime');
     assert.equal(agentState.engine?.state, 'unavailable');
     assert.equal(
       agentState.consumer?.binding?.workspaceId?.length > 0,
@@ -590,7 +595,7 @@ try {
   });
   const runningAgent = await firstPage.evaluate(() => window.desktopHost?.getAgentState());
   assert.equal(runningAgent?.ready, true, runningAgent?.reason);
-  assert.equal(runningAgent?.health?.engine?.kind, 'opencode');
+  assert.equal(runningAgent?.health?.engine?.kind, 'def-runtime');
   assert.equal(runningAgent?.health?.engine?.state, 'unavailable');
 
   const bypassedSelection = await firstPage.evaluate(async () => (

@@ -18,11 +18,11 @@ const unpackedAgentRoot = path.join(
   'agent',
 );
 const hostEntry = path.join(unpackedAgentRoot, 'host-entry.cjs');
-const engineRoot = path.join(unpackedAgentRoot, 'engine', 'opencode');
+const engineRoot = path.join(unpackedAgentRoot, 'engine', 'def-runtime');
 const nativeUiRoot = path.join(unpackedAgentRoot, 'ui');
 assert.equal(fs.statSync(hostEntry).isFile(), true, `缺少 packaged Agent Host：${hostEntry}`);
-assert.equal(fs.statSync(engineRoot).isDirectory(), true, `缺少 packaged OpenCode Engine：${engineRoot}`);
-assert.equal(fs.statSync(path.join(nativeUiRoot, 'index.html')).isFile(), true, `缺少 packaged OpenCode UI：${nativeUiRoot}`);
+assert.equal(fs.statSync(engineRoot).isDirectory(), true, `缺少 packaged DEF Runtime：${engineRoot}`);
+assert.equal(fs.statSync(path.join(nativeUiRoot, 'index.html')).isFile(), true, `缺少 packaged Agent UI：${nativeUiRoot}`);
 
 const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'def-packaged-agent-smoke-'));
 const readyFile = path.join(temporaryRoot, 'ready.json');
@@ -76,9 +76,9 @@ try {
   assert.equal(health.service, 'def-agent-host');
   assert.equal(health.state, 'ready');
   assert.deepEqual(health.engine, {
-    kind: 'opencode',
+    kind: 'def-runtime',
     state: 'unavailable',
-    reason: 'OpenCode provider profile is not configured',
+    reason: 'Provider profile is not configured. Please update it in the desktop Shell.',
   });
   assert.doesNotMatch(JSON.stringify({ manifest, health }), /hostToken|bridge|authorization|apiKey/iu);
 
