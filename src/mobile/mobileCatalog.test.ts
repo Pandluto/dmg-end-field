@@ -27,7 +27,10 @@ const channel = readFixture('resources/stable.json') as {
 const deployment = readFixture(channel.releaseManifest.path) as {
   delivery: { dataManifest: { path: string }; imageManifest: { path: string } };
 };
-const dataManifest = readFixture('web-data-manifest.json') as { version: string };
+const dataManifest = readFixture('web-data-manifest.json') as {
+  version: string;
+  summary: { operators: number; weapons: number };
+};
 const imageManifest = readFixture('web-image-manifest.json') as { version: string };
 const dataEntry = (dataManifest as unknown as {
   files: Array<{ path: string; downloadPath?: string }>;
@@ -66,8 +69,8 @@ try {
   const catalog = await loadMobileCatalog();
   assert.equal(catalog.dataVersion, dataManifest.version);
   assert.equal(catalog.imageVersion, imageManifest.version);
-  assert.equal(catalog.characters.length, 31);
-  assert.equal(Object.keys(catalog.weapons).length, 76);
+  assert.equal(catalog.characters.length, dataManifest.summary.operators);
+  assert.equal(Object.keys(catalog.weapons).length, dataManifest.summary.weapons);
   assert.ok(catalog.buffs.length > 0);
   assert.ok(catalog.characters.some((character) => character.sandboxSkills?.length));
   assert.ok(
