@@ -7,6 +7,7 @@ import {
 } from '../resources/resourcePackage';
 import { formatNotificationVersionLabel } from './notificationFormat';
 import { useNotificationCenter } from './NotificationCenterProvider';
+import { fetchCurrentResourceRelease } from '../resources/resourceChannel';
 
 const RESOURCE_CHECK_INTERVAL_MS = 30 * 60 * 1_000;
 const RESOURCE_STATUS_EVENT = 'dmg-resource-status-changed';
@@ -45,6 +46,7 @@ export function useResourceStatusNotifications(): void {
     if (checkingRef.current || !ready) return;
     checkingRef.current = true;
     try {
+      const releaseContext = await fetchCurrentResourceRelease({ fresh: true }).catch(() => null);
       const [
         installedData,
         installedImages,
@@ -54,8 +56,8 @@ export function useResourceStatusNotifications(): void {
       ] = await Promise.all([
         readInstalledResourcePackage(),
         readInstalledImagePackage(),
-        fetchResourcePackageManifest({ fresh: true }).catch(() => null),
-        fetchImagePackageManifest({ fresh: true }).catch(() => null),
+        releaseContext ? fetchResourcePackageManifest().catch(() => null) : Promise.resolve(null),
+        releaseContext ? fetchImagePackageManifest().catch(() => null) : Promise.resolve(null),
         listLocalDataPackages('share').catch(() => []),
       ]);
 
@@ -79,6 +81,9 @@ export function useResourceStatusNotifications(): void {
         && !latestOfficialPackage.active
         && latestOfficialPackage.dataVersion === installedData.version,
       );
+      const latestSourceLabel = releaseContext?.source === 'bundled'
+        ? '当前程序内置版本'
+        : '服务器最新';
 
       if (dataUpdateAvailable && latestDataManifest) {
         await announce(
@@ -88,7 +93,7 @@ export function useResourceStatusNotifications(): void {
             kind: 'data-download',
             severity: 'info',
             title: `资料有新版本 ${officialPackageLabel(latestDataManifest.version)}`,
-            body: `已下载 ${officialPackageLabel(installedData?.version || '')}，服务器最新为 `
+            body: `已下载 ${officialPackageLabel(installedData?.version || '')}，${latestSourceLabel}为 `
               + `${officialPackageLabel(latestDataManifest.version)}。`,
             action: { label: '去数据页', handlerKey: 'data-workspace' },
           },

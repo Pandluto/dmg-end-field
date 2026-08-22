@@ -40,6 +40,7 @@ try {
   );
   const context = await fetchCurrentResourceRelease({ fresh: true });
   assert.equal(context.legacy, true);
+  assert.equal(context.source, 'bundled');
   assert.deepEqual(context.dataManifest, { version: 'bundled-data' });
   assert.deepEqual(context.imageManifest, { version: 'bundled-images' });
   assert.ok(requests.some((url) => url.includes('/__official_resources__/resources/stable.json')));

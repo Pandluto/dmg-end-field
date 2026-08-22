@@ -14,6 +14,10 @@ import {
   type InstalledImagePackage,
 } from '../../platform/resources/imagePackage';
 import { applyDefaultLocalDataPackage } from '../../platform/data/localDataPackages';
+import {
+  fetchCurrentResourceRelease,
+  type ResourceReleaseContext,
+} from '../../platform/resources/resourceChannel';
 
 interface WelcomePageProps {
   onInstalled: (
@@ -36,6 +40,7 @@ export function WelcomePage({ onInstalled }: WelcomePageProps) {
   const [isInstalling, setIsInstalling] = useState(false);
   const [error, setError] = useState('');
   const [availablePackage, setAvailablePackage] = useState<ResourcePackageManifest | null>(null);
+  const [availableSource, setAvailableSource] = useState<ResourceReleaseContext['source'] | null>(null);
   const percentage = useMemo(() => {
     if (!progress?.totalBytes) return 0;
     return Math.min(100, Math.round(progress.downloadedBytes / progress.totalBytes * 100));
@@ -43,9 +48,13 @@ export function WelcomePage({ onInstalled }: WelcomePageProps) {
 
   useEffect(() => {
     let cancelled = false;
-    void fetchResourcePackageManifest()
-      .then((manifest) => {
-        if (!cancelled) setAvailablePackage(manifest);
+    void fetchCurrentResourceRelease()
+      .then(async (context) => ({ context, manifest: await fetchResourcePackageManifest() }))
+      .then(({ context, manifest }) => {
+        if (!cancelled) {
+          setAvailablePackage(manifest);
+          setAvailableSource(context.source);
+        }
       })
       .catch(() => undefined);
     return () => {
@@ -152,7 +161,14 @@ export function WelcomePage({ onInstalled }: WelcomePageProps) {
           <button className="primary-action" type="button" onClick={handleInstall} disabled={isInstalling}>
             {isInstalling ? '下载并校验中…' : '下载完整资料并开始'}
           </button>
-          <p className="install-footnote">本轮不会读取或迁移任何旧桌面 SQLite。</p>
+          <p className="install-footnote">
+            {availableSource === 'bundled'
+              ? '当前使用内置版本；联网恢复后会重新读取服务器资源通道。'
+              : availableSource === 'server'
+                ? '当前资料来自服务器资源通道。'
+                : '正在确认资料来源。'}
+            {' '}本轮不会读取或迁移任何旧桌面 SQLite。
+          </p>
         </div>
       </section>
     </main>
