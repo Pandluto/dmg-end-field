@@ -1,4 +1,4 @@
 interface:
   display_name: "DMG 国内生产部署"
-  short_description: "发布国内站，并维护海外退役跳转与历史分享兼容层"
-  default_prompt: "Use $dmg-dual-deploy to publish the validated build to the domestic server while preserving the overseas retirement redirect."
+  short_description: "按两个路径打包资源并发布国内站，维护海外退役兼容层"
+  default_prompt: "Use $dmg-dual-deploy to package and publish a complete Share Data JSON and image directory to dmgendfield.cloud."

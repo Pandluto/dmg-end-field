@@ -1,6 +1,6 @@
 ---
 name: dmg-dual-deploy
-description: "Publish the active DMG Endfield web app or resource package to the domestic Caddy/Nginx server, and maintain the retired overseas OpenAI Sites redirect when explicitly requested. Use for deployments, production updates, resource releases, or repairs to the overseas retirement redirect and legacy share API."
+description: "Package, verify, and publish DMG Endfield web builds or unified resource releases to the domestic Caddy/Nginx server. Use when the user provides a complete Share Data JSON path plus an image directory and asks to package/upload data, requests a domestic deployment or production update, or explicitly requests repair of the retired overseas redirect or legacy share API."
 ---
 
 # DMG Production Deploy
@@ -14,6 +14,35 @@ The overseas `/api/mobile-shares` endpoint remains a compatibility service for h
 Normal application and resource releases update the domestic server only. Deploy Sites only when the user explicitly requests an overseas redirect or compatibility repair. GitHub Release is not a production resource channel.
 
 Before acting, read [references/targets.md](references/targets.md). It contains the current URLs, server layout, redirect contract, and cache rules.
+
+## Minimal handoff for a resource release
+
+Treat the following as a complete resource-publishing handoff when the user asks to package and upload, publish, release, or update online resources:
+
+1. the path to one complete `def.localdata.archive.v1` Share Data JSON;
+2. the path to an image directory containing `assets/images`, `images`, or the image files directly.
+
+Do not require the user to choose an output directory, version string, intermediate ZIP path, branch worktree, or deployment command. Resolve those implementation details safely. The packaging command generates the public version from the actual China Standard Time build moment and content hash.
+
+First validate both supplied paths without modifying them. Reject an employee increment, `operator-library-share.v1`, single-library export, malformed JSON, or incomplete official library as a release input and explain what full export is required. If the user supplies an already-built resource ZIP instead, verify it and skip source packaging.
+
+The user's wording controls external scope:
+
+- “打包”“生成”“校验” without upload or release language authorizes only a verified local artifact; stop before Git push or production changes.
+- “打包上传”“发包”“发布资源”“更新线上资料” authorizes the complete domestic resource workflow: package and verify on Desktop Shell, materialize in a clean Slimming worktree, commit and push the materialized state, then deploy and verify `dmgendfield.cloud`.
+
+For a two-path build on Desktop Shell, run the shared implementation rather than reconstructing the ZIP manually:
+
+```bash
+npm run resource:build -- \
+  --share-data <complete-share-data.json> \
+  --images <image-directory> \
+  --output <untracked-or-temporary-output-directory>
+
+npm run resource:verify -- <generated-resource-release.zip>
+```
+
+Record the generated release version, bundle path, byte size, and verification result before crossing into the Slimming publication steps.
 
 ## Route by branch
 
