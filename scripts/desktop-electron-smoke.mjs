@@ -143,7 +143,7 @@ function structured(result) {
   return result.structuredContent.data;
 }
 
-async function inspectBrowserWorkspace({ workspaceUrl, mcpUrl, clientConfigPath, issueAgentUrl }) {
+async function inspectBrowserWorkspace({ workspaceUrl, clientConfigPath, issueAgentUrl, issueMcpUrl }) {
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   let client;
   try {
@@ -304,11 +304,24 @@ async function inspectBrowserWorkspace({ workspaceUrl, mcpUrl, clientConfigPath,
     assert.doesNotMatch(agentPresentation.body, /引擎待接入/u, '真实引擎阶段仍显示旧占位文案');
     await agentPage.close();
 
+    const mcpUrl = await issueMcpUrl();
+    assert.match(mcpUrl, /[?&]__mcp_fill_publisher=[a-zA-Z0-9_-]+/u);
+    assert.match(mcpUrl, /#\/mcp-fill\?__mcp_fill_review_grant=[a-zA-Z0-9_-]+$/u);
     const reviewPage = await context.newPage();
     captureLogs(reviewPage, 'review');
     await reviewPage.goto(mcpUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     await reviewPage.getByRole('heading', { name: 'MCP 填表', exact: true }).waitFor({ timeout: 60_000 });
-    await reviewPage.getByText('MCP 服务运行中').waitFor({ timeout: 30_000 });
+    try {
+      await reviewPage.getByText('MCP 服务运行中').waitFor({ timeout: 30_000 });
+    } catch (error) {
+      const diagnostics = await reviewPage.evaluate(() => ({
+        url: window.location.href,
+        body: document.body.innerText.slice(0, 4_000),
+        reviewGrant: window.sessionStorage.getItem('dmg.desktop.mcp-fill-review-grant.v1') ? 'present' : 'missing',
+        reviewSession: window.sessionStorage.getItem('dmg.desktop.mcp-fill-review-session.v1') ? 'present' : 'missing',
+      })).catch((diagnosticError) => ({ diagnosticError: String(diagnosticError) }));
+      throw new Error(`MCP 审核页没有进入就绪状态：${error instanceof Error ? error.message : String(error)}\n${JSON.stringify(diagnostics, null, 2)}\n${browserLogs.join('\n')}`);
+    }
     const emptyReviewLayout = await reviewPage.evaluate(() => {
       const page = document.querySelector('.mcp-fill-page')?.getBoundingClientRect();
       const workspace = document.querySelector('.mcp-fill-workspace')?.getBoundingClientRect();
@@ -576,23 +589,26 @@ try {
   });
   await firstPage.getByRole('button', { name: '打开浏览器工作台' }).click();
   await firstPage.getByText(/浏览器工作台已打开/u).waitFor();
-  await firstPage.getByRole('button', { name: '打开 MCP 填表' }).click();
-  await firstPage.getByText(/MCP 填表已打开/u).waitFor();
   const openedUrls = await firstApplication.evaluate(() => globalThis.__DMG_SMOKE_OPENED_URLS__);
-  assert.equal(openedUrls.length, 2);
+  assert.equal(openedUrls.length, 1);
   assert.match(openedUrls[0], /[?&]__mcp_fill_publisher=[a-zA-Z0-9_-]+/u);
   assert.doesNotMatch(openedUrls[0], /__mcp_fill_review_grant/u);
-  assert.match(openedUrls[1], /[?&]__mcp_fill_publisher=[a-zA-Z0-9_-]+/u);
-  assert.match(openedUrls[1], /#\/mcp-fill\?__mcp_fill_review_grant=[a-zA-Z0-9_-]+$/u);
 
   await inspectBrowserWorkspace({
     workspaceUrl: openedUrls[0],
-    mcpUrl: openedUrls[1],
     clientConfigPath: shellRuntime.mcpState.mcpClientConfigPath,
     issueAgentUrl: async () => {
       const before = await firstApplication.evaluate(() => globalThis.__DMG_SMOKE_OPENED_URLS__.length);
       await firstPage.getByRole('button', { name: '打开 AI 模式' }).click();
       await firstPage.getByText(/AI 模式已在系统浏览器中打开/u).waitFor({ timeout: 30_000 });
+      const urls = await firstApplication.evaluate(() => globalThis.__DMG_SMOKE_OPENED_URLS__);
+      assert.equal(urls.length, before + 1);
+      return urls.at(-1);
+    },
+    issueMcpUrl: async () => {
+      const before = await firstApplication.evaluate(() => globalThis.__DMG_SMOKE_OPENED_URLS__.length);
+      await firstPage.getByRole('button', { name: '打开 MCP 填表' }).click();
+      await firstPage.getByText(/MCP 填表已打开/u).waitFor({ timeout: 30_000 });
       const urls = await firstApplication.evaluate(() => globalThis.__DMG_SMOKE_OPENED_URLS__);
       assert.equal(urls.length, before + 1);
       return urls.at(-1);
