@@ -28,6 +28,7 @@ import { validateTimelinePayload } from '../../agentKernel/timelineWorktree/vali
 import {
   webDatabase,
   type SqlPrimitive,
+  type SqlBatchResult,
   type SqlStatement,
 } from '../database/webDatabase';
 import {
@@ -56,6 +57,14 @@ export class BrowserTimelineStoreError extends Error {
 
 export type BrowserTimelineWorkNode = AiTimelineWorkNode & {
   contentRevision: number;
+};
+
+export type BrowserWorkNodeDeleteExpectation = {
+  nodes: readonly {
+    id: string;
+    contentRevision: number;
+    updatedAt: number;
+  }[];
 };
 
 export type BrowserTimelineWorkNodePatch = {
@@ -182,6 +191,20 @@ const WORK_NODE_STATUSES = new Set<AiTimelineWorkNodeStatus>([
 
 function fail(code: string, status: number, message: string, details?: unknown): never {
   throw new BrowserTimelineStoreError(message, status, code, details);
+}
+
+async function batchWithRequiredChanges(
+  statements: SqlStatement[],
+  failure: { code: string; message: string; details?: unknown },
+): Promise<SqlBatchResult> {
+  try {
+    return await webDatabase.batch(statements);
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('WEB_DATABASE_REQUIRED_CHANGE:')) {
+      fail(failure.code, 409, failure.message, failure.details);
+    }
+    throw error;
+  }
 }
 
 function compatiblePayload(
@@ -470,24 +493,38 @@ function auditStatement(input: {
   subjectId: string;
   details?: Record<string, unknown>;
   createdAt?: number;
+  when?: { sql: string; bind?: SqlPrimitive[] };
 }): SqlStatement {
   const createdAt = input.createdAt ?? Date.now();
+  const values: SqlPrimitive[] = [
+    makeId('timeline-audit'),
+    input.timelineId,
+    input.eventType,
+    serialize({
+      subjectType: input.subjectType,
+      subjectId: input.subjectId,
+      details: input.details || {},
+    }),
+    createdAt,
+  ];
+  if (input.when) {
+    return {
+      sql: `
+        INSERT INTO timeline_audit_events(
+          id, timeline_id, event_type, payload_json, created_at
+        )
+        SELECT ?, ?, ?, ?, ?
+        WHERE ${input.when.sql}
+      `,
+      bind: [...values, ...(input.when.bind || [])],
+    };
+  }
   return {
     sql: `
       INSERT INTO timeline_audit_events(id, timeline_id, event_type, payload_json, created_at)
       VALUES (?, ?, ?, ?, ?)
     `,
-    bind: [
-      makeId('timeline-audit'),
-      input.timelineId,
-      input.eventType,
-      serialize({
-        subjectType: input.subjectType,
-        subjectId: input.subjectId,
-        details: input.details || {},
-      }),
-      createdAt,
-    ],
+    bind: values,
   };
 }
 
@@ -502,10 +539,12 @@ async function requireDocument(timelineId: string): Promise<TimelineDocument> {
   return documentFromRow(rows[0]);
 }
 
-async function getWorkNodeRow(id: string): Promise<Row | undefined> {
+async function getWorkNodeRow(id: string, timelineId?: string): Promise<Row | undefined> {
   const rows = await webDatabase.query<Row>(
-    'SELECT * FROM timeline_work_nodes WHERE id = ?',
-    [id],
+    timelineId
+      ? 'SELECT * FROM timeline_work_nodes WHERE timeline_id = ? AND id = ?'
+      : 'SELECT * FROM timeline_work_nodes WHERE id = ?',
+    timelineId ? [timelineId, id] : [id],
   );
   return rows[0];
 }
@@ -596,8 +635,12 @@ export async function saveSnapshot(input: {
     if (numberValue(matching.archived) === 1) {
       await webDatabase.batch([
         {
-          sql: 'UPDATE timeline_snapshots SET archived = 0, label = ? WHERE id = ?',
-          bind: [input.label, textValue(matching.id)],
+          sql: `
+            UPDATE timeline_snapshots
+            SET archived = 0, label = ?
+            WHERE timeline_id = ? AND id = ?
+          `,
+          bind: [input.label, input.timelineId, textValue(matching.id)],
         },
         auditStatement({
           timelineId: input.timelineId,
@@ -610,8 +653,8 @@ export async function saveSnapshot(input: {
       ]);
     }
     const refreshed = await webDatabase.query<Row>(
-      'SELECT * FROM timeline_snapshots WHERE id = ?',
-      [textValue(matching.id)],
+      'SELECT * FROM timeline_snapshots WHERE timeline_id = ? AND id = ?',
+      [input.timelineId, textValue(matching.id)],
     );
     return { snapshot: snapshotFromRow(refreshed[0]), reused: true };
   }
@@ -652,8 +695,8 @@ export async function saveSnapshot(input: {
     }),
   ]);
   const rows = await webDatabase.query<Row>(
-    'SELECT * FROM timeline_snapshots WHERE id = ?',
-    [snapshotId],
+    'SELECT * FROM timeline_snapshots WHERE timeline_id = ? AND id = ?',
+    [input.timelineId, snapshotId],
   );
   return { snapshot: snapshotFromRow(rows[0]), reused: false };
 }
@@ -666,37 +709,119 @@ export async function getCheckoutRef(timelineId: string): Promise<TimelineChecko
   return checkoutFromRow(rows[0]);
 }
 
-export async function setCheckoutRef(input: TimelineCheckoutRef): Promise<TimelineCheckoutRef> {
+export type SetTimelineCheckoutRefInput = TimelineCheckoutRef & {
+  /** The checkout observed by the caller. Omit to use the value read immediately before the CAS. */
+  expected?: TimelineCheckoutRef | null;
+};
+
+function sameCheckout(
+  left: TimelineCheckoutRef | null,
+  right: TimelineCheckoutRef | null,
+): boolean {
+  if (!left || !right) return left === right;
+  return left.timelineId === right.timelineId
+    && left.targetType === right.targetType
+    && left.targetId === right.targetId
+    && left.updatedAt === right.updatedAt;
+}
+
+export async function setCheckoutRef(
+  input: SetTimelineCheckoutRefInput,
+): Promise<TimelineCheckoutRef> {
   await requireDocument(input.timelineId);
   const table = input.targetType === 'snapshot'
     ? 'timeline_snapshots'
     : 'timeline_work_nodes';
   const rows = await webDatabase.query<Row>(
-    `SELECT timeline_id FROM ${table} WHERE id = ?`,
-    [input.targetId],
+    `SELECT timeline_id FROM ${table} WHERE timeline_id = ? AND id = ?`,
+    [input.timelineId, input.targetId],
   );
-  if (!rows[0] || textValue(rows[0].timeline_id) !== input.timelineId) {
+  if (!rows[0]) {
     fail(
       'timeline-checkout-target-not-found',
       404,
       `Timeline checkout target not found: ${input.targetId}`,
     );
   }
-  const updatedAt = input.updatedAt || Date.now();
-  await webDatabase.batch([
-    {
+  const observedCheckout = await getCheckoutRef(input.timelineId);
+  const hasExplicitExpected = Object.prototype.hasOwnProperty.call(input, 'expected');
+  const expectedCheckout = hasExplicitExpected ? input.expected! : observedCheckout;
+  if (hasExplicitExpected && !sameCheckout(observedCheckout, expectedCheckout)) {
+    fail(
+      'timeline-checkout-conflict',
+      409,
+      'Timeline checkout changed before this update could be applied.',
+      { expected: expectedCheckout, actual: observedCheckout },
+    );
+  }
+  const updatedAt = input.updatedAt ?? Date.now();
+  const checkoutStatement: SqlStatement = expectedCheckout
+    ? {
       sql: `
         INSERT INTO timeline_checkout_refs(timeline_id, target_type, target_id, updated_at)
-        VALUES (?, ?, ?, ?)
+        SELECT ?, ?, ?, ?
+        WHERE EXISTS (
+          SELECT 1 FROM timeline_checkout_refs
+          WHERE timeline_id = ? AND target_type = ? AND target_id = ? AND updated_at = ?
+        )
+        AND EXISTS (
+          SELECT 1 FROM ${table}
+          WHERE timeline_id = ? AND id = ?
+        )
         ON CONFLICT(timeline_id) DO UPDATE SET
           target_type = excluded.target_type,
           target_id = excluded.target_id,
           updated_at = excluded.updated_at
+        WHERE timeline_checkout_refs.target_type = ?
+          AND timeline_checkout_refs.target_id = ?
+          AND timeline_checkout_refs.updated_at = ?
       `,
-      bind: [input.timelineId, input.targetType, input.targetId, updatedAt],
-    },
+      bind: [
+        input.timelineId,
+        input.targetType,
+        input.targetId,
+        updatedAt,
+        input.timelineId,
+        expectedCheckout.targetType,
+        expectedCheckout.targetId,
+        expectedCheckout.updatedAt,
+        input.timelineId,
+        input.targetId,
+        expectedCheckout.targetType,
+        expectedCheckout.targetId,
+        expectedCheckout.updatedAt,
+      ],
+    }
+    : {
+      sql: `
+        INSERT INTO timeline_checkout_refs(timeline_id, target_type, target_id, updated_at)
+        SELECT ?, ?, ?, ?
+        WHERE NOT EXISTS (
+          SELECT 1 FROM timeline_checkout_refs WHERE timeline_id = ?
+        )
+        AND EXISTS (
+          SELECT 1 FROM ${table}
+          WHERE timeline_id = ? AND id = ?
+        )
+      `,
+      bind: [
+        input.timelineId,
+        input.targetType,
+        input.targetId,
+        updatedAt,
+        input.timelineId,
+        input.timelineId,
+        input.targetId,
+      ],
+    };
+  checkoutStatement.requireChanges = true;
+  const result = await batchWithRequiredChanges([
+    checkoutStatement,
     {
-      sql: 'UPDATE timeline_documents SET updated_at = ? WHERE id = ?',
+      sql: `
+        UPDATE timeline_documents SET updated_at = ?
+        WHERE id = ? AND changes() > 0
+      `,
       bind: [updatedAt, input.timelineId],
     },
     auditStatement({
@@ -706,9 +831,27 @@ export async function setCheckoutRef(input: TimelineCheckoutRef): Promise<Timeli
       subjectId: input.targetId,
       details: { targetType: input.targetType },
       createdAt: updatedAt,
+      when: { sql: 'changes() > 0' },
     }),
-  ]);
-  return { ...input, updatedAt };
+  ], {
+    code: 'timeline-checkout-conflict',
+    message: 'Timeline checkout changed before this update could be applied.',
+    details: { expected: expectedCheckout },
+  });
+  if (!result.statementChanges[0]) {
+    fail(
+      'timeline-checkout-conflict',
+      409,
+      'Timeline checkout changed before this update could be applied.',
+      { expected: expectedCheckout, actual: await getCheckoutRef(input.timelineId) },
+    );
+  }
+  return {
+    timelineId: input.timelineId,
+    targetType: input.targetType,
+    targetId: input.targetId,
+    updatedAt,
+  };
 }
 
 export async function listWorkNodes(timelineId: string): Promise<BrowserTimelineWorkNode[]> {
@@ -732,16 +875,34 @@ export async function listWorkNodeCommits(
   return rows.map(commitFromRow);
 }
 
-export async function listWorkNodePatches(
+export function listWorkNodePatches(
+  timelineId: string,
   nodeId: string,
-  limit = 100,
+  limit?: number,
+): Promise<BrowserTimelineWorkNodePatch[]>;
+export function listWorkNodePatches(
+  nodeId: string,
+  limit?: number,
+): Promise<BrowserTimelineWorkNodePatch[]>;
+export async function listWorkNodePatches(
+  timelineIdOrNodeId: string,
+  nodeIdOrLimit: string | number = 100,
+  maybeLimit = 100,
 ): Promise<BrowserTimelineWorkNodePatch[]> {
+  const explicitTimelineId = typeof nodeIdOrLimit === 'string' ? timelineIdOrNodeId : undefined;
+  const nodeId = explicitTimelineId ? String(nodeIdOrLimit) : timelineIdOrNodeId;
+  const limit = typeof nodeIdOrLimit === 'number' ? nodeIdOrLimit : maybeLimit;
+  const timelineId = explicitTimelineId
+    || textValue((await getWorkNodeRow(nodeId))?.timeline_id);
+  if (!timelineId) {
+    fail('ai-worknode-not-found', 404, `AI timeline work node not found: ${nodeId}`);
+  }
   const rows = await webDatabase.query<Row>(
     `
       SELECT * FROM timeline_work_node_patches
-      WHERE node_id = ? ORDER BY created_at DESC LIMIT ?
+      WHERE timeline_id = ? AND node_id = ? ORDER BY created_at DESC LIMIT ?
     `,
-    [nodeId, Math.max(1, Math.min(limit, 500))],
+    [timelineId, nodeId, Math.max(1, Math.min(limit, 500))],
   );
   return rows.map((row) => ({
     id: textValue(row.id),
@@ -843,6 +1004,7 @@ export async function importDocumentBundle(
           payload_json = excluded.payload_json,
           payload_hash = excluded.payload_hash,
           archived = 0
+        WHERE timeline_snapshots.timeline_id = excluded.timeline_id
       `,
       bind: [
         snapshot.id,
@@ -877,6 +1039,7 @@ export async function importDocumentBundle(
           working_payload_json = excluded.working_payload_json,
           content_revision = excluded.content_revision,
           updated_at = excluded.updated_at
+        WHERE timeline_work_nodes.timeline_id = excluded.timeline_id
       `,
       bind: [
         node.id,
@@ -912,6 +1075,7 @@ export async function importDocumentBundle(
           approval_json = excluded.approval_json,
           checkout_applied = excluded.checkout_applied,
           checkout_json = excluded.checkout_json
+        WHERE timeline_work_node_commits.timeline_id = excluded.timeline_id
       `,
       bind: [
         commit.id,
@@ -931,20 +1095,30 @@ export async function importDocumentBundle(
     });
   }
   if (input.checkoutRef) {
+    const checkoutTable = input.checkoutRef.targetType === 'snapshot'
+      ? 'timeline_snapshots'
+      : 'timeline_work_nodes';
     statements.push({
       sql: `
         INSERT INTO timeline_checkout_refs(timeline_id, target_type, target_id, updated_at)
-        VALUES (?, ?, ?, ?)
+        SELECT ?, ?, ?, ?
+        WHERE EXISTS (
+          SELECT 1 FROM ${checkoutTable}
+          WHERE timeline_id = ? AND id = ?
+        )
         ON CONFLICT(timeline_id) DO UPDATE SET
           target_type = excluded.target_type,
           target_id = excluded.target_id,
           updated_at = excluded.updated_at
+        WHERE timeline_checkout_refs.timeline_id = excluded.timeline_id
       `,
       bind: [
         input.document.id,
         input.checkoutRef.targetType,
         input.checkoutRef.targetId,
         input.checkoutRef.updatedAt,
+        input.document.id,
+        input.checkoutRef.targetId,
       ],
     });
   }
@@ -968,16 +1142,22 @@ export async function importDocumentBundle(
 
 export async function archiveSnapshot(
   snapshotId: string,
+  expectedTimelineId?: string,
 ): Promise<{ id: string; archived: boolean }> {
   const rows = await webDatabase.query<Row>(
-    'SELECT * FROM timeline_snapshots WHERE id = ? AND archived = 0',
-    [snapshotId],
+    expectedTimelineId
+      ? 'SELECT * FROM timeline_snapshots WHERE timeline_id = ? AND id = ? AND archived = 0'
+      : 'SELECT * FROM timeline_snapshots WHERE id = ? AND archived = 0',
+    expectedTimelineId ? [expectedTimelineId, snapshotId] : [snapshotId],
   );
   const snapshot = rows[0];
   if (!snapshot) {
     fail('timeline-snapshot-not-found', 404, `Timeline snapshot not found: ${snapshotId}`);
   }
   const timelineId = textValue(snapshot.timeline_id);
+  if (expectedTimelineId && timelineId !== expectedTimelineId) {
+    fail('timeline-snapshot-not-found', 404, `Timeline snapshot not found: ${snapshotId}`);
+  }
   const checkout = await getCheckoutRef(timelineId);
   if (checkout?.targetType === 'snapshot' && checkout.targetId === snapshotId) {
     fail(
@@ -986,10 +1166,19 @@ export async function archiveSnapshot(
       'Cannot delete the current timeline snapshot. Restore another target first.',
     );
   }
-  await webDatabase.batch([
+  const result = await batchWithRequiredChanges([
     {
-      sql: 'UPDATE timeline_snapshots SET archived = 1 WHERE id = ?',
-      bind: [snapshotId],
+      sql: `
+        UPDATE timeline_snapshots
+        SET archived = 1
+        WHERE timeline_id = ? AND id = ? AND archived = 0
+          AND NOT EXISTS (
+            SELECT 1 FROM timeline_checkout_refs
+            WHERE timeline_id = ? AND target_type = 'snapshot' AND target_id = ?
+          )
+      `,
+      bind: [timelineId, snapshotId, timelineId, snapshotId],
+      requireChanges: true,
     },
     auditStatement({
       timelineId,
@@ -997,17 +1186,37 @@ export async function archiveSnapshot(
       subjectType: 'snapshot',
       subjectId: snapshotId,
       details: { payloadHash: textValue(snapshot.payload_hash) },
+      when: { sql: 'changes() > 0' },
     }),
-  ]);
+  ], {
+    code: 'timeline-snapshot-conflict',
+    message: 'Timeline snapshot changed before it could be archived.',
+    details: { timelineId, snapshotId },
+  });
+  if (!result.statementChanges[0]) {
+    const currentCheckout = await getCheckoutRef(timelineId);
+    if (currentCheckout?.targetType === 'snapshot' && currentCheckout.targetId === snapshotId) {
+      fail(
+        'timeline-snapshot-current-checkout-protected',
+        409,
+        'Cannot delete the current timeline snapshot. Restore another target first.',
+      );
+    }
+    fail('timeline-snapshot-conflict', 409, 'Timeline snapshot changed before it could be archived.');
+  }
   return { id: snapshotId, archived: true };
 }
 
 export async function deleteWorkNode(
   nodeId: string,
+  expectedTimelineId?: string,
+  expectation?: BrowserWorkNodeDeleteExpectation,
 ): Promise<{ deletedNodeIds: string[] }> {
   const targetRows = await webDatabase.query<Row>(
-    'SELECT id, timeline_id FROM timeline_work_nodes WHERE id = ?',
-    [nodeId],
+    expectedTimelineId
+      ? 'SELECT id, timeline_id FROM timeline_work_nodes WHERE timeline_id = ? AND id = ?'
+      : 'SELECT id, timeline_id FROM timeline_work_nodes WHERE id = ?',
+    expectedTimelineId ? [expectedTimelineId, nodeId] : [nodeId],
   );
   const target = targetRows[0];
   if (!target) {
@@ -1017,16 +1226,44 @@ export async function deleteWorkNode(
   const descendantRows = await webDatabase.query<Row>(
     `
       WITH RECURSIVE descendants(id) AS (
-        SELECT id FROM timeline_work_nodes WHERE id = ?
+        SELECT id FROM timeline_work_nodes WHERE timeline_id = ? AND id = ?
         UNION ALL
         SELECT node.id FROM timeline_work_nodes node
-        JOIN descendants parent ON node.parent_node_id = parent.id
+        JOIN descendants parent
+          ON node.timeline_id = ? AND node.parent_node_id = parent.id
       )
       SELECT id FROM descendants
     `,
-    [nodeId],
+    [timelineId, nodeId, timelineId],
   );
   const deletedNodeIds = descendantRows.map((row) => textValue(row.id));
+  const expectedNodes = expectation?.nodes
+    ? [...expectation.nodes].sort((left, right) => left.id.localeCompare(right.id))
+    : null;
+  if (expectedNodes) {
+    const expectedIds = expectedNodes.map((node) => node.id);
+    if (expectedIds.length < 1
+      || new Set(expectedIds).size !== expectedIds.length
+      || !expectedIds.includes(nodeId)
+      || expectedNodes.some((node) => !Number.isSafeInteger(node.contentRevision)
+        || node.contentRevision < 0
+        || !Number.isSafeInteger(node.updatedAt)
+        || node.updatedAt < 0)) {
+      fail(
+        'timeline-work-node-delete-expectation-invalid',
+        400,
+        'Timeline Work Node delete expectation is incomplete or invalid.',
+      );
+    }
+    if ([...deletedNodeIds].sort().join('|') !== expectedIds.join('|')) {
+      fail(
+        'timeline-work-node-delete-review-stale',
+        409,
+        'Timeline Work Node subtree changed after it was reviewed.',
+        { timelineId, nodeId, expectedIds, observedIds: [...deletedNodeIds].sort() },
+      );
+    }
+  }
   const checkout = await getCheckoutRef(timelineId);
   if (checkout?.targetType === 'work-node' && deletedNodeIds.includes(checkout.targetId)) {
     fail(
@@ -1035,21 +1272,97 @@ export async function deleteWorkNode(
       'Cannot delete the current Work Node path. Checkout another target first.',
     );
   }
-  const placeholders = deletedNodeIds.map(() => '?').join(', ');
-  await webDatabase.batch([
-    {
-      sql: `DELETE FROM timeline_work_nodes WHERE id IN (${placeholders})`,
-      bind: deletedNodeIds,
-    },
+  const guardedDeletedNodeIds = expectedNodes?.map((node) => node.id) || deletedNodeIds;
+  const placeholders = guardedDeletedNodeIds.map(() => '?').join(', ');
+  const identityPredicate = expectedNodes
+    ?.map(() => '(current.id = ? AND current.content_revision = ? AND current.updated_at = ?)')
+    .join(' OR ');
+  const deleteStatement: SqlStatement = expectedNodes
+    ? {
+      sql: `
+        WITH RECURSIVE descendants(id) AS (
+          SELECT id FROM timeline_work_nodes WHERE timeline_id = ? AND id = ?
+          UNION ALL
+          SELECT node.id FROM timeline_work_nodes node
+          JOIN descendants parent
+            ON node.timeline_id = ? AND node.parent_node_id = parent.id
+        )
+        DELETE FROM timeline_work_nodes
+        WHERE timeline_id = ? AND id IN (${placeholders})
+          AND (SELECT COUNT(*) FROM descendants) = ?
+          AND NOT EXISTS (
+            SELECT 1 FROM descendants WHERE id NOT IN (${placeholders})
+          )
+          AND (
+            SELECT COUNT(*) FROM timeline_work_nodes current
+            WHERE current.timeline_id = ? AND (${identityPredicate})
+          ) = ?
+          AND NOT EXISTS (
+            SELECT 1 FROM timeline_checkout_refs
+            WHERE timeline_id = ? AND target_type = 'work-node' AND target_id IN (${placeholders})
+          )
+      `,
+      bind: [
+        timelineId,
+        nodeId,
+        timelineId,
+        timelineId,
+        ...guardedDeletedNodeIds,
+        expectedNodes.length,
+        ...guardedDeletedNodeIds,
+        timelineId,
+        ...expectedNodes.flatMap((node) => [node.id, node.contentRevision, node.updatedAt]),
+        expectedNodes.length,
+        timelineId,
+        ...guardedDeletedNodeIds,
+      ],
+      requireChanges: true,
+    }
+    : {
+      sql: `
+        DELETE FROM timeline_work_nodes
+        WHERE timeline_id = ? AND id IN (${placeholders})
+          AND NOT EXISTS (
+            SELECT 1 FROM timeline_checkout_refs
+            WHERE timeline_id = ? AND target_type = 'work-node' AND target_id IN (${placeholders})
+          )
+      `,
+      bind: [timelineId, ...guardedDeletedNodeIds, timelineId, ...guardedDeletedNodeIds],
+      requireChanges: true,
+    };
+  const result = await batchWithRequiredChanges([
+    deleteStatement,
     auditStatement({
       timelineId,
       eventType: 'work-node.deleted',
       subjectType: 'work-node',
       subjectId: nodeId,
-      details: { deletedNodeIds },
+      details: { deletedNodeIds: guardedDeletedNodeIds },
+      when: { sql: 'changes() > 0' },
     }),
-  ]);
-  return { deletedNodeIds };
+  ], {
+    code: 'timeline-work-node-conflict',
+    message: 'Timeline Work Node changed before it could be deleted.',
+    details: { timelineId, nodeId, expectedNodeIds: guardedDeletedNodeIds },
+  });
+  if (!result.statementChanges[0]) {
+    const currentCheckout = await getCheckoutRef(timelineId);
+    if (currentCheckout?.targetType === 'work-node' && deletedNodeIds.includes(currentCheckout.targetId)) {
+      fail(
+        'timeline-work-node-current-checkout-protected',
+        409,
+        'Cannot delete the current Work Node path. Checkout another target first.',
+      );
+    }
+    fail(
+      expectedNodes ? 'timeline-work-node-delete-review-stale' : 'timeline-work-node-conflict',
+      409,
+      expectedNodes
+        ? 'Timeline Work Node subtree changed after it was reviewed.'
+        : 'Timeline Work Node changed before it could be deleted.',
+    );
+  }
+  return { deletedNodeIds: guardedDeletedNodeIds };
 }
 
 export type WorkNodePathOmissionResult = {
@@ -1313,8 +1626,11 @@ export async function listAllWorkNodeCommits(): Promise<AiTimelineWorkNodeCommit
   return rows.map(commitFromRow);
 }
 
-export async function getWorkNode(id: string): Promise<BrowserTimelineWorkNode> {
-  const row = await getWorkNodeRow(id);
+export async function getWorkNode(
+  id: string,
+  timelineId?: string,
+): Promise<BrowserTimelineWorkNode> {
+  const row = await getWorkNodeRow(id, timelineId);
   if (!row) {
     fail('ai-worknode-not-found', 404, `AI timeline work node not found: ${id}`);
   }
@@ -1335,8 +1651,8 @@ async function assertParent(
     );
   }
   const parentRows = await webDatabase.query<Row>(
-    'SELECT timeline_id FROM timeline_work_nodes WHERE id = ?',
-    [parentNodeId],
+    'SELECT timeline_id FROM timeline_work_nodes WHERE timeline_id = ? AND id = ?',
+    [timelineId, parentNodeId],
   );
   if (!parentRows[0]) {
     fail(
@@ -1356,14 +1672,16 @@ async function assertParent(
   const descendants = await webDatabase.query<Row>(
     `
       WITH RECURSIVE tree(id) AS (
-        SELECT id FROM timeline_work_nodes WHERE parent_node_id = ?
+        SELECT id FROM timeline_work_nodes
+        WHERE timeline_id = ? AND parent_node_id = ?
         UNION ALL
         SELECT node.id FROM timeline_work_nodes node
-        JOIN tree parent ON node.parent_node_id = parent.id
+        JOIN tree parent
+          ON node.timeline_id = ? AND node.parent_node_id = parent.id
       )
       SELECT 1 AS found FROM tree WHERE id = ? LIMIT 1
     `,
-    [nodeId, parentNodeId],
+    [timelineId, nodeId, timelineId, parentNodeId],
   );
   if (descendants[0]) {
     fail(
@@ -1515,8 +1833,9 @@ export async function updateWorkNode(
   }
   const workingPayload = input.workingPayload || node.workingPayload;
   const contentChanged = serialize(workingPayload) !== serialize(node.workingPayload);
-  const updatedAt = Date.now();
+  const updatedAt = Math.max(Date.now(), node.updatedAt + 1);
   const nextRevision = contentChanged ? node.contentRevision + 1 : node.contentRevision;
+  const expectedRevision = hasPayload ? input.expectedContentRevision! : node.contentRevision;
   const riskFlags = Object.prototype.hasOwnProperty.call(input, 'riskFlags')
     ? normalizeRiskFlags(input.riskFlags)
     : node.riskFlags;
@@ -1537,7 +1856,8 @@ export async function updateWorkNode(
           working_payload_json = ?,
           content_revision = ?,
           updated_at = ?
-        WHERE id = ?
+        WHERE timeline_id = ? AND id = ?
+          AND content_revision = ? AND updated_at = ?
       `,
       bind: [
         hasParent ? input.parentNodeId || null : node.parentNodeId || null,
@@ -1551,11 +1871,18 @@ export async function updateWorkNode(
         serialize(workingPayload),
         nextRevision,
         updatedAt,
+        node.timelineId,
         id,
+        expectedRevision,
+        node.updatedAt,
       ],
+      requireChanges: true,
     },
     {
-      sql: 'UPDATE timeline_documents SET updated_at = ? WHERE id = ?',
+      sql: `
+        UPDATE timeline_documents SET updated_at = ?
+        WHERE id = ? AND changes() > 0
+      `,
       bind: [updatedAt, node.timelineId],
     },
     auditStatement({
@@ -1565,6 +1892,7 @@ export async function updateWorkNode(
       subjectId: id,
       details: { contentChanged, contentRevision: nextRevision },
       createdAt: updatedAt,
+      when: { sql: 'changes() > 0' },
     }),
   ];
   if (contentChanged) {
@@ -1575,7 +1903,13 @@ export async function updateWorkNode(
         INSERT INTO timeline_work_node_patches(
           id, timeline_id, node_id, patch_json, validation_json,
           diff_summary_json, risk_flags_json, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        )
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?
+        WHERE changes() > 0 AND EXISTS (
+          SELECT 1 FROM timeline_work_nodes
+          WHERE timeline_id = ? AND id = ?
+            AND content_revision = ? AND updated_at = ?
+        )
       `,
       bind: [
         makeId('timeline-patch'),
@@ -1586,11 +1920,27 @@ export async function updateWorkNode(
         serialize(diff.summary),
         serialize(riskFlags),
         updatedAt,
+        node.timelineId,
+        id,
+        nextRevision,
+        updatedAt,
       ],
     });
   }
-  await webDatabase.batch(statements);
-  return getWorkNode(id);
+  const result = await batchWithRequiredChanges(statements, {
+    code: 'ai-worknode-content-revision-conflict',
+    message: 'Work Node changed before this update could be applied.',
+    details: { timelineId: node.timelineId, nodeId: id, expectedContentRevision: expectedRevision },
+  });
+  if (!result.statementChanges[0]) {
+    fail(
+      'ai-worknode-content-revision-conflict',
+      409,
+      'Work Node changed before this update could be applied.',
+      { timelineId: node.timelineId, nodeId: id, expectedContentRevision: expectedRevision },
+    );
+  }
+  return getWorkNode(id, node.timelineId);
 }
 
 export async function diffWorkNode(id: string): Promise<{
@@ -1666,8 +2016,8 @@ export async function commitWorkNode(
   }
   const commitId = input.commitId?.trim() || makeId('ai-timeline-commit');
   const existing = await webDatabase.query<Row>(
-    'SELECT id FROM timeline_work_node_commits WHERE id = ?',
-    [commitId],
+    'SELECT id FROM timeline_work_node_commits WHERE timeline_id = ? AND id = ?',
+    [node.timelineId, commitId],
   );
   if (existing[0]) {
     fail(
@@ -1676,7 +2026,7 @@ export async function commitWorkNode(
       `AI Work Node commit id already exists: ${commitId}`,
     );
   }
-  const createdAt = Date.now();
+  const createdAt = Math.max(Date.now(), node.updatedAt + 1);
   const approval = normalizeApproval(
     input.approval,
     explicitApproval ? 'manual' : 'auto',
@@ -1699,14 +2049,34 @@ export async function commitWorkNode(
     makeLog('info', `已提交工作节点：${commit.id}`),
     ...node.logs,
   ];
-  await webDatabase.batch([
+  const result = await batchWithRequiredChanges([
+    {
+      sql: `
+        UPDATE timeline_work_nodes
+        SET status = 'committed', risk_flags_json = ?, logs_json = ?, updated_at = ?
+        WHERE timeline_id = ? AND id = ?
+          AND content_revision = ? AND updated_at = ?
+      `,
+      bind: [
+        serialize(riskFlags),
+        serialize(logs),
+        createdAt,
+        node.timelineId,
+        id,
+        node.contentRevision,
+        node.updatedAt,
+      ],
+      requireChanges: true,
+    },
     {
       sql: `
         INSERT INTO timeline_work_node_commits(
           id, node_id, timeline_id, branch_id, label, summary_json,
           risk_flags_json, approval_json, checkout_applied, checkout_json,
           base_payload_json, applied_payload_json, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?)
+        )
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?
+        WHERE changes() > 0
       `,
       bind: [
         commit.id,
@@ -1722,14 +2092,6 @@ export async function commitWorkNode(
         commit.createdAt,
       ],
     },
-    {
-      sql: `
-        UPDATE timeline_work_nodes
-        SET status = 'committed', risk_flags_json = ?, logs_json = ?, updated_at = ?
-        WHERE id = ?
-      `,
-      bind: [serialize(riskFlags), serialize(logs), createdAt, id],
-    },
     auditStatement({
       timelineId: node.timelineId,
       eventType: 'work-node.committed',
@@ -1737,9 +2099,22 @@ export async function commitWorkNode(
       subjectId: id,
       details: { commitId },
       createdAt,
+      when: { sql: 'changes() > 0' },
     }),
-  ]);
-  return { node: await getWorkNode(id), commit };
+  ], {
+    code: 'ai-worknode-content-revision-conflict',
+    message: 'Work Node changed before this commit could be applied.',
+    details: { timelineId: node.timelineId, nodeId: id, expectedContentRevision: node.contentRevision },
+  });
+  if (!result.statementChanges[0]) {
+    fail(
+      'ai-worknode-content-revision-conflict',
+      409,
+      'Work Node changed before this commit could be applied.',
+      { timelineId: node.timelineId, nodeId: id, expectedContentRevision: node.contentRevision },
+    );
+  }
+  return { node: await getWorkNode(id, node.timelineId), commit };
 }
 
 export async function markWorkNodeCheckoutApplied(
@@ -1754,15 +2129,19 @@ export async function markWorkNodeCheckoutApplied(
   const node = await getWorkNode(id);
   const rows = input.commitId
     ? await webDatabase.query<Row>(
-      'SELECT * FROM timeline_work_node_commits WHERE id = ? AND node_id = ?',
-      [input.commitId, id],
+      `
+        SELECT * FROM timeline_work_node_commits
+        WHERE timeline_id = ? AND id = ? AND node_id = ?
+      `,
+      [node.timelineId, input.commitId, id],
     )
     : await webDatabase.query<Row>(
       `
         SELECT * FROM timeline_work_node_commits
-        WHERE node_id = ? ORDER BY created_at DESC LIMIT 1
+        WHERE timeline_id = ? AND node_id = ?
+        ORDER BY created_at DESC LIMIT 1
       `,
-      [id],
+      [node.timelineId, id],
     );
   if (!rows[0]) {
     fail(
@@ -1772,7 +2151,7 @@ export async function markWorkNodeCheckoutApplied(
     );
   }
   const commit = commitFromRow(rows[0]);
-  const appliedAt = input.appliedAt ?? Date.now();
+  const appliedAt = Math.max(input.appliedAt ?? Date.now(), node.updatedAt + 1);
   const checkout: AiTimelineCheckout = {
     appliedAt,
     appliedBy: input.appliedBy || 'system',
@@ -1783,36 +2162,111 @@ export async function markWorkNodeCheckoutApplied(
     makeLog('info', `已应用工作节点 checkout：${commit.id}`),
     ...node.logs,
   ];
-  await webDatabase.batch([
+  const observedCheckout = await getCheckoutRef(node.timelineId);
+  const checkoutStatement: SqlStatement = observedCheckout
+    ? {
+      sql: `
+        INSERT INTO timeline_checkout_refs(timeline_id, target_type, target_id, updated_at)
+        SELECT ?, 'work-node', ?, ?
+        WHERE EXISTS (
+          SELECT 1 FROM timeline_checkout_refs
+          WHERE timeline_id = ? AND target_type = ? AND target_id = ? AND updated_at = ?
+        )
+        AND EXISTS (
+          SELECT 1 FROM timeline_work_node_commits
+          WHERE timeline_id = ? AND id = ? AND node_id = ?
+        )
+        AND EXISTS (
+          SELECT 1 FROM timeline_work_nodes
+          WHERE timeline_id = ? AND id = ?
+            AND content_revision = ? AND updated_at = ?
+        )
+        ON CONFLICT(timeline_id) DO UPDATE SET
+          target_type = excluded.target_type,
+          target_id = excluded.target_id,
+          updated_at = excluded.updated_at
+        WHERE timeline_checkout_refs.target_type = ?
+          AND timeline_checkout_refs.target_id = ?
+          AND timeline_checkout_refs.updated_at = ?
+      `,
+      bind: [
+        node.timelineId,
+        id,
+        appliedAt,
+        node.timelineId,
+        observedCheckout.targetType,
+        observedCheckout.targetId,
+        observedCheckout.updatedAt,
+        node.timelineId,
+        commit.id,
+        id,
+        node.timelineId,
+        id,
+        node.contentRevision,
+        node.updatedAt,
+        observedCheckout.targetType,
+        observedCheckout.targetId,
+        observedCheckout.updatedAt,
+      ],
+    }
+    : {
+      sql: `
+        INSERT INTO timeline_checkout_refs(timeline_id, target_type, target_id, updated_at)
+        SELECT ?, 'work-node', ?, ?
+        WHERE NOT EXISTS (
+          SELECT 1 FROM timeline_checkout_refs WHERE timeline_id = ?
+        )
+        AND EXISTS (
+          SELECT 1 FROM timeline_work_node_commits
+          WHERE timeline_id = ? AND id = ? AND node_id = ?
+        )
+        AND EXISTS (
+          SELECT 1 FROM timeline_work_nodes
+          WHERE timeline_id = ? AND id = ?
+            AND content_revision = ? AND updated_at = ?
+        )
+      `,
+      bind: [
+        node.timelineId,
+        id,
+        appliedAt,
+        node.timelineId,
+        node.timelineId,
+        commit.id,
+        id,
+        node.timelineId,
+        id,
+        node.contentRevision,
+        node.updatedAt,
+      ],
+    };
+  checkoutStatement.requireChanges = true;
+  const result = await batchWithRequiredChanges([
+    checkoutStatement,
     {
       sql: `
         UPDATE timeline_work_node_commits
         SET checkout_applied = 1, checkout_json = ?
-        WHERE id = ?
+        WHERE timeline_id = ? AND id = ? AND node_id = ?
+          AND changes() > 0
       `,
-      bind: [serialize(checkout), commit.id],
+      bind: [serialize(checkout), node.timelineId, commit.id, id],
     },
     {
       sql: `
         UPDATE timeline_work_nodes
         SET status = 'applied', logs_json = ?, updated_at = ?
-        WHERE id = ?
+        WHERE timeline_id = ? AND id = ?
+          AND content_revision = ? AND updated_at = ? AND changes() > 0
       `,
-      bind: [serialize(logs), appliedAt, id],
+      bind: [serialize(logs), appliedAt, node.timelineId, id, node.contentRevision, node.updatedAt],
+      requireChanges: true,
     },
     {
       sql: `
-        INSERT INTO timeline_checkout_refs(timeline_id, target_type, target_id, updated_at)
-        VALUES (?, 'work-node', ?, ?)
-        ON CONFLICT(timeline_id) DO UPDATE SET
-          target_type = excluded.target_type,
-          target_id = excluded.target_id,
-          updated_at = excluded.updated_at
+        UPDATE timeline_documents SET updated_at = ?
+        WHERE id = ? AND changes() > 0
       `,
-      bind: [node.timelineId, id, appliedAt],
-    },
-    {
-      sql: 'UPDATE timeline_documents SET updated_at = ? WHERE id = ?',
       bind: [appliedAt, node.timelineId],
     },
     auditStatement({
@@ -1822,10 +2276,23 @@ export async function markWorkNodeCheckoutApplied(
       subjectId: id,
       details: { targetType: 'work-node', commitId: commit.id },
       createdAt: appliedAt,
+      when: { sql: 'changes() > 0' },
     }),
-  ]);
+  ], {
+    code: 'timeline-checkout-conflict',
+    message: 'Timeline checkout changed before the Work Node could be applied.',
+    details: { timelineId: node.timelineId, nodeId: id, expected: observedCheckout },
+  });
+  if (!result.statementChanges[0]) {
+    fail(
+      'timeline-checkout-conflict',
+      409,
+      'Timeline checkout changed before the Work Node could be applied.',
+      { timelineId: node.timelineId, nodeId: id, expected: observedCheckout },
+    );
+  }
   return {
-    node: await getWorkNode(id),
+    node: await getWorkNode(id, node.timelineId),
     commit: { ...commit, checkoutApplied: true, checkout },
   };
 }
@@ -1836,22 +2303,39 @@ export async function markWorkNodeRollbackApplied(
     appliedAt?: number;
     appliedBy?: 'ai' | 'user' | 'system';
     rationale?: string;
+    checkout?: {
+      targetType: 'snapshot' | 'work-node';
+      targetId: string;
+      updatedAt: number;
+    };
+    basePayloadDigest?: string;
+    baseRevision?: number;
   } = {},
 ): Promise<BrowserTimelineWorkNode> {
   const node = await getWorkNode(id);
-  const appliedAt = input.appliedAt ?? Date.now();
+  const appliedAt = Math.max(input.appliedAt ?? Date.now(), node.updatedAt + 1);
+  if (Number.isSafeInteger(input.baseRevision) && input.baseRevision !== node.contentRevision) {
+    fail(
+      'ai-worknode-content-revision-conflict',
+      409,
+      'Work Node changed before its base payload could be restored.',
+      { expectedContentRevision: input.baseRevision, actualContentRevision: node.contentRevision },
+    );
+  }
   const logs = [
     makeLog('info', '已从工作节点 base payload 恢复当前工作区。'),
     ...node.logs,
   ];
-  await webDatabase.batch([
+  const result = await batchWithRequiredChanges([
     {
       sql: `
         UPDATE timeline_work_nodes
         SET status = 'ready', logs_json = ?, updated_at = ?
-        WHERE id = ?
+        WHERE timeline_id = ? AND id = ?
+          AND content_revision = ? AND updated_at = ?
       `,
-      bind: [serialize(logs), appliedAt, id],
+      bind: [serialize(logs), appliedAt, node.timelineId, id, node.contentRevision, node.updatedAt],
+      requireChanges: true,
     },
     auditStatement({
       timelineId: node.timelineId,
@@ -1861,11 +2345,27 @@ export async function markWorkNodeRollbackApplied(
       details: {
         appliedBy: input.appliedBy || 'system',
         rationale: input.rationale || '从工作节点 base payload 恢复。',
+        ...(input.checkout ? { checkout: input.checkout } : {}),
+        ...(input.basePayloadDigest ? { basePayloadDigest: input.basePayloadDigest } : {}),
+        ...(Number.isSafeInteger(input.baseRevision) ? { baseRevision: input.baseRevision } : {}),
       },
       createdAt: appliedAt,
+      when: { sql: 'changes() > 0' },
     }),
-  ]);
-  return getWorkNode(id);
+  ], {
+    code: 'ai-worknode-content-revision-conflict',
+    message: 'Work Node changed before its base payload could be restored.',
+    details: { timelineId: node.timelineId, nodeId: id, expectedContentRevision: node.contentRevision },
+  });
+  if (!result.statementChanges[0]) {
+    fail(
+      'ai-worknode-content-revision-conflict',
+      409,
+      'Work Node changed before its base payload could be restored.',
+      { timelineId: node.timelineId, nodeId: id, expectedContentRevision: node.contentRevision },
+    );
+  }
+  return getWorkNode(id, node.timelineId);
 }
 
 export async function listWorkNodeHeads(): Promise<{
@@ -1876,23 +2376,35 @@ export async function listWorkNodeHeads(): Promise<{
   const rows = await webDatabase.query<Row>(
     `
       SELECT document.id AS timeline_id, checkout.target_type, checkout.target_id,
-             checkout.updated_at
+             checkout.updated_at AS checkout_updated_at,
+             node.id AS head_node_id,
+             node.content_revision AS node_content_revision
       FROM timeline_documents document
       LEFT JOIN timeline_checkout_refs checkout ON checkout.timeline_id = document.id
+      LEFT JOIN timeline_work_nodes node
+        ON node.timeline_id = document.id
+        AND checkout.target_type = 'work-node'
+        AND node.id = checkout.target_id
     `,
   );
   const heads = Object.fromEntries(rows.map((row) => [
     textValue(row.timeline_id),
     {
-      nodeId: textValue(row.target_type) === 'work-node' ? textValue(row.target_id) : '',
-      revision: numberValue(row.updated_at),
+      nodeId: textValue(row.target_type) === 'work-node' ? textValue(row.head_node_id) : '',
+      revision: textValue(row.target_type) === 'work-node' && textValue(row.head_node_id)
+        ? numberValue(row.node_content_revision)
+        : 0,
     },
   ]));
-  const latest = Object.values(heads).sort((left, right) => right.revision - left.revision)[0];
+  const latestRow = [...rows]
+    .filter((row) => textValue(row.target_type) === 'work-node' && textValue(row.head_node_id))
+    .sort((left, right) => numberValue(right.checkout_updated_at) - numberValue(left.checkout_updated_at))[0];
+  const latestTimelineId = textValue(latestRow?.timeline_id);
+  const latest = latestTimelineId ? heads[latestTimelineId] : undefined;
   return {
     heads,
-    headNodeId: latest?.nodeId || '',
-    revision: latest?.revision || 0,
+    headNodeId: latest?.nodeId ?? '',
+    revision: latest?.revision ?? 0,
   };
 }
 
@@ -1908,18 +2420,6 @@ function resolveBundlePayload(bundle: BrowserTimelineBundle): {
   if (checkoutRef?.targetType === 'snapshot') {
     const snapshot = bundle.snapshots.find((entry) => entry.id === checkoutRef.targetId);
     if (snapshot?.payload) return { payload: snapshot.payload, checkoutRef };
-  }
-  const newestNode = [...bundle.workNodes].sort((left, right) => right.updatedAt - left.updatedAt)[0];
-  if (newestNode) {
-    return {
-      payload: newestNode.workingPayload,
-      checkoutRef: {
-        timelineId: bundle.document.id,
-        targetType: 'work-node',
-        targetId: newestNode.id,
-        updatedAt: newestNode.updatedAt,
-      },
-    };
   }
   const newestSnapshot = [...bundle.snapshots].sort((left, right) => right.createdAt - left.createdAt)[0];
   if (newestSnapshot?.payload) {
@@ -2081,7 +2581,9 @@ function legacyTimelineArchiveToBundle(
     ))
     .map((node) => {
       const nodeCreatedAt = Number(node.createdAt) || createdAt;
-      const nodeUpdatedAt = Number(node.updatedAt) || nodeCreatedAt;
+      const nodeUpdatedAt = typeof node.updatedAt === 'number' && Number.isFinite(node.updatedAt)
+        ? node.updatedAt
+        : nodeCreatedAt;
       return {
         id: node.id.trim(),
         ...(node.parentNodeId?.trim() ? { parentNodeId: node.parentNodeId.trim() } : {}),
@@ -2099,7 +2601,9 @@ function legacyTimelineArchiveToBundle(
         workingPayload: node.workingPayload,
         baseSummary: summarizeTimelinePayload(node.basePayload),
         workingSummary: summarizeTimelinePayload(node.workingPayload),
-        contentRevision: Number(node.contentRevision) || nodeUpdatedAt,
+        contentRevision: typeof node.contentRevision === 'number' && Number.isFinite(node.contentRevision)
+          ? node.contentRevision
+          : nodeUpdatedAt,
         createdAt: nodeCreatedAt,
         updatedAt: nodeUpdatedAt,
       };
@@ -2289,19 +2793,22 @@ async function persistCanonicalBundlePayloads(
     id: snapshot.id,
     payload: snapshot.payload!,
     payloadHash: await hashPayload(snapshot.payload),
+    expectedPayloadHash: snapshot.payloadHash,
   })));
   const statements: SqlStatement[] = snapshotRows.map((snapshot) => ({
     sql: `
       UPDATE timeline_snapshots
       SET payload_json = ?, payload_hash = ?
-      WHERE id = ? AND timeline_id = ?
+      WHERE id = ? AND timeline_id = ? AND payload_hash = ?
     `,
     bind: [
       serialize(snapshot.payload),
       snapshot.payloadHash,
       snapshot.id,
       bundle.document.id,
+      snapshot.expectedPayloadHash,
     ],
+    requireChanges: true,
   }));
   bundle.workNodes.forEach((node) => {
     statements.push({
@@ -2309,13 +2816,17 @@ async function persistCanonicalBundlePayloads(
         UPDATE timeline_work_nodes
         SET base_payload_json = ?, working_payload_json = ?
         WHERE id = ? AND timeline_id = ?
+          AND content_revision = ? AND updated_at = ?
       `,
       bind: [
         serialize(node.basePayload),
         serialize(node.workingPayload),
         node.id,
         bundle.document.id,
+        node.contentRevision,
+        node.updatedAt,
       ],
+      requireChanges: true,
     });
   });
   bundle.commits.forEach((commit) => {
@@ -2331,6 +2842,7 @@ async function persistCanonicalBundlePayloads(
         commit.id,
         bundle.document.id,
       ],
+      requireChanges: true,
     });
   });
   statements.push(auditStatement({
@@ -2340,8 +2852,22 @@ async function persistCanonicalBundlePayloads(
     subjectId: bundle.checkoutRef?.targetId || bundle.snapshots[0]?.id || bundle.document.id,
     details: { repairs },
     createdAt: updatedAt,
+    when: { sql: 'changes() > 0' },
   }));
-  await webDatabase.batch(statements);
+  const result = await batchWithRequiredChanges(statements, {
+    code: 'timeline-content-revision-conflict',
+    message: 'Timeline content changed before compatibility repair could be persisted.',
+    details: { timelineId: bundle.document.id },
+  });
+  const mutationCount = statements.length - 1;
+  if (result.statementChanges.slice(0, mutationCount).some((changes) => changes === 0)) {
+    fail(
+      'timeline-content-revision-conflict',
+      409,
+      'Timeline content changed before compatibility repair could be persisted.',
+      { timelineId: bundle.document.id },
+    );
+  }
 }
 
 export async function applySqliteWorkspace(
@@ -2369,6 +2895,7 @@ export async function applySqliteWorkspace(
     ...resolved.checkoutRef,
     timelineId,
     updatedAt,
+    expected: bundle.checkoutRef,
   });
   const workspace = await replaceUserWorkspaceWithTimelinePayload(
     resolved.payload as unknown as Record<string, unknown>,
@@ -2500,7 +3027,9 @@ function portableBundleToRepositoryBundle(bundle: TimelineBundleV2): BrowserTime
       workingPayload,
       baseSummary: summarizeTimelinePayload(basePayload),
       workingSummary: summarizeTimelinePayload(workingPayload),
-      contentRevision: node.updatedAt,
+      contentRevision: Number.isFinite(Number((node as unknown as { contentRevision?: unknown }).contentRevision))
+        ? Number((node as unknown as { contentRevision?: unknown }).contentRevision)
+        : node.updatedAt,
       createdAt: node.createdAt,
       updatedAt: node.updatedAt,
     };

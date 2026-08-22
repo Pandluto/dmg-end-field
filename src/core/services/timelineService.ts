@@ -71,9 +71,7 @@ export function normalizeTimelineData(
       );
 
       // 从有效按钮重建 occupiedNodes，不信任缓存
-      const occupiedNodes = [...new Set(validButtons.map(btn => btn.nodeIndex))]
-        .filter(n => Number.isFinite(n) && n >= 0 && n < 15)
-        .sort((a, b) => a - b);
+      const occupiedNodes = rebuildOccupiedNodes(validButtons);
 
       normalizedStaffLines.push({
         staffIndex: i,
@@ -126,7 +124,7 @@ function rebuildOccupiedNodes(buttons: SkillButtonData[]): number[] {
     .sort((left, right) => left - right);
 }
 
-function buildTimelineButtonsFromSkillButtonTable(
+export function buildTimelineButtonsFromSkillButtonTable(
   skillButtonTable: Record<string, PersistedSkillButton>,
   nextCharacters: { id?: string; name: string }[]
 ): StaffLineData[] {
