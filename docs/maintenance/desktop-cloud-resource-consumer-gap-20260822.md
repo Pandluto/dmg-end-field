@@ -2,7 +2,7 @@
 
 记录日期：2026-08-22
 
-状态：问题与目标方向已确认，尚未实施。短期必须让 Desktop Shell 与 Slimming 使用同一套服务器资源消费者；中期目标是把 Desktop 重构为 Slimming Web 基线上的单向挂件层。
+状态：问题与目标方向已确认，尚未实施。短期必须让 Desktop Shell 与 Slimming 使用同一套服务器资源消费者；中期目标是把 Desktop 重构为 Slimming Web 基线上的单向挂件层。落实前的量化结论与分阶段步骤见[单向叠加实施计划](./desktop-slimming-one-way-overlay-plan-20260822.md)。
 
 ## 现象
 
@@ -31,7 +31,7 @@
 
 截至 2026-08-22，在共同提交 `622d4cf1` 之后：
 
-- Desktop Shell 有 205 个独立提交，改动过 973 个路径；
+- Desktop Shell 在研究基线 `ec0bdf37` 有 206 个独立提交，改动过 973 个路径；
 - Slimming 有 107 个独立提交，改动过 233 个路径；
 - 71 个路径被两边同时修改，其中包括 `src/App.tsx`、`src/main.tsx`、Web Bootstrap、资源清单、SQLite Worker、Timeline、Work Node、路由和发布脚本。
 
@@ -76,7 +76,7 @@ MCP 不应成为 Desktop 复制 Web 应用的理由。目标边界应满足：
 
 1. **资源同构**：先把 Desktop 数据/图片下载切到 Slimming 同一资源消费者，并补齐开发与打包宿主代理。这是当前可独立验收的缺口。
 2. **建立挂件接口**：收敛 Desktop Marker、MCP 与 Agent 的散落判断，形成资源传输、Host Capability、可选路由/命令三个小接口。
-3. **建立候选下游分支**：从当时最新 Slimming 提交新建隔离候选分支，只重放 Electron、MCP、DEF Agent、Desktop 打包和必要适配；现有 Desktop 分支保留为回滚点，不改写历史。
+3. **建立候选下游分支**：从现有 Desktop tip 新建隔离候选分支，先保留回退引用，再做一次有清单的 `Slimming → Desktop` 汇合；这样候选可在验收后快进接替 Desktop，不强推、不改写历史。
 4. **消除共同文件分叉**：逐项对照当前 71 个双边修改路径。领域、SQLite、交互和资源消费者以 Slimming 为真源；确需 Desktop 差异的行为移到挂件接口后再接入。
 5. **双端验收后切换**：验证浏览器站点、Desktop 本地服务器、打包 Desktop、MCP、Agent、SQLite 导入导出和统一资源 ZIP 后，再决定是否让候选分支接替现有 Desktop Shell。
 6. **建立长期门禁**：CI 检查 Desktop 相对 Slimming 的差异只出现在允许的挂件路径或明确的适配入口；共享修复必须先进入 Slimming，再单向同步。
