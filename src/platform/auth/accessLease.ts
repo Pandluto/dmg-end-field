@@ -1,6 +1,7 @@
 const ACCESS_LEASE_KEY = 'dmg.web.access-lease.v1';
 const ACCESS_LEASE_VERSION = 1;
 const ACCESS_LEASE_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
+const ACCESS_PASSWORD = 'zmd';
 const ACCESS_PASSWORD_SHA256 = '70bf6599462aab4b1415d79b1bcbf9565734b6f22d3a087dd2589506c7db5c50';
 const ACCESS_PROOF_NAMESPACE = 'dmg-end-field:web-lts-1.8';
 
@@ -24,11 +25,21 @@ function bytesToHex(bytes: ArrayBuffer): string {
 }
 
 async function sha256(value: string): Promise<string> {
-  return bytesToHex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
+  return bytesToHex(await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
+}
+
+function supportsWebCrypto(): boolean {
+  return typeof globalThis.crypto?.subtle?.digest === 'function';
 }
 
 async function buildLeaseProof(issuedAt: number, expiresAt: number): Promise<string> {
-  return sha256(`${ACCESS_PROOF_NAMESPACE}:${issuedAt}:${expiresAt}:${ACCESS_PASSWORD_SHA256}`);
+  const payload = `${ACCESS_PROOF_NAMESPACE}:${issuedAt}:${expiresAt}:${ACCESS_PASSWORD_SHA256}`;
+  return supportsWebCrypto() ? sha256(payload) : `http:${payload}`;
+}
+
+async function matchesAccessPassword(password: string): Promise<boolean> {
+  if (!supportsWebCrypto()) return password === ACCESS_PASSWORD;
+  return (await sha256(password)) === ACCESS_PASSWORD_SHA256;
 }
 
 function readStoredLease(): StoredAccessLease | null {
@@ -72,8 +83,7 @@ export async function readAccessLeaseStatus(now = Date.now()): Promise<AccessLea
 }
 
 export async function grantAccessLease(password: string, now = Date.now()): Promise<AccessLeaseStatus> {
-  const passwordHash = await sha256(password);
-  if (passwordHash !== ACCESS_PASSWORD_SHA256) {
+  if (!(await matchesAccessPassword(password))) {
     return { granted: false, issuedAt: null, expiresAt: null };
   }
   const issuedAt = now;
@@ -96,4 +106,3 @@ export function clearAccessLease(): void {
     // The access page will remain locked when browser storage is unavailable.
   }
 }
-

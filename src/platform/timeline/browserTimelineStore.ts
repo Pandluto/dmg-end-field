@@ -2501,6 +2501,7 @@ async function storeArchive(input: {
   bundle: BrowserTimelineBundle;
   archiveId?: string;
   createdAt?: string;
+  payloadHash?: string;
 }): Promise<BrowserTimelineArchiveSummary> {
   const canonical = canonicalizeBrowserTimelineBundle(input.bundle, `存档 ${input.label}`);
   input = { ...input, bundle: canonical.bundle };
@@ -2514,7 +2515,7 @@ async function storeArchive(input: {
   }
   const archiveId = input.archiveId || makeId('timeline-archive');
   const createdAt = input.createdAt || new Date().toISOString();
-  const payloadHash = await hashPayload(resolved.payload);
+  const payloadHash = input.payloadHash || await hashPayload(resolved.payload);
   const summary = summarizeTimelinePayload(resolved.payload);
   await webDatabase.execute(
     `
@@ -3073,6 +3074,7 @@ function portableBundleToRepositoryBundle(bundle: TimelineBundleV2): BrowserTime
 export async function importPortableTimelineBundle(input: {
   bundle: unknown;
   sourceName?: string;
+  dedupeByBundle?: boolean;
 }): Promise<{
   imported: boolean;
   reused: boolean;
@@ -3091,7 +3093,9 @@ export async function importPortableTimelineBundle(input: {
       'Timeline archive requires at least one checkout payload.',
     );
   }
-  const payloadHash = await hashPayload(resolved.payload);
+  const payloadHash = input.dedupeByBundle
+    ? await hashPayload(bundle)
+    : await hashPayload(resolved.payload);
   const existing = await webDatabase.query<Row>(
     'SELECT * FROM timeline_archives WHERE payload_hash = ? AND library = ? LIMIT 1',
     [payloadHash, 'local'],
@@ -3103,6 +3107,7 @@ export async function importPortableTimelineBundle(input: {
     library: 'local',
     label: bundle.document.label || input.sourceName || '导入排轴',
     bundle,
+    payloadHash,
   });
   return { imported: true, reused: false, archive };
 }

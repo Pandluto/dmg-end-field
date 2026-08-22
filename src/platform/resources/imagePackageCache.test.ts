@@ -30,7 +30,6 @@ const installed: InstalledImagePackage = {
       fileName: 'image-pack.zip',
       sha256: 'archive',
       size: 28,
-      sourceUrl: 'https://images.test/image-pack.zip',
     },
   },
 };

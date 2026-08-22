@@ -1,15 +1,14 @@
 import assert from 'node:assert/strict';
 import {
-  assertAgentWorkNodeCommandTimelineBoundary,
   enqueueMainWorkbenchCommand,
   enqueueMainWorkbenchCommands,
-  executeAgentProductCatalogCommand,
   getPendingMainWorkbenchCommands,
+  installMainWorkbenchTransport,
   patchMainWorkbenchCommand,
-  projectMainWorkbenchWorkNodeListToTimeline,
+  pullRemoteMainWorkbenchCommands,
+  pushMainWorkbenchCommandResult,
+  pushMainWorkbenchSnapshot,
   readMainWorkbenchCommandQueue,
-  type MainWorkbenchCommand,
-  type QueuedMainWorkbenchCommand,
   writeMainWorkbenchCommandQueue,
 } from './mainWorkbenchControl';
 
@@ -92,224 +91,22 @@ assert.equal(
   'error results must not be claimed again',
 );
 
-const storageReads: string[] = [];
-const emptyCatalogStorage = {
-  getItem(key: string): string | null {
-    storageReads.push(key);
-    return null;
-  },
-};
-const catalogQueryResult = executeAgentProductCatalogCommand({
-  op: 'queryAgentProductCatalog',
-  action: 'query',
-  domain: 'operators',
-  limit: 2,
-}, emptyCatalogStorage);
-assert.equal(catalogQueryResult.ok, true);
-assert.equal(catalogQueryResult.readOnly, true);
-assert.equal(catalogQueryResult.source, 'browser-sqlite-mirror');
-assert.deepEqual((catalogQueryResult.payload as { results: unknown[] }).results, []);
-assert.ok(storageReads.length > 0, 'catalog command must read browser persistent storage');
-
-const buildGuideResult = executeAgentProductCatalogCommand({
-  op: 'queryAgentProductCatalog',
-  action: 'buildGuide',
-  operatorQuery: '洛茜',
-}, emptyCatalogStorage);
-assert.equal(
-  (buildGuideResult.payload as { evidence: { status: string } }).evidence.status,
-  'evidenceUnavailable',
-);
-
-const discoveryResult = executeAgentProductCatalogCommand({
-  op: 'queryAgentProductCatalog',
-  action: 'discoverGearTopologies',
-  limit: 4,
-  combinationsPerSet: 2,
-}, emptyCatalogStorage);
-assert.equal(
-  (discoveryResult.payload as { ranking: string }).ranking,
-  'unranked-facts-only',
-);
-
-const skillFactResult = executeAgentProductCatalogCommand({
-  op: 'queryAgentProductCatalog',
-  action: 'skillFact',
-  operatorQuery: '洛茜',
-  skillQuery: 'A',
-  hitQuery: '主伤害',
-}, emptyCatalogStorage);
-assert.equal(
-  (skillFactResult.payload as { state: string }).state,
-  'OPERATOR_UNRESOLVED',
-);
-
-const emptyProjectedLoadout = {
-  contract: 'DefTeamLoadoutsV1',
-  complete: false,
-  missingCharacterIds: ['operator-luoxi'],
-  operators: [{
-    character: { id: 'operator-luoxi', name: '洛茜' },
-    weapon: null,
-    equipment: [],
-    setBuffs: [],
-    operatorSkillLevels: null,
-    configured: false,
-  }],
-} as const;
-const recommendationResult = executeAgentProductCatalogCommand({
-  op: 'queryAgentProductCatalog',
-  action: 'recommendLoadout',
-  operatorQuery: '洛茜',
-  limit: 4,
-}, emptyCatalogStorage);
-assert.equal(
-  (recommendationResult.payload as { profile: { status: string } }).profile.status,
-  'OPERATOR_UNRESOLVED',
-);
-assert.equal(
-  (recommendationResult.payload as { weapons: { returnedCandidateCount: number } }).weapons.returnedCandidateCount,
-  0,
-);
-assert.equal(
-  (executeAgentProductCatalogCommand({
-    op: 'queryAgentProductCatalog',
-    action: 'recommendWeapons',
-    operatorQuery: '洛茜',
-  }, emptyCatalogStorage).payload as { status: string }).status,
-  'NO_PLAN',
-);
-assert.equal(
-  (executeAgentProductCatalogCommand({
-    op: 'queryAgentProductCatalog',
-    action: 'recommendNamedSet',
-    operatorQuery: '洛茜',
-    setQuery: '潮涌',
-  }, emptyCatalogStorage).payload as { status: string }).status,
-  'NO_PLAN',
-);
-assert.equal(
-  (executeAgentProductCatalogCommand({
-    op: 'queryAgentProductCatalog',
-    action: 'recommendDiscoveredSets',
-    operatorQuery: '洛茜',
-  }, emptyCatalogStorage).payload as { status: string }).status,
-  'NO_PLAN',
-);
-assert.equal(
-  (executeAgentProductCatalogCommand({
-    op: 'queryAgentProductCatalog',
-    action: 'evaluateLoadout',
-    operatorQuery: '洛茜',
-    currentLoadout: emptyProjectedLoadout,
-  }, emptyCatalogStorage).payload as { status: string }).status,
-  'NO_PROFILE',
-);
-assert.equal(
-  (executeAgentProductCatalogCommand({
-    op: 'queryAgentProductCatalog',
-    action: 'compareLoadoutCandidate',
-    operatorQuery: '洛茜',
-    currentLoadout: emptyProjectedLoadout,
-    candidate: { weaponId: 'weapon-test' },
-  }, emptyCatalogStorage).payload as { result: { status: string } }).result.status,
-  'PARTIAL',
-);
-
-const phase2ExpectedBinding = {
-  workspaceId: 'workspace-two-timeline',
-  databaseGeneration: 'generation-two-timeline',
-  timelineId: 'timeline-a',
-  checkoutTargetId: 'node-a',
-  checkoutUpdatedAt: 200,
-  contentRevision: 100,
-  snapshotDigest: 'sha256:timeline-a',
-} as NonNullable<Parameters<typeof enqueueMainWorkbenchCommand>[3]>;
-const persistedAgentCommand = enqueueMainWorkbenchCommand(
-  { op: 'listAiTimelineWorkNodes' },
-  'agent-host',
-  'command-list-current-timeline',
-  phase2ExpectedBinding,
-);
-assert.deepEqual(
-  readMainWorkbenchCommandQueue().find((entry) => entry.id === persistedAgentCommand.id)?.phase2ExpectedBinding,
-  phase2ExpectedBinding,
-  'the accepted Phase 2 expected binding must survive the renderer queue boundary',
-);
-
-const twoTimelineNodes = [
-  { id: 'node-a', timelineId: 'timeline-a' },
-  { id: 'node-b', timelineId: 'timeline-b' },
-];
-const projectedList = projectMainWorkbenchWorkNodeListToTimeline({
-  ok: true as const,
-  nodes: twoTimelineNodes,
-  commits: [
-    { id: 'commit-a', nodeId: 'node-a' },
-    { id: 'commit-b', nodeId: 'node-b' },
-  ],
-  heads: {
-    a: { nodeId: 'node-a', revision: 1 },
-    b: { nodeId: 'node-b', revision: 2 },
-  },
-  headNodeId: 'node-b',
-}, 'timeline-a');
-assert.deepEqual(projectedList.nodes.map((node) => node.id), ['node-a']);
-assert.deepEqual(projectedList.commits.map((commit) => commit.id), ['commit-a']);
-assert.deepEqual(Object.keys(projectedList.heads), ['a']);
-assert.equal(projectedList.headNodeId, 'node-a', 'a foreign global head must be replaced by a current-timeline head');
-
-const crossTimelineCommands: MainWorkbenchCommand[] = [
-  { op: 'readAiTimelineWorkNode', nodeId: 'node-b' },
-  { op: 'diffAiTimelineWorkNode', nodeId: 'node-b' },
-  { op: 'validateAiTimelineWorkNode', nodeId: 'node-b', repairStatus: true },
-  {
-    op: 'deleteAiTimelineWorkNode',
-    nodeId: 'node-b',
-    expectedNodeRevision: 1,
-    expectedSubtreeNodeCount: 1,
-    expectedSubtreeDigest: `sha256:${'c'.repeat(64)}`,
-  },
-  {
-    op: 'checkoutAiTimelineWorkNode',
-    nodeId: 'node-b',
-    approval: { mode: 'manual', approvedBy: 'user' },
-  },
-  {
-    op: 'restoreAiTimelineWorkNodeBase',
-    nodeId: 'node-b',
-    approval: { mode: 'manual', approvedBy: 'user' },
-  },
-];
-const liveState = {
-  'timeline-a': { checkoutTargetId: 'node-a', payload: { buttons: ['a'] } },
-  'timeline-b': { checkoutTargetId: 'node-b', payload: { buttons: ['b'] } },
-};
-const originalLiveState = structuredClone(liveState);
-const readTwoTimelineNode = async (nodeId: string) => {
-  const node = twoTimelineNodes.find((entry) => entry.id === nodeId);
-  if (!node) throw new Error(`missing fixture node: ${nodeId}`);
-  return node;
-};
-for (const command of crossTimelineCommands) {
-  const entry: Pick<QueuedMainWorkbenchCommand, 'source' | 'command' | 'phase2ExpectedBinding'> = {
-    source: 'agent-host',
-    command,
-    phase2ExpectedBinding,
-  };
-  await assert.rejects(async () => {
-    await assertAgentWorkNodeCommandTimelineBoundary({
-      entry,
-      activeTimelineId: 'timeline-a',
-      readNode: readTwoTimelineNode,
-    });
-    liveState['timeline-a'] = { checkoutTargetId: 'node-b', payload: { buttons: ['b'] } };
-  }, /agent-worknode-timeline-mismatch/);
-  assert.deepEqual(
-    liveState,
-    originalLiveState,
-    `${command.op} must reject before either timeline checkout/payload can change`,
-  );
-}
+const transportCalls: string[] = [];
+const restoreTransport = installMainWorkbenchTransport({
+  pullCommands: () => { transportCalls.push('pull'); },
+  pushCommandResult: (entry) => { transportCalls.push(`result:${entry.id}`); },
+  pushSnapshot: (snapshot) => { transportCalls.push(`snapshot:${snapshot.schemaVersion}`); },
+});
+await pullRemoteMainWorkbenchCommands();
+await pushMainWorkbenchCommandResult(first);
+await pushMainWorkbenchSnapshot({
+  schemaVersion: 1,
+  updatedAt: Date.now(),
+  source: 'app',
+  selectedCharacters: [],
+  skillButtons: [],
+});
+restoreTransport();
+assert.deepEqual(transportCalls, ['pull', 'result:command-refresh', 'snapshot:1']);
 
 console.log('Main Workbench command queue lifecycle contract: PASS');

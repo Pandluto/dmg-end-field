@@ -1,0 +1,174 @@
+.desktop-tactical-share-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 48px 24px;
+  color: #172d32;
+  background: #ecefed;
+  box-sizing: border-box;
+}
+
+.desktop-tactical-share-card {
+  width: min(720px, 100%);
+  border: 1px solid rgba(23, 45, 50, 0.48);
+  background: #fbfcfb;
+}
+
+.desktop-tactical-share-card > header {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(23, 45, 50, 0.18);
+}
+
+.desktop-tactical-share-card > header span,
+.desktop-tactical-share-source {
+  display: grid;
+  gap: 3px;
+}
+
+.desktop-tactical-share-card small {
+  color: #1f6f8b;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+}
+
+.desktop-tactical-share-card button {
+  min-height: 32px;
+  padding: 7px 13px;
+  border: 1px solid rgba(23, 45, 50, 0.56);
+  color: #172d32;
+  background: #fff;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.desktop-tactical-share-state {
+  min-height: 280px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  padding: 40px;
+  text-align: center;
+}
+
+.desktop-tactical-share-state i {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(31, 111, 139, 0.22);
+  border-top-color: #1f6f8b;
+  border-radius: 50%;
+  animation: desktop-tactical-share-spin 0.8s linear infinite;
+}
+
+.desktop-tactical-share-state b {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #923c33;
+  color: #923c33;
+}
+
+.desktop-tactical-share-state p,
+.desktop-tactical-share-source p {
+  margin: 0;
+  color: #68787a;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.desktop-tactical-share-preview {
+  display: grid;
+  gap: 18px;
+  padding: 24px;
+}
+
+.desktop-tactical-share-source {
+  padding: 14px;
+  border-left: 3px solid #1f6f8b;
+  background: #f4f6f5;
+}
+
+.desktop-tactical-share-preview h1 {
+  margin: 0;
+  font-size: 25px;
+}
+
+.desktop-tactical-share-preview dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+  border: 1px solid rgba(23, 45, 50, 0.18);
+}
+
+.desktop-tactical-share-preview dl div {
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+  border-right: 1px solid rgba(23, 45, 50, 0.18);
+}
+
+.desktop-tactical-share-preview dl div:last-child {
+  border-right: 0;
+}
+
+.desktop-tactical-share-preview dt {
+  color: #68787a;
+  font-size: 11px;
+}
+
+.desktop-tactical-share-preview dd {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.desktop-tactical-share-preview footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.desktop-tactical-share-card button.is-primary {
+  border-color: #1f6f8b;
+  color: #fff;
+  background: #1f6f8b;
+}
+
+.desktop-tactical-share-card button:disabled {
+  cursor: progress;
+  opacity: 0.58;
+}
+
+.desktop-tactical-share-success {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(31, 111, 139, 0.28);
+  color: #1f6f8b;
+  background: rgba(31, 111, 139, 0.06);
+}
+
+@keyframes desktop-tactical-share-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 620px) {
+  .desktop-tactical-share-preview dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .desktop-tactical-share-preview dl div:nth-child(2) {
+    border-right: 0;
+  }
+
+  .desktop-tactical-share-preview dl div:nth-child(-n + 2) {
+    border-bottom: 1px solid rgba(23, 45, 50, 0.18);
+  }
+}

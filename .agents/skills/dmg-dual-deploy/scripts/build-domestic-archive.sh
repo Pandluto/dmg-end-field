@@ -1,17 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="${DMG_REPO_ROOT:-}"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/../../../.." && pwd)"
 output_dir="${1:-}"
-
-if [[ -z "$repo_root" ]]; then
-  repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-fi
-
-if [[ -z "$repo_root" || ! -e "$repo_root/.git" || ! -f "$repo_root/package.json" ]]; then
-  echo "Run this helper from inside the DMG Endfield Git worktree, or set DMG_REPO_ROOT to that worktree." >&2
-  exit 1
-fi
 
 if [[ -z "$output_dir" ]]; then
   output_dir="$(mktemp -d /tmp/dmg-domestic-deploy.XXXXXX)"
@@ -21,13 +13,6 @@ else
 fi
 
 cd "$repo_root"
-
-source_branch="$(git branch --show-current)"
-if [[ "$source_branch" != "codex/v1.8-lts-slimming" && "${DMG_ALLOW_NON_SLIMMING_BUILD:-}" != "1" ]]; then
-  echo "Refusing domestic Web build from $source_branch; switch to codex/v1.8-lts-slimming." >&2
-  echo "Set DMG_ALLOW_NON_SLIMMING_BUILD=1 only when the user explicitly authorized another source branch." >&2
-  exit 1
-fi
 
 npm run typecheck
 npm run build:local

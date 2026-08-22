@@ -1,6 +1,6 @@
 # 项目文档入口
 
-1.8 LTS 文档只保留当前仍会约束产品、数据和发布行为的事实。Desktop Shell 与 Slimming 是两个长期专业分支；共通合同按补丁同步，不做整分支合并。
+1.8 LTS 文档只保留当前仍会约束产品、数据和发布行为的事实。Slimming 是共享 Web 真源，Desktop Shell 是只向下继承它的专业叠加层。
 
 ## 从这里开始
 
@@ -9,7 +9,7 @@
 - [项目架构总览](./architecture/overview.md)
 - [1.8 LTS 分支合同](./architecture/lts-branch-contract.md)
 - [数据生命周期](./architecture/data-lifecycle.md)
-- [统一资源发包与交接](./architecture/resource-delivery.md)
+- [统一资源发包、服务器通道与交接](./architecture/resource-delivery.md)
 - [技术栈与技术选择](./technology-stack.md)
 - [当前 Spec 索引](./specs/README.md)
 - [测试方法](./testing/README.md)

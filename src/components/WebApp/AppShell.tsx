@@ -12,7 +12,12 @@ import {
   type OfflineAvailability,
 } from '../../platform/runtime/serviceWorkerRuntime';
 import { usePageVersionUpdate } from '../../platform/runtime/usePageVersionUpdate';
-import { isDesktopWebHost } from '../../platform/runtime/desktopWebHost';
+import { getAppHostExtension } from '../../platform/host/appHost';
+import { useNotificationCenter } from '../../platform/notifications/NotificationCenterProvider';
+import { useResourceStatusNotifications } from '../../platform/notifications/useResourceStatusNotifications';
+import type { AppNotification } from '../../platform/notifications/notificationTypes';
+import { NotificationBell } from './NotificationBell';
+import { NotificationPanel } from './NotificationPanel';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import './app-shell.css';
 
@@ -45,7 +50,8 @@ type LauncherDragState = {
   moved: boolean;
 };
 
-const LAUNCHER_SIZE = 44;
+const LAUNCHER_WIDTH = 100;
+const LAUNCHER_HEIGHT = 44;
 const LAUNCHER_MARGIN = 8;
 const LAUNCHER_DRAG_THRESHOLD = 4;
 const LAUNCHER_DEFAULT_POSITION: LauncherPosition = { x: 10, y: 10 };
@@ -58,17 +64,17 @@ function clampLauncherPosition(
   return {
     x: Math.min(
       Math.max(position.x, LAUNCHER_MARGIN),
-      Math.max(LAUNCHER_MARGIN, viewportWidth - LAUNCHER_SIZE - LAUNCHER_MARGIN),
+      Math.max(LAUNCHER_MARGIN, viewportWidth - LAUNCHER_WIDTH - LAUNCHER_MARGIN),
     ),
     y: Math.min(
       Math.max(position.y, LAUNCHER_MARGIN),
-      Math.max(LAUNCHER_MARGIN, viewportHeight - LAUNCHER_SIZE - LAUNCHER_MARGIN),
+      Math.max(LAUNCHER_MARGIN, viewportHeight - LAUNCHER_HEIGHT - LAUNCHER_MARGIN),
     ),
   };
 }
 
 function sectionMeta(path: string): SectionMeta {
-  if (path === APP_ROUTE_PATHS.settings) {
+  if (path === APP_ROUTE_PATHS.settings || path.startsWith(`${APP_ROUTE_PATHS.settings}/`)) {
     return {
       key: 'settings',
       title: '设置',
@@ -136,7 +142,7 @@ function BrandLogo() {
 }
 
 export function AppShell({ currentPath, children, overlay }: AppShellProps) {
-  const desktopWebHost = isDesktopWebHost();
+  const showPageVersionUpdate = getAppHostExtension().ui?.showPageVersionUpdate !== false;
   const [menuOpen, setMenuOpen] = useState(false);
   const [isOnline, setIsOnline] = useState(
     () => typeof navigator === 'undefined' || navigator.onLine,
@@ -145,7 +151,80 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
     supported: true,
     ready: false,
   });
-  const { state: pageVersionUpdate, update: updatePageVersion } = usePageVersionUpdate();
+  const { state: pageVersionUpdate, update: updatePageVersion } = usePageVersionUpdate(showPageVersionUpdate);
+  const {
+    notifications,
+    unreadCount,
+    readCount,
+    markRead,
+    markAllRead,
+    deleteRead,
+    notify,
+  } = useNotificationCenter();
+  const [notificationOpen, setNotificationOpen] = useState(false);
+  const pageUpdateAnnouncedRef = useRef('');
+  useResourceStatusNotifications();
+
+  useEffect(() => {
+    if (!showPageVersionUpdate) return undefined;
+    if (pageVersionUpdate.phase !== 'update-available') {
+      if (pageVersionUpdate.phase === 'up-to-date') pageUpdateAnnouncedRef.current = '';
+      return;
+    }
+    const latestVersion = pageVersionUpdate.latestVersionLabel || '';
+    const latestShellVersion = pageVersionUpdate.latestShellVersion || '';
+    const currentVersion = pageVersionUpdate.currentVersionLabel;
+    const key = `page-update:${latestVersion}:${latestShellVersion}`;
+    if (!latestVersion || pageUpdateAnnouncedRef.current === key) return;
+    pageUpdateAnnouncedRef.current = key;
+    void notify({
+      dedupeKey: key,
+      kind: 'page-update',
+      severity: 'info',
+      title: `发现新版本 ${latestVersion}`,
+      body: `当前 ${currentVersion}。更新只替换页面程序，不会改动你的排轴与资料。`,
+      action: { label: '更新并重新载入', handlerKey: 'page-update' },
+    });
+  }, [
+    notify,
+    pageVersionUpdate.currentVersionLabel,
+    pageVersionUpdate.latestShellVersion,
+    pageVersionUpdate.latestVersionLabel,
+    pageVersionUpdate.phase,
+  ]);
+
+  const openNotificationPanel = () => {
+    setNotificationOpen((open) => !open);
+    setMenuOpen(false);
+  };
+
+  const handleNotificationAction = (notification: AppNotification) => {
+    void markRead(notification.id);
+    setNotificationOpen(false);
+    if (notification.action?.handlerKey === 'page-update') {
+      void updatePageVersion();
+      return;
+    }
+    if (notification.action?.handlerKey === 'data-workspace') {
+      navigateToAppPath(APP_ROUTE_PATHS.dataWorkspace);
+      return;
+    }
+    if (notification.action?.handlerKey === 'settings') {
+      navigateToAppPath(APP_ROUTE_PATHS.settings);
+      return;
+    }
+    if (notification.action?.route) {
+      navigateToAppPath(notification.action.route);
+    }
+  };
+
+  const handleDeleteReadNotifications = () => {
+    if (readCount === 0) return;
+    const confirmed = window.confirm(`删除 ${readCount} 条已读通知？删除后无法恢复。`);
+    if (!confirmed) return;
+    void deleteRead();
+  };
+
   const [launcherPosition, setLauncherPosition] = useState<LauncherPosition>(
     () => ({ ...LAUNCHER_DEFAULT_POSITION }),
   );
@@ -206,15 +285,16 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
       suppressLauncherClickRef.current = false;
       return;
     }
+    setNotificationOpen(false);
     setMenuOpen((open) => !open);
   };
 
   useEffect(() => {
     setMenuOpen(false);
+    setNotificationOpen(false);
   }, [currentPath]);
 
   useEffect(() => {
-    if (desktopWebHost) return undefined;
     const refreshOfflineAvailability = () => {
       void readOfflineAvailability().then(setOfflineAvailability);
     };
@@ -237,7 +317,7 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
       window.removeEventListener('offline', handleOffline);
       navigator.serviceWorker?.removeEventListener('controllerchange', refreshOfflineAvailability);
     };
-  }, [desktopWebHost]);
+  }, [showPageVersionUpdate]);
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -315,10 +395,15 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
     const handlePointerDown = (event: PointerEvent) => {
       if (!launcherRef.current?.contains(event.target as Node)) {
         setMenuOpen(false);
+        setNotificationOpen(false);
       }
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
+      if (notificationOpen) {
+        setNotificationOpen(false);
+        return;
+      }
       if (menuOpen) {
         setMenuOpen(false);
         return;
@@ -333,19 +418,18 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
       window.removeEventListener('pointerdown', handlePointerDown);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [menuOpen, overlay]);
+  }, [menuOpen, notificationOpen, overlay]);
 
   return (
     <div ref={shellRef} className={`web-app-shell ${overlay ? 'has-overlay' : ''}`}>
       <OptionalLiquidTideSurfaceEffects rootRef={shellRef} activationKey={currentPath} />
       <main className="web-shell-content">{children}</main>
 
-
       {showLauncher && (
         <div
           className={[
             'web-shell-launcher',
-            menuOpen ? 'is-open' : '',
+            menuOpen || notificationOpen ? 'is-open' : '',
             isLauncherDragging ? 'is-dragging' : '',
             launcherOpensLeft ? 'opens-left' : 'opens-right',
             `align-${launcherVerticalAlignment}`,
@@ -367,6 +451,12 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
           >
             <BrandLogo />
           </button>
+
+          <NotificationBell
+            unreadCount={unreadCount}
+            open={notificationOpen}
+            onClick={openNotificationPanel}
+          />
 
           {menuOpen && (
             <div className="web-shell-popover">
@@ -393,7 +483,7 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
                 ))}
               </nav>
 
-              {!desktopWebHost && <button
+              {showPageVersionUpdate && <button
                 className={`web-shell-local-state is-${pageVersionUpdate.phase}`}
                 type="button"
                 disabled={!pageVersionCanUpdate}
@@ -462,6 +552,18 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
                 </span>
               </button>}
             </div>
+          )}
+
+          {notificationOpen && (
+            <NotificationPanel
+              notifications={notifications}
+              unreadCount={unreadCount}
+              readCount={readCount}
+              onMarkRead={(id) => void markRead(id)}
+              onMarkAllRead={() => void markAllRead()}
+              onDeleteRead={handleDeleteReadNotifications}
+              onAction={handleNotificationAction}
+            />
           )}
         </div>
       )}

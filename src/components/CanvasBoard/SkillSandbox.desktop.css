@@ -1,0 +1,841 @@
+.skill-sandbox {
+  width: 100%;
+  height: 100%;
+  background: var(--bg-primary);
+  border-left: none;
+  padding: var(--spacing-md);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sandbox-title {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  margin-bottom: var(--spacing-xs);
+}
+
+.sandbox-hint {
+  font-size: var(--font-size-xs);
+  color: #666;
+  margin-bottom: var(--spacing-lg);
+}
+
+.sandbox-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #999;
+  font-size: var(--font-size-sm);
+}
+
+.sandbox-characters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  position: relative;
+  overflow-y: auto;
+  overflow-x: visible;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.sandbox-characters::-webkit-scrollbar {
+  display: none;
+}
+
+.sandbox-characters > .sandbox-character:first-child {
+  margin-top: 4vh;
+}
+
+.sandbox-character {
+  --sandbox-hover-scale: 1.02;
+  --sandbox-active-z-index: 30;
+  --sandbox-base-z-index: 1;
+  --sandbox-corner-width: 6px;
+  --sandbox-corner-color: rgba(0, 122, 255, 0.18);
+  --sandbox-card-long-edge: 168px;
+  --corner-len: 57px;
+
+  position: relative;
+  z-index: var(--sandbox-base-z-index);
+  padding: var(--spacing-sm);
+  border: none;
+  background: rgb(255 255 255 / 0.28);
+  opacity: 0.96;
+  transition: transform 0.2s ease, opacity 0.2s ease, background-color 0.2s ease;
+  transform-origin: center;
+}
+
+.sandbox-character--hoverable::before,
+.sandbox-character--hoverable::after {
+  content: '';
+  position: absolute;
+  width: var(--corner-len);
+  height: var(--corner-len);
+  pointer-events: none;
+  opacity: 0;
+  border-color: var(--sandbox-corner-color);
+  border-style: solid;
+  transition: opacity 0.2s ease;
+}
+
+.sandbox-character--hoverable::before {
+  top: 0;
+  left: 0;
+  border-width: var(--sandbox-corner-width) 0 0 var(--sandbox-corner-width);
+}
+
+.sandbox-character--hoverable::after {
+  right: 0;
+  bottom: 0;
+  border-width: 0 var(--sandbox-corner-width) var(--sandbox-corner-width) 0;
+}
+
+.sandbox-character--hoverable:hover,
+.sandbox-character--hoverable:focus-within {
+  transform: scale(var(--sandbox-hover-scale));
+  background: rgb(255 255 255 / 0.16);
+  z-index: var(--sandbox-active-z-index);
+  opacity: 1;
+}
+
+.sandbox-character--hoverable:hover::before,
+.sandbox-character--hoverable:hover::after,
+.sandbox-character--hoverable:focus-within::before,
+.sandbox-character--hoverable:focus-within::after {
+  opacity: 1;
+}
+
+@media (max-width: 1600px) {
+  .sandbox-character {
+    --corner-len: 52px;
+  }
+}
+
+@media (max-width: 1280px) {
+  .sandbox-character {
+    --corner-len: 48px;
+  }
+}
+/* 角色头 */
+.sandbox-character-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: var(--spacing-sm);
+  padding-bottom: var(--spacing-xs);
+  border-bottom: 1px solid #eee;
+}
+
+/* 角色名称 */
+.sandbox-character-name {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #636363;
+}
+
+.sandbox-skill-pager {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.sandbox-pager-button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--office-border);
+  background: #fff;
+  color: var(--office-title);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.sandbox-pager-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.sandbox-pager-indicator {
+  min-width: 28px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--office-body);
+}
+
+.sandbox-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: transform 0.2s ease, filter 0.2s ease, box-shadow 0.2s ease;
+}
+
+.sandbox-avatar:hover {
+  transform: scale(1.08);
+  filter: brightness(1.08) contrast(1.06);
+  box-shadow: 0 0 0 2px rgb(255 255 0 / 0.9), 0 4px 12px rgb(0 0 0 / 0.18);
+}
+
+.sandbox-skills {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spacing-sm);
+  position: relative;
+}
+
+/* 技能按钮与标签的包装容器（实现按钮+标签并排） */
+.sandbox-skill-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 8px;
+  height: 44px;
+}
+
+.sandbox-skill-item--local {
+  height: 58px;
+  align-items: start;
+  padding: 2px 0;
+}
+
+.sandbox-skill-item--empty {
+  visibility: hidden;
+}
+
+.sandbox-skill-button {
+  position: relative;
+  overflow: hidden;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  border: var(--border-width) solid #ffffff;
+  transition: transform 0.1s ease;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+.sandbox-skill-button:hover {
+  transform: scale(1.1);
+}
+
+.sandbox-skill-button:active {
+  cursor: grabbing;
+  transform: scale(1.2);
+}
+
+.skill-sandbox.is-browse-mode .sandbox-skill-button,
+.skill-sandbox.is-browse-mode .sandbox-skill-button:active {
+  cursor: default;
+  transform: none;
+}
+
+.sandbox-skill-button .skill-icon {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.sandbox-skill-button .skill-label {
+  color: var(--text-secondary);
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  pointer-events: none;
+  position: relative;
+  z-index: 1;
+}
+
+/* 技能按钮右侧的技能类型标注文字 */
+.sandbox-skill-tag {
+  margin-left: var(--spacing-xs);
+  font-size: 12px;
+  color: #636363;
+  white-space: nowrap;
+  pointer-events: none;
+  flex-shrink: 0;
+}
+
+.sandbox-skill-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  justify-content: flex-start;
+  align-self: stretch;
+  padding-top: 2px;
+  overflow: hidden;
+}
+.sandbox-skill-name {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--office-title);
+  line-height: 1.15;
+  white-space: normal;
+  word-break: break-all;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  max-height: 2.3em;
+}
+
+.sandbox-skill-hit-count {
+  font-size: 9px;
+  color: var(--office-body);
+  line-height: 1;
+}
+
+/* Excel Acrylic theme final overrides */
+.skill-sandbox,
+.sandbox-character {
+  background: var(--ide-acrylic-bg);
+  color: var(--ide-text-main);
+  border-color: var(--ide-border-subtle);
+  border-radius: var(--ide-radius-md);
+  box-shadow: inset 0 1px 0 var(--ide-acrylic-highlight), 0 8px 24px rgba(0, 122, 255, 0.08);
+  backdrop-filter: blur(16px) saturate(1.16);
+}
+
+.sandbox-character--hoverable:hover,
+.sandbox-character--hoverable:focus-within {
+  background: linear-gradient(145deg, rgba(232, 248, 238, 0.96), rgba(202, 235, 213, 0.84));
+  box-shadow: var(--ide-shadow-hover);
+}
+
+.sandbox-character-header {
+  border-bottom-color: var(--ide-border-subtle);
+}
+
+.sandbox-character-name,
+.sandbox-skill-tag {
+  color: var(--ide-text-main);
+}
+
+.sandbox-avatar {
+  box-shadow: 0 0 0 1px var(--ide-border-light), 0 8px 18px rgba(0, 122, 255, 0.1);
+}
+
+.sandbox-avatar:hover {
+  filter: brightness(1.08) contrast(1.04);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.28), 0 10px 24px rgba(0, 122, 255, 0.18);
+}
+
+.sandbox-skill-button {
+  border-color: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 0 0 1px var(--ide-border-light), 0 10px 22px rgba(0, 122, 255, 0.14);
+}
+
+.sandbox-skill-button:hover {
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.22), 0 14px 30px rgba(0, 122, 255, 0.18);
+}
+
+/* Office 365 Excel theme final overrides */
+.skill-sandbox,
+.sandbox-character {
+  background: transparent;
+  color: var(--ide-text-main);
+  border-color: rgba(0, 0, 0, 0.18);
+  border-radius: var(--ide-radius-md);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.sandbox-character--hoverable:hover,
+.sandbox-character--hoverable:focus-within {
+  background: rgba(255, 255, 255, 0.54);
+  box-shadow: none;
+}
+
+.sandbox-character-header {
+  border-bottom-color: rgba(0, 0, 0, 0.12);
+}
+
+.sandbox-avatar,
+.sandbox-skill-button {
+  box-shadow: none;
+}
+
+.sandbox-avatar:hover {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.72);
+}
+
+.sandbox-skill-button:hover {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.72);
+}
+
+.sandbox-character {
+  border: 1px solid rgba(0, 0, 0, 0.16);
+}
+
+.sandbox-skill-button {
+  border-color: rgba(0, 0, 0, 0.72);
+  box-shadow: none;
+}
+
+.sandbox-pager-button {
+  border-color: rgba(0, 0, 0, 0.42);
+  background: #ffffff;
+  color: #111111;
+}
+
+.sandbox-pager-button:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.72);
+}
+
+/* Office 365 Excel template-card mapping */
+.skill-sandbox {
+  background: transparent;
+}
+
+.sandbox-character {
+  background: rgba(255, 255, 255, 0.54);
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.sandbox-character::before {
+  content: '';
+  display: block;
+  height: 5px;
+  margin: -1px -1px 8px;
+  background: linear-gradient(90deg, var(--excel-green-deep), var(--excel-green-main), var(--excel-green-bright));
+}
+
+.sandbox-character--hoverable:hover,
+.sandbox-character--hoverable:focus-within {
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.3);
+}
+
+.sandbox-character-name {
+  color: var(--office-title);
+  font-weight: 700;
+}
+
+.sandbox-skill-tag {
+  color: var(--office-body);
+}
+
+.sandbox-avatar {
+  border-radius: 4px;
+}
+
+.sandbox-skill-button {
+  border-color: rgba(0, 0, 0, 0.72);
+}
+
+.sandbox-skill-button:hover {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.72);
+}
+
+/* Remove legacy sandbox selection frame */
+.sandbox-character::before,
+.sandbox-character--hoverable::before,
+.sandbox-character--hoverable::after {
+  content: none !important;
+  display: none !important;
+  border: 0 !important;
+  background: none !important;
+}
+
+.sandbox-character--hoverable:hover,
+.sandbox-character--hoverable:focus-within {
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: none;
+}
+
+.sandbox-character--local .sandbox-character-name {
+  line-height: 1.2;
+}
+
+/* Collapsible right-side sandbox */
+.skill-sandbox {
+  padding: 10px 12px;
+}
+
+.sandbox-characters {
+  gap: 8px;
+}
+
+.sandbox-characters::before {
+  content: '';
+  display: block;
+  flex: 0 0 30px;
+  height: 30px;
+  border: 1px solid rgba(0, 0, 0, 0.72);
+  background: transparent;
+}
+
+.sandbox-characters-extra-spacer {
+  flex: 0 0 40px;
+  height: 40px;
+  border: 1px solid rgba(0, 0, 0, 0.72);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  box-sizing: border-box;
+}
+
+.sandbox-reserved-action {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.72);
+  background: #ffffff;
+  color: #111111;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.sandbox-reserved-action:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.sandbox-reserved-action:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.sandbox-reserved-action:disabled:hover {
+  background: #ffffff;
+}
+
+.sandbox-reserved-action--placeholder {
+  cursor: default;
+}
+
+.sandbox-reserved-action--placeholder:hover {
+  background: #ffffff;
+}
+
+.sandbox-reserved-action--inspect.is-active {
+  background: #0078d4;
+  color: #ffffff;
+  border-color: #0078d4;
+}
+
+.sandbox-reserved-action--inspect.is-active:hover {
+  background: #0078d4;
+}
+
+.sandbox-reserved-action--browse.is-active {
+  background: #0078d4;
+  color: #ffffff;
+  border-color: #0078d4;
+}
+
+.sandbox-reserved-action--browse.is-active:hover {
+  background: #0078d4;
+}
+
+.sandbox-reserved-action--ai.is-active {
+  background: #111111;
+  color: #ffffff;
+  border-color: #111111;
+}
+
+.sandbox-reserved-action--ai.is-active:hover {
+  background: #111111;
+}
+
+.sandbox-reserved-action-text {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.sandbox-reserved-action--refresh.is-loading,
+.sandbox-reserved-action--refresh.is-loading:disabled {
+  background: #0078d4;
+  color: #ffffff;
+  border-color: #0078d4;
+  opacity: 1;
+}
+
+.sandbox-reserved-action--refresh.is-loading:hover,
+.sandbox-reserved-action--refresh.is-loading:disabled:hover {
+  background: #0078d4;
+}
+
+.sandbox-reserved-action-icon {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.sandbox-reserved-action-icon--refresh {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.sandbox-reserved-action--refresh.is-loading .sandbox-reserved-action-icon--refresh {
+  animation: sandbox-refresh-spin 0.9s linear infinite;
+  will-change: transform;
+}
+
+@keyframes sandbox-refresh-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.sandbox-reserved-action-icon--book {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sandbox-reserved-action-icon--ai {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sandbox-characters > .sandbox-character:first-child {
+  margin-top: 0;
+}
+
+.sandbox-character {
+  padding: 0;
+  overflow: visible;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  transition: background-color 0.16s ease, border-color 0.16s ease;
+}
+
+.sandbox-character--hoverable:hover,
+.sandbox-character--hoverable:focus-within {
+  transform: none;
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(0, 0, 0, 0.34);
+}
+
+.sandbox-character-header {
+  width: 100%;
+  min-height: 52px;
+  margin: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.sandbox-character--expanded .sandbox-character-header {
+  border-bottom-color: rgba(0, 0, 0, 0.12);
+}
+
+.sandbox-character-header:focus-visible {
+  outline: 1px solid rgba(0, 0, 0, 0.72);
+  outline-offset: -2px;
+}
+
+.sandbox-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18);
+}
+
+.sandbox-avatar-preview-anchor {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  z-index: 2;
+}
+
+.sandbox-avatar-preview-anchor:hover .sandbox-avatar {
+  opacity: 0.62;
+}
+
+.sandbox-avatar-config-popover {
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 0;
+  z-index: 30;
+  width: 210px;
+  display: grid;
+  gap: 4px;
+  padding: 8px 9px;
+  border: 1px solid rgba(0, 0, 0, 0.24);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.14);
+  color: #111111;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-align: left;
+  white-space: normal;
+  opacity: 0;
+  transform: translateX(-4px);
+  pointer-events: none;
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+
+.sandbox-avatar-config-popover strong {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.sandbox-avatar-preview-anchor:hover .sandbox-avatar-config-popover,
+.sandbox-avatar-preview-anchor:focus-within .sandbox-avatar-config-popover {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.sandbox-avatar:hover {
+  transform: none;
+  filter: none;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.42);
+}
+
+.sandbox-character-name {
+  color: #111111;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.sandbox-character-count {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+}
+
+.sandbox-expand-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid rgba(0, 0, 0, 0.24);
+  background: #ffffff;
+  color: #111111;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.sandbox-character-body {
+  padding: 7px 8px 8px;
+}
+
+.sandbox-skill-pager {
+  justify-content: flex-end;
+  margin: -2px 0 6px;
+}
+
+.sandbox-skills {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.sandbox-skill-item,
+.sandbox-skill-item--local {
+  min-height: 52px;
+  height: auto;
+  grid-template-columns: 32px minmax(0, 1fr);
+  column-gap: 6px;
+  align-items: center;
+  padding: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  background: rgba(255, 255, 255, 0.78);
+  transition: background-color 0.14s ease, border-color 0.14s ease;
+}
+
+.sandbox-skill-item:hover {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.36);
+}
+
+.sandbox-skill-button {
+  width: 32px;
+  height: 32px;
+  border-color: rgba(0, 0, 0, 0.72);
+}
+
+.sandbox-skill-button:hover {
+  transform: none;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.72);
+}
+
+.sandbox-skill-button:active {
+  transform: scale(1.04);
+}
+
+.sandbox-skill-button .skill-label {
+  font-size: 12px;
+}
+
+.sandbox-skill-meta {
+  gap: 2px;
+  padding-top: 0;
+  justify-content: center;
+  min-height: 38px;
+}
+
+.sandbox-skill-tag {
+  margin-left: 0;
+  color: #111111;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.sandbox-skill-name {
+  color: rgba(0, 0, 0, 0.68);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.15;
+  -webkit-line-clamp: 1;
+  max-height: 1.15em;
+}
+
+.sandbox-skill-hit-count {
+  color: rgba(0, 0, 0, 0.46);
+  font-size: 9px;
+  line-height: 1.1;
+}

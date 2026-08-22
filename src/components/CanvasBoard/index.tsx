@@ -75,7 +75,6 @@ import {
   setOperatorConfigPageCache,
   setSelectedCharacterIds,
 } from '../../utils/storage';
-import { getCandidateBuffList } from '../../core/repositories';
 import {
   applyTimelineSnapshotPayload,
   buildTimelineBundleV2,
@@ -98,18 +97,12 @@ import type { PersistedSkillButton } from '../../types/storage';
 import type { HitResistanceInput } from '../../types/storage';
 import DeferredNumberInput from '../DeferredNumberInput';
 import {
-  assertAgentWorkNodeCommandTimelineBoundary,
-  assertMainWorkbenchWorkNodeTimeline,
   getPendingMainWorkbenchCommands,
   enqueueMainWorkbenchCommand,
-  isAgentWorkNodeBrowserCommand,
   patchMainWorkbenchCommand,
   pullRemoteMainWorkbenchCommands,
-  projectMainWorkbenchCandidateBuff,
-  projectMainWorkbenchWorkNodeListToTimeline,
   pushMainWorkbenchCommandResult,
   pushMainWorkbenchSnapshot,
-  projectMainWorkbenchButtonState,
   readMainWorkbenchSnapshot,
   writeMainWorkbenchSnapshot,
   type MainWorkbenchCommand,
@@ -119,11 +112,6 @@ import {
   createAiTimelineWorkNodeClient,
   diffTimelinePayloads,
   applyTimelineWorkNodePatch,
-  buildAiTimelineNodeReviewProjection,
-  emptyAiTimelineNodeReviewProjection,
-  restoreBuffScope,
-  restoreResistanceScope,
-  restoreTimelineScope,
   validateTimelinePayload,
 } from '../../agentKernel/timelineWorktree';
 import { buildAiTimelineCheckoutDecision } from '../../agentKernel/timelineWorktree/checkoutDecision.mjs';
@@ -136,52 +124,11 @@ import type {
   TimelineRepositoryBundleWorkNode,
   TimelineSqliteWorkspace,
 } from '../../agentKernel/timelineRepository/localTimelineClient';
-import type { AiTimelineRiskFlag } from '../../agentKernel/timelineWorktree/types';
 import { useTimelineSession } from '../../agentKernel/timelineRepository/useTimelineSession';
 import { shouldHydrateTimelineCheckoutOnCanvasMount } from '../../agentKernel/timelineRepository/timelineSession';
 import { runTimelineArchiveConversionForReload } from './timelineArchiveConversionFlow';
-import {
-  browserAgentRuntime,
-  enterDesktopAgentModeFromWorkbench,
-  exitDesktopAgentModeToWorkbench,
-} from '../../platform/agent/browserAgentRuntime';
-import { isDesktopWebHost } from '../../platform/runtime/desktopWebHost';
-import {
-  buildOperatorConfigFinalConfig,
-  buildOperatorConfigProposalDigest,
-  buildTimelinePreservation,
-  digestJson,
-  equalOperatorConfigFinalConfig,
-  normalizeOperatorConfigFinalConfig,
-  rollbackOperatorConfigProposal,
-} from '../../platform/agent/operatorConfigProposal';
-import {
-  buildReviewedWorkNodeDeletionIdentity,
-  buildReviewedWorkNodeIdentity,
-  buildWorkNodePayloadPostcondition,
-  runAtomicWorkNodeRestore,
-  verifyReviewedWorkNodeDeletionIdentity,
-  verifyReviewedWorkNodeIdentity,
-  verifyWorkNodeDeleteLedger,
-} from '../../platform/agent/workNodeAtomicSettlement';
-import {
-  buildPreparedWorkNodeProposal,
-  checkPreparedScope,
-  diffPreparedPayloads,
-  preparedWorkNodeCandidateRefFromProposal,
-  runAtomicPreparedWorkNodeApply,
-  sha256Json,
-  scopeForPreparedPath,
-  validatePreparedWorkNodeCandidate,
-  validatePreparedWorkNodeProposal,
-  PreparedWorkNodeAtomicApplyError,
-} from '../../platform/agent/preparedWorkNodeProposal';
-import { bindTrustedTimelineMutation } from '../../platform/agent/trustedTimelineMutation';
-import type {
-  PreparedWorkNodeScope,
-} from '../../../agent/core/contracts/prepared-work-node.ts';
-import type { ProductBinding } from '../../../agent/core/contracts/product.ts';
-import { readPersistedWorkspaceCheckout } from '../../core/services/selectionWorkspaceTransition';
+import { hasTimelineCheckpointPayloadChanged } from '../../core/services/timelineCheckpointService';
+import { decodeMobileShareIdFromImage } from '../../mobile/mobileShare';
 
 function getLegacySnapshotTimelineId(snapshotId: string): string {
   return `timeline-document-${snapshotId}`;
@@ -196,120 +143,9 @@ async function ensureTimelineDocumentExists(
   return existing || repository.ensureDocument({ id: timelineId, label });
 }
 
-/**
- * Checkpoint 只应记录内容变化，不应因每次落盘产生的 createdAt / updatedAt
- * 噪声而制造重复节点。Payload 是可序列化数据，故可用稳定序列化比较。
- */
-function serializeCheckpointPayload(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(serializeCheckpointPayload).join(',')}]`;
-  if (!value || typeof value !== 'object') return JSON.stringify(value);
-  return `{${Object.entries(value)
-    .filter(([key]) => key !== 'createdAt' && key !== 'updatedAt')
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, entry]) => `${JSON.stringify(key)}:${serializeCheckpointPayload(entry)}`)
-    .join(',')}}`;
-}
-
-function hasCheckpointPayloadChanged(
-  previousPayload: TimelineSnapshotPayload,
-  nextPayload: TimelineSnapshotPayload,
-): boolean {
-  return serializeCheckpointPayload(previousPayload) !== serializeCheckpointPayload(nextPayload);
-}
-
 function checkoutIdentity(checkoutRef: TimelineCheckoutRef | null): string {
   if (!checkoutRef) return 'none';
   return `${checkoutRef.timelineId}:${checkoutRef.targetType}:${checkoutRef.targetId}`;
-}
-
-function samePreparedProductBinding(left: ProductBinding, right: ProductBinding): boolean {
-  return left.workspaceId === right.workspaceId
-    && left.databaseGeneration === right.databaseGeneration
-    && left.timelineId === right.timelineId
-    && left.checkoutTargetId === right.checkoutTargetId
-    && left.checkoutUpdatedAt === right.checkoutUpdatedAt
-    && left.contentRevision === right.contentRevision
-    && left.snapshotDigest === right.snapshotDigest;
-}
-
-type PreparedRestoreSemanticScope = 'timeline.structure' | 'buff.attachments' | 'buff.resistance';
-
-const PREPARED_RESTORE_PROPOSAL_SCOPES = Object.freeze({
-  'timeline.structure': ['timeline.structure', 'buff.attachments', 'buff.resistance'],
-  'buff.attachments': ['buff.attachments'],
-  'buff.resistance': ['buff.resistance'],
-} as const satisfies Record<PreparedRestoreSemanticScope, readonly PreparedWorkNodeScope[]>);
-
-function samePreparedScope(
-  left: readonly PreparedWorkNodeScope[],
-  right: readonly PreparedWorkNodeScope[],
-): boolean {
-  return left.length === right.length && left.every((entry, index) => entry === right[index]);
-}
-
-function preparedRestoreBranchId(input: {
-  readonly proposalId: string;
-  readonly nodeId: string;
-  readonly nodeRevision: number;
-  readonly scope: PreparedRestoreSemanticScope;
-}): string {
-  return `prepared-${input.proposalId}-restore:${input.scope}:${input.nodeRevision}:${encodeURIComponent(input.nodeId)}`;
-}
-
-function parsePreparedRestoreBranchId(
-  proposalId: string,
-  branchId: string,
-): { readonly nodeId: string; readonly nodeRevision: number; readonly scope: PreparedRestoreSemanticScope } | null {
-  const prefix = `prepared-${proposalId}-restore:`;
-  if (!branchId.startsWith(prefix)) return null;
-  const encoded = branchId.slice(prefix.length);
-  const firstSeparator = encoded.indexOf(':');
-  const secondSeparator = encoded.indexOf(':', firstSeparator + 1);
-  if (firstSeparator < 0 || secondSeparator < 0) return null;
-  const scope = encoded.slice(0, firstSeparator) as PreparedRestoreSemanticScope;
-  const revisionText = encoded.slice(firstSeparator + 1, secondSeparator);
-  const nodeRevision = Number(revisionText);
-  if (!(scope in PREPARED_RESTORE_PROPOSAL_SCOPES)
-    || !Number.isSafeInteger(nodeRevision)
-    || nodeRevision < 0) return null;
-  try {
-    const nodeId = decodeURIComponent(encoded.slice(secondSeparator + 1));
-    return nodeId ? { nodeId, nodeRevision, scope } : null;
-  } catch {
-    return null;
-  }
-}
-
-function applyPreparedRestoreScope(
-  scope: PreparedRestoreSemanticScope,
-  current: TimelineSnapshotPayload,
-  baseline: TimelineSnapshotPayload,
-) {
-  if (scope === 'timeline.structure') return restoreTimelineScope(current, baseline);
-  if (scope === 'buff.attachments') return restoreBuffScope(current, baseline);
-  return restoreResistanceScope(current, baseline);
-}
-
-function authoritativePreparedNodeRevision(node: { readonly contentRevision?: number }): number {
-  if (!Number.isSafeInteger(node.contentRevision) || Number(node.contentRevision) < 0) {
-    throw new Error('prepared-node-revision-invalid: Work Node 没有权威 contentRevision。');
-  }
-  return Number(node.contentRevision);
-}
-
-function serializeWorkbenchSnapshotSemantics(value: unknown, path: readonly string[] = []): string {
-  if (Array.isArray(value)) {
-    return `[${value.map((entry) => serializeWorkbenchSnapshotSemantics(entry, path)).join(',')}]`;
-  }
-  if (value !== null && typeof value === 'object') {
-    return `{${Object.keys(value as Record<string, unknown>)
-      .filter((key) => key !== 'generatedAt'
-        && (key !== 'updatedAt' || (path.length === 1 && path[0] === 'checkout')))
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${serializeWorkbenchSnapshotSemantics((value as Record<string, unknown>)[key], [...path, key])}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(value);
 }
 
 const EMPTY_BATCH_TARGET_RESISTANCE: Required<HitResistanceInput> = {
@@ -329,27 +165,6 @@ const BATCH_RESISTANCE_FIELDS: Array<[keyof HitResistanceInput, string]> = [
   ['iceResistance', '寒冷'],
   ['natureResistance', '自然'],
 ];
-
-// Kept as a separate typed extension so older Canvas dispatcher contracts can
-// continue to enumerate the original mutation set while the browser-only
-// Work Node management commands remain available to the same queue.
-const CANVAS_WORK_NODE_MANAGEMENT_COMMANDS = [
-  'listAiTimelineWorkNodes',
-  'readAiTimelineWorkNode',
-  'validateAiTimelineWorkNode',
-  'deleteAiTimelineWorkNode',
-] as const;
-
-type CanvasWorkNodeManagementCommand = Extract<
-  MainWorkbenchCommand,
-  { op: typeof CANVAS_WORK_NODE_MANAGEMENT_COMMANDS[number] }
->;
-
-function isCanvasWorkNodeManagementCommand(
-  command: MainWorkbenchCommand,
-): command is CanvasWorkNodeManagementCommand {
-  return (CANVAS_WORK_NODE_MANAGEMENT_COMMANDS as readonly string[]).includes(command.op);
-}
 
 type PatchAiTimelineWorkNodeCommandResult =
   | {
@@ -431,7 +246,6 @@ function buildMainWorkbenchSnapshotSignature(
   skillButtons: MainWorkbenchSnapshot['skillButtons'],
   operatorConfigs: MainWorkbenchSnapshot['operatorConfigs'] = [],
   skillCatalog: MainWorkbenchSnapshot['skillCatalog'] = [],
-  candidateBuffs: MainWorkbenchSnapshot['candidateBuffs'] = [],
 ): string {
   return JSON.stringify({
     selectedCharacters: selectedCharacters.map((character) => ({
@@ -448,8 +262,6 @@ function buildMainWorkbenchSnapshotSignature(
         skillDisplayName: skill.skillDisplayName,
         source: skill.source,
       })),
-    candidateBuffs: [...candidateBuffs]
-      .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))),
     skillButtons: [...skillButtons]
       .sort((a, b) => a.id.localeCompare(b.id))
       .map((button) => ({
@@ -466,37 +278,6 @@ function buildMainWorkbenchSnapshotSignature(
         nodeIndex: button.nodeIndex,
         nodeNumber: button.nodeNumber,
         selectedBuffIds: [...button.selectedBuffIds].sort(),
-        selectedBuffs: (button.selectedBuffs ?? []).map((buff) => ({
-          ...buff,
-          target: buff.target ? { ...buff.target } : null,
-          multiplier: buff.multiplier ? { ...buff.multiplier } : null,
-          derivedValue: buff.derivedValue ? { ...buff.derivedValue } : null,
-          extraHitConfig: buff.extraHitConfig ? { ...buff.extraHitConfig } : null,
-        })),
-        currentStackCounts: Object.fromEntries(
-          Object.entries(button.currentStackCounts ?? {}).sort(([left], [right]) => left.localeCompare(right)),
-        ),
-        currentStackCountSources: Object.fromEntries(
-          Object.entries(button.currentStackCountSources ?? {}).sort(([left], [right]) => left.localeCompare(right)),
-        ),
-        globallyDisabledBuffIds: [...(button.globallyDisabledBuffIds ?? [])].sort(),
-        manualDisabledBuffIdsBySegmentKey: Object.fromEntries(
-          Object.entries(button.manualDisabledBuffIdsBySegmentKey ?? {})
-            .sort(([left], [right]) => left.localeCompare(right))
-            .map(([key, ids]) => [key, [...ids].sort()]),
-        ),
-        manualBuffStackCountsBySegmentKey: Object.fromEntries(
-          Object.entries(button.manualBuffStackCountsBySegmentKey ?? {})
-            .sort(([left], [right]) => left.localeCompare(right))
-            .map(([key, counts]) => [
-              key,
-              Object.fromEntries(Object.entries(counts).sort(([left], [right]) => left.localeCompare(right))),
-            ]),
-        ),
-        manualDisabledHitKeys: [...(button.manualDisabledHitKeys ?? [])].sort(),
-        targetResistance: Object.fromEntries(
-          Object.entries(button.targetResistance ?? {}).sort(([left], [right]) => left.localeCompare(right)),
-        ),
       })),
     operatorConfigs: [...operatorConfigs]
       .sort((a, b) => a.characterId.localeCompare(b.characterId))
@@ -694,10 +475,6 @@ function buildSandboxSkillsFromRuntimeTemplate(characterId: string): SandboxSkil
 interface CanvasBoardProps {
   activeSkillButtonId?: string | null;
   isWorkbenchTopZoneOpen?: boolean;
-  isAgentMode?: boolean;
-  agentModePanel?: React.ReactNode | ((controls: {
-    onOpenWorkNodePanel?: () => void | Promise<void>;
-  }) => React.ReactNode);
   onOpenOperatorConfig?: (characterId: string) => void;
   workbenchControl?: React.ReactNode;
   bottomRightControl?: React.ReactNode;
@@ -727,8 +504,6 @@ const DEFAULT_TIMELINE_NAME_PROMPT: TimelineNamePromptCopy = {
 export function CanvasBoard({
   activeSkillButtonId = null,
   isWorkbenchTopZoneOpen = false,
-  isAgentMode = false,
-  agentModePanel = null,
   onOpenOperatorConfig,
   workbenchControl,
   bottomRightControl,
@@ -758,8 +533,6 @@ export function CanvasBoard({
   const [restorePanelTab, setRestorePanelTab] = useState<'local' | 'shared' | 'sqlite'>('local');
   const [isBrowseMode, setIsBrowseMode] = useState(false);
   const [isInspectMode, setIsInspectMode] = useState(false);
-  const [isAgentModeLaunching, setIsAgentModeLaunching] = useState(false);
-  const [aiHoverZone, setAiHoverZone] = useState<'left' | 'right'>('right');
   const [isWorkNodePanelOpen, setIsWorkNodePanelOpen] = useState(false);
   const [workNodeRefreshKey, setWorkNodeRefreshKey] = useState(0);
   const [workNodeCameraResetKey, setWorkNodeCameraResetKey] = useState(0);
@@ -768,16 +541,14 @@ export function CanvasBoard({
   const [isWorkNodeOmissionMode, setIsWorkNodeOmissionMode] = useState(false);
   const [workNodeOmissionState, setWorkNodeOmissionState] = useState<WorkNodeOmissionSelectionState>(EMPTY_WORK_NODE_OMISSION_STATE);
   const [isRefreshingAvailableCandidates, setIsRefreshingAvailableCandidates] = useState(false);
+  const [isDecodingTacticalShare, setIsDecodingTacticalShare] = useState(false);
   const [isBatchResistanceModalOpen, setIsBatchResistanceModalOpen] = useState(false);
   const [batchTargetResistance, setBatchTargetResistance] = useState<Required<HitResistanceInput>>(
     EMPTY_BATCH_TARGET_RESISTANCE
   );
   const [resistanceRevision, setResistanceRevision] = useState(0);
-  const [candidateBuffRevision, setCandidateBuffRevision] = useState(0);
   const [checkoutBootstrapRevision, setCheckoutBootstrapRevision] = useState(0);
-  const [authoritativeCheckoutContentRevision, setAuthoritativeCheckoutContentRevision] = useState<number | null>(null);
   const [checkoutRenderRevision, setCheckoutRenderRevision] = useState(0);
-  const [nodeReviewRefreshRevision, setNodeReviewRefreshRevision] = useState(0);
   const [isTimelineSessionReady, setIsTimelineSessionReady] = useState(false);
   const [timelineSessionError, setTimelineSessionError] = useState('');
   const activeTimelineArchiveLibrary = restorePanelTab === 'local'
@@ -798,13 +569,11 @@ export function CanvasBoard({
   } = useTimelineSession();
   const shareImportInputRef = useRef<HTMLInputElement>(null);
   const workNodeTreePanelRef = useRef<WorkNodeTreePanelHandle>(null);
+  const tacticalShareImageInputRef = useRef<HTMLInputElement>(null);
   const isProcessingWorkbenchCommandRef = useRef(false);
-  const processMainWorkbenchCanvasCommandRef = useRef<(() => Promise<void>) | null>(null);
   const isCheckoutMutationPendingRef = useRef(false);
   const checkoutBootstrapIdentityRef = useRef<string | null>(null);
   const isCheckoutBootstrapPendingRef = useRef(true);
-  const nodeReviewRef = useRef<MainWorkbenchSnapshot['nodeReview']>(null);
-  const nodeReviewRequestRef = useRef(0);
   const timelineNameRequestRef = useRef<Promise<string | null> | null>(null);
   const timelineNameResolverRef = useRef<((value: string | null) => void) | null>(null);
   const activeTimelineIdentityRef = useRef({
@@ -818,14 +587,6 @@ export function CanvasBoard({
     isTemporary: activeTimelineIsTemporary,
   };
   const temporaryPromotionRef = useRef(activeTimelineIsTemporary);
-
-  const refreshCandidateBuffsForCharacters = useCallback(async (
-    characters: Parameters<typeof refreshAvailableCandidateBuffsForCharacters>[0],
-  ) => {
-    const next = await refreshAvailableCandidateBuffsForCharacters(characters);
-    setCandidateBuffRevision((revision) => revision + 1);
-    return next;
-  }, []);
 
   const canvasWidth = useCanvasWidth(canvasConfig.canvasWidthPercent);
   useSelectStart();
@@ -1144,32 +905,6 @@ export function CanvasBoard({
   }, [refreshActiveDocument]);
 
   useEffect(() => {
-    let cancelled = false;
-    const expectedTimelineId = activeTimelineId;
-    const expectedCheckout = activeCheckoutRef;
-    setAuthoritativeCheckoutContentRevision(null);
-    if (!expectedCheckout || expectedCheckout.timelineId !== expectedTimelineId) return () => {
-      cancelled = true;
-    };
-    void readPersistedWorkspaceCheckout(expectedTimelineId, expectedCheckout)
-      .then((source) => {
-        const current = activeTimelineIdentityRef.current;
-        if (!cancelled
-          && current.timelineId === expectedTimelineId
-          && current.checkout === checkoutIdentity(expectedCheckout)) {
-          setAuthoritativeCheckoutContentRevision(source.contentRevision);
-        }
-      })
-      .catch(() => {
-        // Fail closed: no writable Agent binding is published without the
-        // target Work Node contentRevision / snapshot createdAt.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeCheckoutRef, activeTimelineId, checkoutBootstrapRevision, nodeReviewRefreshRevision]);
-
-  useEffect(() => {
     if (!isTimelineSessionReady || loadedCharacters.length === 0) return;
     const bootstrapIdentity = `${activeTimelineId}:${checkoutIdentity(activeCheckoutRef)}:${activeTimelineIsTemporary ? 'temporary' : 'formal'}`;
     if (checkoutBootstrapIdentityRef.current === bootstrapIdentity) return;
@@ -1407,139 +1142,13 @@ export function CanvasBoard({
       };
       return {
         parentNodeId: checkout.id,
-        parentRevision: Number(checkout.contentRevision ?? checkout.updatedAt),
+        parentRevision: Number(checkout.contentRevision || checkout.updatedAt),
         preparedPayload,
         finalConfig,
       };
     } finally {
       setOperatorConfigPageCache(originalCache);
     }
-  };
-
-  const operatorConfigNodeRevision = (node: { contentRevision?: number; updatedAt: number }): number => (
-    Number(node.contentRevision ?? node.updatedAt)
-  );
-
-  const sameOperatorConfigPayload = (left: TimelineSnapshotPayload, right: TimelineSnapshotPayload): boolean => (
-    serializeCheckpointPayload(left) === serializeCheckpointPayload(right)
-  );
-
-  const makeOperatorConfigProposalError = (code: string, message: string) => {
-    const error = new Error(message) as Error & { code?: string };
-    error.code = code;
-    return error;
-  };
-
-  const prepareOperatorConfigProposalFromWorkbenchCommand = async (
-    command: Extract<MainWorkbenchCommand, { op: 'prepareOperatorConfigProposal' }>,
-  ) => {
-    const parent = await prepareOperatorConfigCheckout();
-    const currentPayload = getCurrentTimelineSnapshotPayload();
-    if (!currentPayload || !sameOperatorConfigPayload(currentPayload, parent.workingPayload)) {
-      throw makeOperatorConfigProposalError(
-        'operator-config-checkout-payload-stale',
-        '当前 Canvas payload 与正式 checkout 不一致；未创建配装提案，请重新发布工作台快照。',
-      );
-    }
-    const parentValidation = validateTimelinePayload(parent.workingPayload);
-    if (!parentValidation.ok) {
-      throw makeOperatorConfigProposalError(
-        'operator-config-parent-invalid',
-        `当前 checkout 排轴校验失败：${parentValidation.issues.map((issue) => issue.message).join('；')}`,
-      );
-    }
-
-    const preview = await buildOperatorConfigPreviewFromWorkbenchCommand(command.request);
-    if (preview.parentNodeId !== parent.id
-      || preview.parentRevision !== operatorConfigNodeRevision(parent)) {
-      throw makeOperatorConfigProposalError(
-        'operator-config-parent-revision-drift',
-        '配装预览期间正式 checkout 已变化；未创建配装提案。',
-      );
-    }
-    const preparedValidation = validateTimelinePayload(preview.preparedPayload);
-    if (!preparedValidation.ok) {
-      throw makeOperatorConfigProposalError(
-        'operator-config-prepared-invalid',
-        `配装预览排轴校验失败：${preparedValidation.issues.map((issue) => issue.message).join('；')}`,
-      );
-    }
-    const diff = diffTimelinePayloads(parent.workingPayload, preview.preparedPayload);
-    if (diff.changedOperatorConfigs.length !== 1) {
-      throw makeOperatorConfigProposalError(
-        'operator-config-change-not-single-target',
-        `配装提案必须只改变一个干员配置，实际检测到 ${diff.changedOperatorConfigs.length} 个配置变更。`,
-      );
-    }
-    const characterId = diff.changedOperatorConfigs[0].characterId;
-    const finalConfig = buildOperatorConfigFinalConfig(preview.preparedPayload, characterId);
-    const previewFinalConfig = normalizeOperatorConfigFinalConfig(preview.finalConfig);
-    if (!finalConfig || !previewFinalConfig || !equalOperatorConfigFinalConfig(finalConfig, previewFinalConfig)) {
-      throw makeOperatorConfigProposalError(
-        'operator-config-preview-authority-mismatch',
-        '配装预览的用户配置与候选 payload 重算结果不一致；提案已拒绝。',
-      );
-    }
-    const timelinePreservation = await buildTimelinePreservation(parent.workingPayload, preview.preparedPayload);
-    if (!timelinePreservation.pass) {
-      throw makeOperatorConfigProposalError(
-        'operator-config-timeline-not-preserved',
-        `配装预览改变了排轴内容：${timelinePreservation.changedPaths.join(', ')}`,
-      );
-    }
-
-    const client = createAiTimelineWorkNodeClient();
-    // This is intentionally a horizontal branch: the candidate is a sibling
-    // of the current checkout in the Work Node tree, while its base payload is
-    // still the exact current checkout payload.
-    const candidateResponse = await client.create({
-      timelineId: parent.timelineId,
-      parentNodeId: parent.parentNodeId || null,
-      branchId: `operator-config-${parent.id}-${Date.now()}`,
-      label: command.label,
-      description: command.description,
-      basePayload: parent.workingPayload,
-      workingPayload: preview.preparedPayload,
-      approvalPolicy: 'manual',
-      riskFlags: [],
-    });
-    const candidate = candidateResponse.node;
-    const candidateRevision = operatorConfigNodeRevision(candidate);
-    const candidateDiff = diffTimelinePayloads(candidate.basePayload, candidate.workingPayload);
-    if (!sameOperatorConfigPayload(candidate.basePayload, parent.workingPayload)
-      || !sameOperatorConfigPayload(candidate.workingPayload, preview.preparedPayload)
-      || candidateDiff.changedOperatorConfigs.length !== 1) {
-      throw makeOperatorConfigProposalError(
-        'operator-config-candidate-payload-mismatch',
-        '浏览器 SQLite 候选 Work Node payload 与预览不一致；提案已拒绝。',
-      );
-    }
-    const candidateTimelinePreservation = await buildTimelinePreservation(candidate.basePayload, candidate.workingPayload);
-    const proposalDigest = await buildOperatorConfigProposalDigest({
-      parentNodeId: parent.id,
-      parentRevision: operatorConfigNodeRevision(parent),
-      nodeId: candidate.id,
-      nodeRevision: candidateRevision,
-      finalConfig,
-      diff: candidateDiff,
-      timelinePreservation: candidateTimelinePreservation,
-      workingPayload: candidate.workingPayload,
-    });
-    return {
-      ok: true,
-      kind: 'operator-config-proposal',
-      path: 'browser-sqlite://timeline-work-nodes',
-      liveCheckoutTouched: false,
-      parentNodeId: parent.id,
-      parentRevision: operatorConfigNodeRevision(parent),
-      nodeId: candidate.id,
-      nodeRevision: candidateRevision,
-      proposalDigest,
-      finalConfig,
-      diff: candidateDiff,
-      timelinePreservation: candidateTimelinePreservation,
-      candidatePayloadDigest: await digestJson(candidate.workingPayload),
-    };
   };
 
   const applyPreparedOperatorConfigFromWorkbenchCommand = async (
@@ -1550,11 +1159,11 @@ export function CanvasBoard({
     }
     const client = createAiTimelineWorkNodeClient();
     const parent = await client.get(command.parentNodeId);
-    if (operatorConfigNodeRevision(parent.node) !== Number(command.parentRevision)) {
+    if (Number(parent.node.contentRevision || parent.node.updatedAt) !== Number(command.parentRevision)) {
       throw makeOperatorConfigCommandError('checkout-changed', '审批期间 checkout revision 已变化；未执行角色配置。');
     }
     const child = await client.get(command.nodeId);
-    if (operatorConfigNodeRevision(child.node) !== Number(command.nodeRevision)) {
+    if (Number(child.node.contentRevision || child.node.updatedAt) !== Number(command.nodeRevision)) {
       throw makeOperatorConfigCommandError('checkout-changed', '待审批 Work Node 已变化；未执行角色配置。');
     }
     const childTimelineValidation = validateTimelinePayload(child.node.workingPayload);
@@ -1569,268 +1178,11 @@ export function CanvasBoard({
     setResistanceRevision((value) => value + 1);
     return {
       nodeId: child.node.id,
-      nodeRevision: operatorConfigNodeRevision(child.node),
+      nodeRevision: Number(child.node.contentRevision || child.node.updatedAt),
       parentNodeId: parent.node.id,
-      parentRevision: operatorConfigNodeRevision(parent.node),
+      parentRevision: Number(parent.node.contentRevision || parent.node.updatedAt),
       appliedPayload: child.node.workingPayload,
     };
-  };
-
-  const applyPreparedOperatorConfigProposalFromWorkbenchCommand = async (
-    command: Extract<MainWorkbenchCommand, { op: 'applyPreparedOperatorConfigProposal' }>,
-  ) => {
-    const parent = await prepareOperatorConfigCheckout();
-    const repository = createTimelineRepositoryClient();
-    const persistedParentCheckout = await repository.getCheckoutRef(parent.timelineId);
-    const currentPayload = getCurrentTimelineSnapshotPayload();
-    const parentRevision = operatorConfigNodeRevision(parent);
-    if (parent.id !== command.parentNodeId
-      || parentRevision !== command.parentRevision
-      || persistedParentCheckout?.targetType !== 'work-node'
-      || persistedParentCheckout.targetId !== parent.id
-      || !currentPayload
-      || !sameOperatorConfigPayload(currentPayload, parent.workingPayload)) {
-      throw makeOperatorConfigProposalError(
-        'operator-config-stale-parent',
-        '正式 checkout、revision 或当前 Canvas payload 已变化；配装提案拒绝应用。',
-      );
-    }
-    const client = createAiTimelineWorkNodeClient();
-    const candidateResponse = await client.get(command.nodeId);
-    const candidate = candidateResponse.node;
-    const candidateRevision = operatorConfigNodeRevision(candidate);
-    if (candidate.timelineId !== parent.timelineId
-      || candidateRevision !== command.nodeRevision
-      || (candidate.parentNodeId || null) !== (parent.parentNodeId || null)
-      || !sameOperatorConfigPayload(candidate.basePayload, parent.workingPayload)) {
-      throw makeOperatorConfigProposalError(
-        'operator-config-stale-candidate',
-        '待审批配装候选的 revision、结构父节点或 base payload 已变化；拒绝应用。',
-      );
-    }
-    if (candidate.status !== 'open' && candidate.status !== 'ready') {
-      throw makeOperatorConfigProposalError(
-        'operator-config-candidate-not-available',
-        `待审批配装候选状态为 ${candidate.status}，不能再次提交。`,
-      );
-    }
-    const candidateValidation = validateTimelinePayload(candidate.workingPayload);
-    if (!candidateValidation.ok) {
-      throw makeOperatorConfigProposalError(
-        'operator-config-candidate-invalid',
-        `待审批配装候选排轴校验失败：${candidateValidation.issues.map((issue) => issue.message).join('；')}`,
-      );
-    }
-    const diff = diffTimelinePayloads(candidate.basePayload, candidate.workingPayload);
-    if (diff.changedOperatorConfigs.length !== 1) {
-      throw makeOperatorConfigProposalError(
-        'operator-config-change-not-single-target',
-        `待审批配装必须只改变一个干员配置，实际检测到 ${diff.changedOperatorConfigs.length} 个配置变更。`,
-      );
-    }
-    const characterId = diff.changedOperatorConfigs[0].characterId;
-    const finalConfig = buildOperatorConfigFinalConfig(candidate.workingPayload, characterId);
-    const submittedFinalConfig = normalizeOperatorConfigFinalConfig(command.finalConfig);
-    if (!finalConfig || !submittedFinalConfig || !equalOperatorConfigFinalConfig(finalConfig, submittedFinalConfig)) {
-      throw makeOperatorConfigProposalError(
-        'operator-config-final-config-mismatch',
-        '审批命令中的 finalConfig 与候选 payload 重算结果不一致；拒绝应用。',
-      );
-    }
-    const timelinePreservation = await buildTimelinePreservation(candidate.basePayload, candidate.workingPayload);
-    if (!timelinePreservation.pass) {
-      throw makeOperatorConfigProposalError(
-        'operator-config-timeline-not-preserved',
-        `待审批配装改变了排轴内容：${timelinePreservation.changedPaths.join(', ')}`,
-      );
-    }
-    const proposalDigest = await buildOperatorConfigProposalDigest({
-      parentNodeId: parent.id,
-      parentRevision,
-      nodeId: candidate.id,
-      nodeRevision: candidateRevision,
-      finalConfig,
-      diff,
-      timelinePreservation,
-      workingPayload: candidate.workingPayload,
-    });
-    if (proposalDigest !== command.proposalDigest) {
-      throw makeOperatorConfigProposalError(
-        'operator-config-proposal-digest-mismatch',
-        '审批提案摘要与浏览器 SQLite 候选内容不一致；拒绝应用。',
-      );
-    }
-
-    const commitResponse = await client.commit(candidate.id, {
-      label: candidate.label,
-      riskFlags: candidate.riskFlags,
-      approval: {
-        mode: 'manual',
-        approvedAt: Date.now(),
-        approvedBy: 'user',
-        rationale: command.approval.rationale || '用户批准了配装 Work Node 的原子应用。',
-      },
-    });
-    if (!sameOperatorConfigPayload(commitResponse.commit.appliedPayload, candidate.workingPayload)) {
-      throw makeOperatorConfigProposalError(
-        'operator-config-commit-payload-mismatch',
-        'SQLite commit payload 与候选 payload 不一致；未触碰 live checkout。',
-      );
-    }
-
-    let liveTouched = false;
-    let rollbackError: string | undefined;
-    try {
-      // This existing helper performs the canonical renderer hydration. Mark
-      // the live phase before entering it so a partial hydration is also
-      // covered by the exact rollback path below.
-      liveTouched = true;
-      await applyPreparedOperatorConfigFromWorkbenchCommand({
-        op: 'applyPreparedOperatorConfig',
-        parentNodeId: parent.id,
-        parentRevision,
-        nodeId: candidate.id,
-        nodeRevision: candidateRevision,
-      });
-      const livePayload = getCurrentTimelineSnapshotPayload();
-      if (!livePayload || !sameOperatorConfigPayload(livePayload, candidate.workingPayload)) {
-        throw makeOperatorConfigProposalError(
-          'operator-config-live-payload-mismatch',
-          'live Canvas payload 没有精确等于候选 payload。',
-        );
-      }
-      const liveConfig = buildOperatorConfigFinalConfig(livePayload, characterId);
-      if (!liveConfig || !equalOperatorConfigFinalConfig(liveConfig, finalConfig)) {
-        throw makeOperatorConfigProposalError(
-          'operator-config-live-config-mismatch',
-          'live Canvas 配置没有精确等于候选 payload 重算配置。',
-        );
-      }
-      const liveTimelinePreservation = await buildTimelinePreservation(parent.workingPayload, livePayload);
-      if (!liveTimelinePreservation.pass) {
-        throw makeOperatorConfigProposalError(
-          'operator-config-live-timeline-mismatch',
-          `live Canvas 改变了排轴内容：${liveTimelinePreservation.changedPaths.join(', ')}`,
-        );
-      }
-
-      const appliedAt = Date.now();
-      const checkoutRef: TimelineCheckoutRef = {
-        timelineId: candidate.timelineId,
-        targetType: 'work-node',
-        targetId: candidate.id,
-        updatedAt: appliedAt,
-      };
-      await repository.setCheckoutRef(checkoutRef);
-      const checkoutApplied = await client.markCheckoutApplied(candidate.id, {
-        commitId: commitResponse.commit.id,
-        appliedAt,
-        appliedBy: 'user',
-        rationale: command.approval.rationale || '已验证 live 配置、候选 payload 与排轴保持后应用 checkout。',
-      });
-      if (!checkoutApplied.commit.checkoutApplied
-        || checkoutApplied.commit.id !== commitResponse.commit.id
-        || !sameOperatorConfigPayload(checkoutApplied.commit.appliedPayload, candidate.workingPayload)) {
-        throw makeOperatorConfigProposalError(
-          'operator-config-checkout-record-mismatch',
-          'SQLite checkout-applied 记录没有精确绑定候选 commit。',
-        );
-      }
-      const finalized = await finalizePreparedOperatorConfigFromWorkbenchCommand({
-        op: 'finalizePreparedOperatorConfig',
-        nodeId: candidate.id,
-        commitId: commitResponse.commit.id,
-      });
-      const finalPayload = getCurrentTimelineSnapshotPayload();
-      const finalCheckout = await repository.getCheckoutRef(candidate.timelineId);
-      if (!finalPayload
-        || !sameOperatorConfigPayload(finalPayload, candidate.workingPayload)
-        || finalCheckout?.targetType !== 'work-node'
-        || finalCheckout.targetId !== candidate.id) {
-        throw makeOperatorConfigProposalError(
-          'operator-config-finalize-postcondition-failed',
-          'finalize 后的 Canvas payload 或正式 checkout 不精确。',
-        );
-      }
-      const visiblePostcondition = {
-        pass: true,
-        expected: {
-          checkoutTargetId: candidate.id,
-          finalConfig,
-          timelinePreservationPass: true,
-        },
-        observed: {
-          checkoutTargetId: finalCheckout.targetId,
-          checkoutUpdatedAt: finalCheckout.updatedAt,
-          finalConfig,
-          candidatePayloadDigest: await digestJson(candidate.workingPayload),
-          commitPayloadDigest: await digestJson(checkoutApplied.commit.appliedPayload),
-          commitPayloadEqualCandidate: true,
-          timelinePreservationPass: true,
-        },
-      };
-      return {
-        ok: true,
-        applied: true,
-        nodeId: candidate.id,
-        nodeRevision: candidateRevision,
-        parentNodeId: parent.id,
-        parentRevision,
-        commitId: commitResponse.commit.id,
-        proposalDigest,
-        finalConfig,
-        diff,
-        timelinePreservation,
-        checkout: finalized.checkout,
-        checkoutApplied: true,
-        finalized: finalized.finalized,
-        visiblePostcondition,
-      };
-    } catch (error) {
-      if (liveTouched) {
-        try {
-          const rollbackCheckoutRef: TimelineCheckoutRef = {
-            timelineId: parent.timelineId,
-            targetType: 'work-node',
-            targetId: parent.id,
-            updatedAt: Date.now(),
-          };
-          await rollbackOperatorConfigProposal({
-            restoreLiveParent: async () => {
-              hydrateCheckoutRuntime(parent.workingPayload, { flushRender: true });
-              setSessionWorkingPayload(parent.workingPayload, 'checkout');
-            },
-            restoreCheckout: async () => {
-              await repository.setCheckoutRef(rollbackCheckoutRef);
-              const document = parent.timelineId === activeTimelineId
-                ? { id: activeTimelineId, label: activeTimelineLabel }
-                : (await repository.listDocuments()).find((entry) => entry.id === parent.timelineId)
-                  || { id: parent.timelineId, label: parent.label };
-              activateTimeline({ document, checkoutRef: rollbackCheckoutRef, workingPayload: parent.workingPayload });
-              refreshWorkbenchAfterCheckout();
-            },
-            verifyParentRestored: async () => {
-              const restoredPayload = getCurrentTimelineSnapshotPayload();
-              return Boolean(restoredPayload && sameOperatorConfigPayload(restoredPayload, parent.workingPayload));
-            },
-            markCandidateRollback: async () => {
-              await client.markRollbackApplied(candidate.id, {
-                appliedAt: rollbackCheckoutRef.updatedAt,
-                appliedBy: 'system',
-                rationale: '配装原子应用失败，已恢复 exact parent checkout；候选节点保留供审计。',
-              });
-            },
-          });
-        } catch (rollbackFailure) {
-          rollbackError = rollbackFailure instanceof Error ? rollbackFailure.message : String(rollbackFailure);
-        }
-      }
-      const originalMessage = error instanceof Error ? error.message : String(error);
-      throw makeOperatorConfigProposalError(
-        'operator-config-atomic-apply-failed',
-        `${originalMessage}${rollbackError ? `；回滚失败：${rollbackError}` : '；已恢复 exact parent checkout，候选节点保留供审计。'}`,
-      );
-    }
   };
 
   const finalizePreparedOperatorConfigFromWorkbenchCommand = async (
@@ -1863,11 +1215,11 @@ export function CanvasBoard({
     const { node: parent } = await client.get(command.parentNodeId);
     const { node: candidate } = await client.get(command.candidateNodeId);
     if (parent.timelineId !== command.expectedTimelineId
-      || operatorConfigNodeRevision(parent) !== Number(command.parentRevision)) {
+      || Number(parent.contentRevision || parent.updatedAt) !== Number(command.parentRevision)) {
       throw makeOperatorConfigCommandError('checkout-changed', 'Atomic team rollback parent changed; refusing to restore a different checkout.');
     }
     if (candidate.timelineId !== command.expectedTimelineId
-      || operatorConfigNodeRevision(candidate) !== Number(command.candidateRevision)) {
+      || Number(candidate.contentRevision || candidate.updatedAt) !== Number(command.candidateRevision)) {
       throw makeOperatorConfigCommandError('checkout-changed', 'Atomic team rollback candidate changed; refusing to restore a different checkout.');
     }
     const repository = createTimelineRepositoryClient();
@@ -1899,9 +1251,9 @@ export function CanvasBoard({
     return {
       restored: true,
       parentNodeId: parent.id,
-      parentRevision: operatorConfigNodeRevision(parent),
+      parentRevision: Number(parent.contentRevision || parent.updatedAt),
       candidateNodeId: candidate.id,
-      candidateRevision: operatorConfigNodeRevision(candidate),
+      candidateRevision: Number(candidate.contentRevision || candidate.updatedAt),
       checkout: checkoutRef,
       sessionPayloadMatches,
     };
@@ -1944,7 +1296,7 @@ export function CanvasBoard({
         [character.id]: nextSnapshot,
       });
       const refreshResult = await refreshOperatorConfigSnapshotsForCharacters([character]);
-      await refreshCandidateBuffsForCharacters([character]);
+      await refreshAvailableCandidateBuffsForCharacters([character]);
       const persistence = await persistOperatorConfigCheckout(checkout.id);
       setResistanceRevision((value) => value + 1);
       const refreshedSnapshot = getOperatorConfigPageCache()[character.id] ?? nextSnapshot;
@@ -1965,7 +1317,7 @@ export function CanvasBoard({
       };
     } catch (error) {
       setOperatorConfigPageCache(cache);
-      await refreshCandidateBuffsForCharacters([character]);
+      await refreshAvailableCandidateBuffsForCharacters([character]);
       throw error;
     }
   };
@@ -2008,7 +1360,7 @@ export function CanvasBoard({
         [character.id]: patchResult.snapshot,
       });
       const refreshResult = await refreshOperatorConfigSnapshotsForCharacters([character]);
-      await refreshCandidateBuffsForCharacters([character]);
+      await refreshAvailableCandidateBuffsForCharacters([character]);
       const persistence = await persistOperatorConfigCheckout(checkout.id);
       setResistanceRevision((value) => value + 1);
       const refreshedSnapshot = getOperatorConfigPageCache()[character.id] ?? patchResult.snapshot;
@@ -2044,7 +1396,7 @@ export function CanvasBoard({
       };
     } catch (error) {
       setOperatorConfigPageCache(cache);
-      await refreshCandidateBuffsForCharacters([character]);
+      await refreshAvailableCandidateBuffsForCharacters([character]);
       throw error;
     }
   };
@@ -2122,7 +1474,7 @@ export function CanvasBoard({
         [character.id]: nextSnapshot,
       });
       const refreshResult = await refreshOperatorConfigSnapshotsForCharacters([character]);
-      await refreshCandidateBuffsForCharacters([character]);
+      await refreshAvailableCandidateBuffsForCharacters([character]);
       const persistence = await persistOperatorConfigCheckout(checkout.id);
       setResistanceRevision((value) => value + 1);
       const refreshedSnapshot = getOperatorConfigPageCache()[character.id] ?? nextSnapshot;
@@ -2169,19 +1521,10 @@ export function CanvasBoard({
       };
     } catch (error) {
       setOperatorConfigPageCache(cache);
-      await refreshCandidateBuffsForCharacters([character]);
+      await refreshAvailableCandidateBuffsForCharacters([character]);
       throw error;
     }
   };
-
-  // These legacy command implementations remain only as private migration
-  // references for old in-page state; they are intentionally not registered
-  // in the Agent command queue. All Agent loadout writes use the proposal
-  // Work Node path above, so no direct setOperatorConfig route is reachable.
-  void restoreAtomicTeamParentFromWorkbenchCommand;
-  void setOperatorWeaponFromWorkbenchCommand;
-  void setOperatorEquipmentFromWorkbenchCommand;
-  void setOperatorConfigFromWorkbenchCommand;
 
   const resolveWorkbenchCommandSkill = (
     character: Character,
@@ -2518,49 +1861,6 @@ export function CanvasBoard({
     const riskFlags = Array.isArray(node.riskFlags) ? node.riskFlags : [];
     const isManualApproval = command.approval?.mode === 'manual';
     const nodeDiff = diffTimelinePayloads(node.basePayload, node.workingPayload);
-    const hasReviewReceipt = command.expectedNodeRevision !== undefined
-      || command.expectedWorkingPayloadDigest !== undefined
-      || command.expectedDiffDigest !== undefined
-      || command.expectedSemanticScope !== undefined;
-    const nodeRevision = hasReviewReceipt
-      ? authoritativePreparedNodeRevision(node)
-      : operatorConfigNodeRevision(node);
-    if (hasReviewReceipt) {
-      if (command.expectedNodeRevision === undefined
-        || !command.expectedWorkingPayloadDigest
-        || !command.expectedDiffDigest
-        || command.expectedSemanticScope?.length !== 2
-        || command.expectedSemanticScope[0] !== 'buff.attachments'
-        || command.expectedSemanticScope[1] !== 'buff.resistance') {
-        throw new Error('AI_WORKNODE_REVIEW_RECEIPT_INCOMPLETE: Work Node 审阅凭据不完整。');
-      }
-      const observedIdentity = await buildReviewedWorkNodeIdentity({
-        nodeId: node.id,
-        timelineId: node.timelineId,
-        nodeRevision,
-        workingPayload: node.workingPayload,
-        diffChanges: nodeDiff,
-      });
-      const reviewVerification = verifyReviewedWorkNodeIdentity({
-        expected: {
-          nodeId,
-          nodeRevision: command.expectedNodeRevision,
-          workingPayloadDigest: command.expectedWorkingPayloadDigest,
-          diffDigest: command.expectedDiffDigest,
-        },
-        observed: observedIdentity,
-      });
-      if (!reviewVerification.pass) {
-        throw new Error(`AI_WORKNODE_REVIEW_STALE: ${reviewVerification.reason || 'Work Node 已变化。'}`);
-      }
-      const semanticDiff = diffPreparedPayloads(node.basePayload, node.workingPayload);
-      const semanticScopeGate = checkPreparedScope(semanticDiff, command.expectedSemanticScope);
-      if (!semanticScopeGate.pass) {
-        throw new Error(
-          `AI_WORKNODE_SCOPE_OVERREACH: Buff Work Node 包含未批准范围：${semanticScopeGate.violations.map((violation) => violation.path).join('、')}`,
-        );
-      }
-    }
     const checkoutDecision = buildAiTimelineCheckoutDecision({
       approvalPolicy: node.approvalPolicy,
       riskFlags,
@@ -2628,11 +1928,7 @@ export function CanvasBoard({
     let checkoutRefUpdated = false;
     let applied: Awaited<ReturnType<ReturnType<typeof createAiTimelineWorkNodeClient>['markCheckoutApplied']>> | null = null;
     let checkoutMarkError: string | undefined;
-    let visiblePostcondition: Awaited<ReturnType<typeof buildWorkNodePayloadPostcondition>> | {
-      pass: boolean;
-      expected: string[];
-      actual: string[];
-    } = { pass: false, expected: expectedVisibleIds, actual: [] as string[] };
+    let visiblePostcondition = { pass: false, expected: expectedVisibleIds, actual: [] as string[] };
     let checkoutApplied = false;
     isCheckoutMutationPendingRef.current = true;
     try {
@@ -2643,7 +1939,7 @@ export function CanvasBoard({
       refreshWorkbenchAfterCheckout();
       visiblePostcondition = await waitForVisibleCanvasButtons(expectedVisibleIds);
       if (!visiblePostcondition.pass || document.visibilityState !== 'visible') {
-        throw new Error(`checkout-visible-postcondition-failed: expected=${JSON.stringify(visiblePostcondition.expected)} actual=${JSON.stringify(visiblePostcondition.actual)}`);
+        throw new Error(`checkout-visible-postcondition-failed: expected=${visiblePostcondition.expected.join(',')} actual=${visiblePostcondition.actual.join(',')}`);
       }
       const checkoutRef = {
         timelineId: node.timelineId || activeTimelineId,
@@ -2674,30 +1970,6 @@ export function CanvasBoard({
       }
       checkoutApplied = lifecyclePlan.reuseAppliedCommit || Boolean(applied?.commit.checkoutApplied);
       if (!checkoutApplied) throw new Error('checkout-applied-record-missing: visible Canvas was restored but SQLite apply record did not commit');
-      const persistedCheckout = await repository.getCheckoutRef(node.timelineId || activeTimelineId);
-      if (!persistedCheckout
-        || persistedCheckout.targetType !== 'work-node'
-        || persistedCheckout.targetId !== node.id
-        || persistedCheckout.updatedAt !== checkoutRef.updatedAt) {
-        throw new Error('checkout-postcondition-failed: SQLite checkout ref 不再精确指向本次应用的 Work Node。');
-      }
-      const payloadPostcondition = await buildWorkNodePayloadPostcondition({
-        expectedPayload: node.workingPayload,
-        actualPayload: getCurrentTimelineSnapshotPayload(),
-        expectedVisibleButtonIds: expectedVisibleIds,
-        actualVisibleButtonIds: visiblePostcondition.actual,
-        expectedCheckout: { targetType: 'work-node', targetId: node.id },
-        observedCheckout: persistedCheckout,
-        expectedNodeRevision: nodeRevision,
-        observedNodeRevision: nodeRevision,
-      });
-      if (!payloadPostcondition.pass) {
-        throw new Error(`checkout-exact-postcondition-failed: ${payloadPostcondition.failures.join('；')}`);
-      }
-      visiblePostcondition = {
-        ...visiblePostcondition,
-        ...payloadPostcondition,
-      };
     } catch (error) {
       checkoutMarkError = error instanceof Error ? error.message : String(error);
       if (checkoutRefUpdated && previousCheckoutRef) {
@@ -2718,15 +1990,10 @@ export function CanvasBoard({
     }
 
     return {
-      ok: true,
-      done: true,
       nodeId: applied?.node.id || node.id,
-      nodeRevision,
       commitId: applied?.commit.id || commit.id,
       status: applied?.node.status || node.status,
       checkoutApplied,
-      checkout: await repository.getCheckoutRef(node.timelineId || activeTimelineId),
-      checkoutTargetRevision: nodeRevision,
       checkoutMarkError,
       visiblePostcondition,
       reloaded: command.reload === true,
@@ -2813,7 +2080,7 @@ export function CanvasBoard({
     }
     const updated = await client.update(nodeId, {
       workingPayload: patchResult.workingPayload,
-      expectedContentRevision: authoritativePreparedNodeRevision(node),
+      expectedContentRevision: Number(node.contentRevision || node.updatedAt),
       status: 'ready',
       riskFlags: nextRiskFlags,
     });
@@ -2915,978 +2182,6 @@ export function CanvasBoard({
     };
   };
 
-  const assertPreparedCurrentBinding = (expectedTargetId?: string): ProductBinding => {
-    const binding = browserAgentRuntime.getBinding();
-    if (!binding) {
-      throw new Error('prepared-binding-unavailable: 当前浏览器没有可验证的 Product binding。');
-    }
-    if (!activeCheckoutRef || activeCheckoutRef.timelineId !== activeTimelineId) {
-      throw new Error('prepared-checkout-unavailable: 当前正式 SQLite 没有可验证的 checkout。');
-    }
-    if (binding.timelineId !== activeTimelineId
-      || binding.checkoutTargetId !== activeCheckoutRef.targetId
-      || binding.checkoutUpdatedAt !== activeCheckoutRef.updatedAt) {
-      throw new Error('prepared-binding-stale: Product binding 与正式 checkout 不一致。');
-    }
-    if (expectedTargetId !== undefined && binding.checkoutTargetId !== expectedTargetId) {
-      throw new Error('prepared-source-target-mismatch: 当前 binding 不再指向 candidate 的 source target。');
-    }
-    return binding;
-  };
-
-  const readPreparedFormalCheckout = async (expectedTargetId?: string) => {
-    const checkoutRef = activeCheckoutRef;
-    if (!checkoutRef || checkoutRef.timelineId !== activeTimelineId) {
-      throw new Error('prepared-checkout-unavailable: 当前正式 SQLite 没有可验证的 checkout。');
-    }
-    const binding = assertPreparedCurrentBinding(expectedTargetId);
-    const formal = await readFormalCheckoutPayload(activeTimelineId, checkoutRef);
-    if (formal.checkoutRef.timelineId !== activeTimelineId
-      || formal.checkoutRef.targetType !== checkoutRef.targetType
-      || formal.checkoutRef.targetId !== checkoutRef.targetId
-      || formal.checkoutRef.updatedAt !== checkoutRef.updatedAt) {
-      throw new Error('prepared-checkout-drift: 读取正式 checkout 期间 target 或 revision 发生变化。');
-    }
-    const repository = createTimelineRepositoryClient();
-    const bundle = await repository.exportDocumentBundle(activeTimelineId);
-    const persistedCheckout = bundle.checkoutRef;
-    if (!persistedCheckout
-      || persistedCheckout.timelineId !== activeTimelineId
-      || persistedCheckout.targetType !== checkoutRef.targetType
-      || persistedCheckout.targetId !== checkoutRef.targetId
-      || persistedCheckout.updatedAt !== checkoutRef.updatedAt) {
-      throw new Error('prepared-checkout-drift: 正式 SQLite checkout 在校验期间发生变化。');
-    }
-    const sourceNode = checkoutRef.targetType === 'work-node'
-      ? bundle.workNodes.find((node) => node.id === checkoutRef.targetId)
-      : null;
-    const sourceSnapshot = checkoutRef.targetType === 'snapshot'
-      ? bundle.snapshots.find((snapshot) => snapshot.id === checkoutRef.targetId)
-      : null;
-    const bundlePayload = sourceNode?.workingPayload || sourceSnapshot?.payload;
-    if (!bundlePayload) {
-      throw new Error('prepared-source-payload-missing: 当前正式 checkout payload 不存在。');
-    }
-    const [formalDigest, bundleDigest] = await Promise.all([
-      sha256Json(formal.payload),
-      sha256Json(bundlePayload),
-    ]);
-    if (formalDigest !== bundleDigest) {
-      throw new Error('prepared-source-payload-drift: 正式 checkout payload 在读取期间发生变化。');
-    }
-    const sourceRevision = sourceNode
-      ? sourceNode.contentRevision
-      : sourceSnapshot?.createdAt;
-    if (typeof sourceRevision !== 'number' || !Number.isSafeInteger(sourceRevision) || sourceRevision < 0) {
-      throw new Error('prepared-source-revision-invalid: 正式 checkout revision 无效。');
-    }
-    const resolvedSourceRevision = sourceRevision;
-    if (binding.contentRevision !== resolvedSourceRevision) {
-      throw new Error('prepared-binding-revision-mismatch: Product binding 没有绑定正式 target 的权威 contentRevision。');
-    }
-    return {
-      binding,
-      checkoutRef: persistedCheckout,
-      payload: formal.payload,
-      payloadDigest: formalDigest,
-      sourceRevision: resolvedSourceRevision,
-      structuralParentNodeId: sourceNode?.id || null,
-      sourceNode,
-      sourceSnapshot,
-    };
-  };
-
-  const validatePreparedIntentAndScope = (
-    intent: 'timeline' | 'buff' | 'selection',
-    scope: readonly PreparedWorkNodeScope[],
-    diff: ReturnType<typeof diffPreparedPayloads>,
-  ) => {
-    const scopeGate = checkPreparedScope(diff, scope);
-    if (!scopeGate.pass) return { scopeGate, pass: false, reason: 'prepared-scope-overreach' } as const;
-    const allowed = intent === 'timeline'
-      ? new Set<PreparedWorkNodeScope>(['timeline.structure', 'buff.attachments', 'buff.resistance'])
-      : intent === 'buff'
-        ? new Set<PreparedWorkNodeScope>(['buff.attachments', 'buff.resistance'])
-        : new Set<PreparedWorkNodeScope>();
-    const intentViolations = diff.changes.filter((change) => {
-      const required = scopeForPreparedPath(change.path);
-      return required !== null && !allowed.has(required);
-    });
-    if (intentViolations.length > 0) {
-      return {
-        scopeGate,
-        pass: false,
-        reason: `prepared-intent-overreach: ${intent} 不能修改 ${intentViolations.map((change) => change.path).join(', ')}`,
-      } as const;
-    }
-    return { scopeGate, pass: true } as const;
-  };
-
-  const preparedFailure = (
-    operation: string,
-    code: string,
-    message: string,
-    extra: Record<string, unknown> = {},
-  ) => ({
-    ok: false as const,
-    applied: false,
-    operation,
-    code,
-    message,
-    liveCheckoutTouched: false as const,
-    rollbackApplied: false,
-    candidatePreserved: false,
-    postcondition: {
-      pass: true,
-      checkoutUnchanged: true,
-      liveCheckoutTouched: false,
-      reason: message,
-    },
-    ...extra,
-  });
-
-  const prepareReviewedWorkNodeProposalFromCommand = async (
-    command: Extract<MainWorkbenchCommand, { op: 'prepareReviewedWorkNodeProposal' }>,
-  ) => {
-    let createdCandidateId: string | null = null;
-    const client = createAiTimelineWorkNodeClient();
-    try {
-      const formal = await readPreparedFormalCheckout();
-      if (!samePreparedProductBinding(formal.binding, command.sourceBinding)) {
-        return preparedFailure(
-          command.operation,
-          'prepared-source-binding-mismatch',
-          'Host sourceBinding 与当前正式 Product binding 不完全一致；未创建 candidate。',
-        );
-      }
-      if (command.sourceBinding.timelineId !== activeTimelineId
-        || command.sourceBinding.checkoutTargetId !== formal.checkoutRef.targetId
-        || command.sourceBinding.checkoutUpdatedAt !== formal.checkoutRef.updatedAt) {
-        return preparedFailure(
-          command.operation,
-          'prepared-source-binding-mismatch',
-          'sourceBinding 没有精确绑定当前正式 checkout；未创建 candidate。',
-        );
-      }
-      if (command.intent === 'selection') {
-        return preparedFailure(
-          command.operation,
-          'prepared-selection-owner-mismatch',
-          'selection prepared command 由 AppContext 独立 owner 消费，Canvas 不执行该候选。',
-        );
-      }
-      let workingPayload: TimelineSnapshotPayload;
-      let riskFlags: AiTimelineRiskFlag[] = [];
-      let restoreMetadata: {
-        nodeId: string;
-        nodeRevision: number;
-        scope: PreparedRestoreSemanticScope;
-      } | null = null;
-      if (command.restore) {
-        const expectedScope = PREPARED_RESTORE_PROPOSAL_SCOPES[command.restore.scope];
-        if (!samePreparedScope(command.scope, expectedScope)
-          || command.intent !== (command.restore.scope === 'timeline.structure' ? 'timeline' : 'buff')) {
-          return preparedFailure(
-            command.operation,
-            'prepared-restore-scope-mismatch',
-            'restore semantic scope、intent 与 proposal scope 的真实影响不一致。',
-          );
-        }
-        const target = (await client.get(command.restore.nodeId)).node;
-        const targetRevision = target.contentRevision;
-        if (target.timelineId !== activeTimelineId
-          || !Number.isSafeInteger(targetRevision)
-          || Number(targetRevision) < 0) {
-          return preparedFailure(
-            command.operation,
-            'prepared-restore-target-invalid',
-            'restore target 不属于当前 timeline 或缺少权威 contentRevision。',
-          );
-        }
-        const restored = applyPreparedRestoreScope(command.restore.scope, formal.payload, target.basePayload);
-        if (!restored.ok) {
-          return preparedFailure(
-            command.operation,
-            'prepared-restore-invalid',
-            restored.message,
-            { issues: restored.issues },
-          );
-        }
-        workingPayload = restored.payload;
-        restoreMetadata = {
-          nodeId: target.id,
-          nodeRevision: Number(targetRevision),
-          scope: command.restore.scope,
-        };
-      } else {
-        const trustedSkillCatalog = selectedCharacters.flatMap((character) => (
-          buildSandboxSkillsFromRuntimeTemplate(character.id).map((skill) => ({
-            characterId: character.id,
-            characterName: character.name,
-            skillId: skill.id,
-            skillType: skill.buttonType,
-            skillDisplayName: skill.displayName,
-          }))
-        ));
-        const trustedPatch = bindTrustedTimelineMutation({
-          payload: formal.payload,
-          patch: command.patch,
-          skillCatalog: trustedSkillCatalog,
-          candidateBuffs: getCandidateBuffList(),
-        });
-        const patchResult = applyTimelineWorkNodePatch(formal.payload, trustedPatch, { dryRun: false });
-        if (!patchResult.ok) {
-          return preparedFailure(
-            command.operation,
-            'prepared-patch-invalid',
-            patchResult.issues.map((issue) => issue.message).join('；'),
-            { issues: patchResult.issues, riskFlags: patchResult.riskFlags },
-          );
-        }
-        workingPayload = patchResult.workingPayload;
-        riskFlags = patchResult.riskFlags;
-      }
-      const diff = diffPreparedPayloads(formal.payload, workingPayload);
-      if (diff.changes.length === 0) {
-        return preparedFailure(
-          command.operation,
-          'prepared-empty-diff',
-          'prepare request 没有产生可审阅的 payload 变化；未创建空 candidate。',
-        );
-      }
-      const intentScope = validatePreparedIntentAndScope(command.intent, command.scope, diff);
-      if (!intentScope.pass) {
-        return preparedFailure(
-          command.operation,
-          intentScope.reason.startsWith('prepared-scope') ? 'prepared-scope-overreach' : 'prepared-intent-overreach',
-          intentScope.reason,
-          { scopeGate: intentScope.scopeGate },
-        );
-      }
-      const preparedValidation = validateTimelinePayload(workingPayload);
-      if (!preparedValidation.ok) {
-        return preparedFailure(
-          command.operation,
-          'prepared-working-payload-invalid',
-          preparedValidation.issues.map((issue) => issue.message).join('；'),
-          { validation: preparedValidation },
-        );
-      }
-
-      const proposalId = `prepared-${generateId()}`;
-      const candidateBranchId = restoreMetadata
-        ? preparedRestoreBranchId({ proposalId, ...restoreMetadata })
-        : `prepared-${proposalId}`;
-      const candidateResponse = await client.create({
-        timelineId: activeTimelineId,
-        parentNodeId: formal.structuralParentNodeId,
-        branchId: candidateBranchId,
-        label: command.label,
-        description: command.description,
-        basePayload: formal.payload,
-        workingPayload,
-        approvalPolicy: 'manual',
-        riskFlags,
-      });
-      createdCandidateId = candidateResponse.node.id;
-      const readyResponse = await client.update(createdCandidateId, {
-        status: 'ready',
-        expectedContentRevision: authoritativePreparedNodeRevision(candidateResponse.node),
-      });
-      let candidateNode = readyResponse.node;
-      const candidateRevision = authoritativePreparedNodeRevision(candidateNode);
-      if (candidateNode.timelineId !== activeTimelineId
-        || candidateNode.id !== createdCandidateId
-        || candidateNode.branchId !== candidateBranchId
-        || candidateRevision < 0
-        || candidateNode.status !== 'ready') {
-        throw new Error('prepared-candidate-proof-failed: 新 candidate 的身份或 revision 无法证明。');
-      }
-      const proposal = await buildPreparedWorkNodeProposal({
-        operation: command.operation,
-        proposalId,
-        intent: command.intent,
-        destination: 'current-timeline',
-        sourceTargetId: formal.checkoutRef.targetId,
-        sourceRevision: formal.sourceRevision,
-        candidateTimelineId: activeTimelineId,
-        nodeId: candidateNode.id,
-        nodeRevision: candidateRevision,
-        scope: [...command.scope],
-        sourceBinding: command.sourceBinding,
-        sourceCheckout: {
-          timelineId: activeTimelineId,
-          targetType: formal.checkoutRef.targetType,
-          targetId: formal.checkoutRef.targetId,
-          revision: formal.sourceRevision,
-          payloadDigest: formal.payloadDigest,
-        },
-        structuralParentNodeId: formal.structuralParentNodeId,
-        basePayload: candidateNode.basePayload,
-        workingPayload: candidateNode.workingPayload,
-      });
-      const finalValidation = await validatePreparedWorkNodeProposal(proposal, {
-        operation: command.operation,
-        basePayload: candidateNode.basePayload,
-        workingPayload: candidateNode.workingPayload,
-      });
-      if (!finalValidation.ok) {
-        throw new Error(`prepared-proposal-proof-failed: ${finalValidation.issues.join('；')}`);
-      }
-      const candidate = preparedWorkNodeCandidateRefFromProposal(proposal);
-      const candidateAuditMarker = `[prepared-candidate:v1:${proposalId}:${proposal.proposalDigest}]`;
-      const markedResponse = await client.update(candidateNode.id, {
-        status: 'ready',
-        description: `${candidateAuditMarker} ${command.description}`,
-      });
-      candidateNode = markedResponse.node;
-      if (candidateNode.id !== candidate.nodeId
-        || candidateNode.timelineId !== activeTimelineId
-        || candidateNode.branchId !== candidateBranchId
-        || authoritativePreparedNodeRevision(candidateNode) !== candidate.nodeRevision
-        || !candidateNode.description.startsWith(candidateAuditMarker)) {
-        throw new Error('prepared-candidate-audit-marker-failed: candidate 的产品侧 provenance marker 无法证明。');
-      }
-      return {
-        ok: true as const,
-        kind: 'prepared-work-node-proposal' as const,
-        operation: command.operation,
-        liveCheckoutTouched: false as const,
-        candidate,
-        proposal,
-        candidateNode: {
-          nodeId: candidateNode.id,
-          nodeRevision: candidateRevision,
-          status: candidateNode.status,
-          branchId: candidateNode.branchId,
-        },
-        postcondition: {
-          pass: true,
-          liveCheckoutTouched: false,
-          checkoutUnchanged: true,
-          candidateStored: true,
-          reviewComplete: true,
-          diffEntries: proposal.review.changes.length,
-        },
-        riskFlags,
-      };
-    } catch (error) {
-      let cleanup: Record<string, unknown> = {
-        status: 'failed',
-        reason: 'candidate 未创建或无法证明可安全清理。',
-      };
-      if (createdCandidateId) {
-        try {
-          const current = await client.list();
-          const node = current.nodes.find((entry) => entry.id === createdCandidateId);
-          const descendants = current.nodes.filter((entry) => entry.parentNodeId === createdCandidateId);
-          const checkout = await createTimelineRepositoryClient().getCheckoutRef(activeTimelineId);
-          const commits = current.commits.filter((entry) => entry.nodeId === createdCandidateId);
-          if (node && node.branchId.startsWith('prepared-') && descendants.length === 0
-            && (!checkout || checkout.targetId !== createdCandidateId)
-            && commits.length === 0) {
-            const deleted = await client.delete(createdCandidateId);
-            const preserved = deleted.nodes.some((entry) => entry.id === createdCandidateId);
-            cleanup = preserved
-              ? { status: 'failed', reason: 'candidate 删除后的 ledger 仍保留该节点。' }
-              : { status: 'deleted', reason: 'prepare 失败后删除未 checkout 的空 candidate。' };
-          } else {
-            cleanup = {
-              status: 'preserved',
-              reason: 'candidate 存在 lineage、checkout 或 commit 证据，按 fail-closed 保留。',
-            };
-          }
-        } catch (cleanupError) {
-          cleanup = {
-            status: 'failed',
-            reason: `prepare 失败后的 candidate cleanup 失败：${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
-          };
-        }
-      }
-      const message = error instanceof Error ? error.message : String(error);
-      return preparedFailure(command.operation, 'prepared-proposal-failed', message, { cleanup });
-    }
-  };
-
-  const applyReviewedWorkNodeProposalFromCommand = async (
-    command: Extract<MainWorkbenchCommand, { op: 'applyReviewedWorkNodeProposal' }>,
-  ) => {
-    const candidate = command.candidate;
-    let liveCheckoutTouched = false;
-    let commitId: string | null = null;
-    let finalPostcondition: Awaited<ReturnType<typeof buildWorkNodePayloadPostcondition>> | null = null;
-    let rollbackPostcondition: Awaited<ReturnType<typeof buildWorkNodePayloadPostcondition>> | null = null;
-    let targetCheckoutRef: TimelineCheckoutRef | null = null;
-    const client = createAiTimelineWorkNodeClient();
-    try {
-      if (candidate.destination !== 'current-timeline') {
-        return preparedFailure(
-          command.operation,
-          'prepared-destination-unsupported',
-          'prepared candidate destination 不是 current-timeline；拒绝 apply。',
-          { candidate, candidatePreserved: true },
-        );
-      }
-      if (candidate.intent !== 'timeline' && candidate.intent !== 'buff') {
-        return preparedFailure(
-          command.operation,
-          'prepared-intent-unsupported',
-          '当前产品侧 prepared apply 只接受 timeline 或 buff candidate。',
-          { candidate, candidatePreserved: true },
-        );
-      }
-      const formal = await readPreparedFormalCheckout(candidate.sourceTargetId);
-      if (candidate.candidateTimelineId !== activeTimelineId
-        || candidate.sourceTargetId !== formal.checkoutRef.targetId
-        || candidate.sourceRevision !== formal.sourceRevision) {
-        return preparedFailure(
-          command.operation,
-          'prepared-source-revision-mismatch',
-          '当前 formal checkout 的 target/revision 与 candidate 不一致；live checkout 未触碰。',
-          { candidate, candidatePreserved: true },
-        );
-      }
-      const currentPayload = getCurrentTimelineSnapshotPayload();
-      if (!currentPayload || !sameOperatorConfigPayload(currentPayload, formal.payload)) {
-        return preparedFailure(
-          command.operation,
-          'prepared-live-source-mismatch',
-          '当前 Canvas payload 与正式 source checkout 不一致；拒绝 apply。',
-          { candidate, candidatePreserved: true },
-        );
-      }
-      const candidateResponse = await client.get(candidate.nodeId);
-      const candidateNode = candidateResponse.node;
-      const candidateRevision = authoritativePreparedNodeRevision(candidateNode);
-      const candidateAuditMarker = `[prepared-candidate:v1:${candidate.proposalId}:${candidate.proposalDigest}]`;
-      const restoreMetadata = parsePreparedRestoreBranchId(candidate.proposalId, candidateNode.branchId);
-      const branchIsProven = candidateNode.branchId === `prepared-${candidate.proposalId}`
-        || restoreMetadata !== null;
-      if (candidateNode.timelineId !== activeTimelineId
-        || candidateNode.id !== candidate.nodeId
-        || !branchIsProven
-        || (candidateNode.parentNodeId || null) !== formal.structuralParentNodeId
-        || candidateRevision !== candidate.nodeRevision
-        || !candidateNode.description.startsWith(candidateAuditMarker)) {
-        return preparedFailure(
-          command.operation,
-          'prepared-candidate-identity-mismatch',
-          'candidate node 的 timeline、branch、parent、revision 或 provenance marker 已漂移；拒绝 apply。',
-          { candidate, candidatePreserved: true, observedNodeRevision: candidateRevision },
-        );
-      }
-      if (restoreMetadata) {
-        const expectedScope = PREPARED_RESTORE_PROPOSAL_SCOPES[restoreMetadata.scope];
-        const expectedIntent = restoreMetadata.scope === 'timeline.structure' ? 'timeline' : 'buff';
-        if (candidate.intent !== expectedIntent || !samePreparedScope(candidate.scope, expectedScope)) {
-          return preparedFailure(
-            command.operation,
-            'prepared-restore-scope-mismatch',
-            'restore candidate 的 semantic scope、intent 与 proposal scope 不再一致。',
-            { candidate, candidatePreserved: true },
-          );
-        }
-        const restoreTarget = (await client.get(restoreMetadata.nodeId)).node;
-        const restoreTargetRevision = authoritativePreparedNodeRevision(restoreTarget);
-        if (restoreTarget.timelineId !== activeTimelineId
-          || restoreTargetRevision !== restoreMetadata.nodeRevision) {
-          return preparedFailure(
-            command.operation,
-            'prepared-restore-target-revision-mismatch',
-            'restore baseline target 的 timeline/contentRevision 已漂移；拒绝 apply。',
-            {
-              candidate,
-              candidatePreserved: true,
-              expectedTargetRevision: restoreMetadata.nodeRevision,
-              observedTargetRevision: restoreTargetRevision,
-            },
-          );
-        }
-        const rebuilt = applyPreparedRestoreScope(
-          restoreMetadata.scope,
-          formal.payload,
-          restoreTarget.basePayload,
-        );
-        if (!rebuilt.ok || !sameOperatorConfigPayload(rebuilt.payload, candidateNode.workingPayload)) {
-          return preparedFailure(
-            command.operation,
-            'prepared-restore-rebuild-mismatch',
-            rebuilt.ok
-              ? 'restore candidate 重新计算后不再等于已批准 working payload。'
-              : rebuilt.message,
-            { candidate, candidatePreserved: true, ...(!rebuilt.ok ? { issues: rebuilt.issues } : {}) },
-          );
-        }
-      }
-      if (candidateNode.status !== 'ready') {
-        return preparedFailure(
-          command.operation,
-          'prepared-candidate-not-available',
-          `candidate 当前状态为 ${candidateNode.status}，不能再次 apply。`,
-          { candidate, candidatePreserved: true },
-        );
-      }
-      const candidateValidation = validateTimelinePayload(candidateNode.workingPayload);
-      if (!candidateValidation.ok) {
-        return preparedFailure(
-          command.operation,
-          'prepared-candidate-payload-invalid',
-          candidateValidation.issues.map((issue) => issue.message).join('；'),
-          { candidate, candidatePreserved: true, validation: candidateValidation },
-        );
-      }
-      const candidateDiff = diffPreparedPayloads(candidateNode.basePayload, candidateNode.workingPayload);
-      if (candidateDiff.changes.length === 0) {
-        return preparedFailure(
-          command.operation,
-          'prepared-empty-candidate',
-          'candidate 没有可应用的 diff；拒绝 apply。',
-          { candidate, candidatePreserved: true },
-        );
-      }
-      const intentScope = validatePreparedIntentAndScope(candidate.intent, candidate.scope, candidateDiff);
-      if (!intentScope.pass) {
-        return preparedFailure(
-          command.operation,
-          intentScope.reason.startsWith('prepared-scope') ? 'prepared-scope-overreach' : 'prepared-intent-overreach',
-          intentScope.reason,
-          { candidate, candidatePreserved: true, scopeGate: intentScope.scopeGate },
-        );
-      }
-      const candidateProof = await validatePreparedWorkNodeCandidate(candidate, {
-        operation: command.operation,
-        basePayload: candidateNode.basePayload,
-        workingPayload: candidateNode.workingPayload,
-        sourceTargetId: formal.checkoutRef.targetId,
-        sourceRevision: formal.sourceRevision,
-        candidateTimelineId: activeTimelineId,
-        nodeId: candidateNode.id,
-        nodeRevision: candidateRevision,
-      });
-      if (!candidateProof.ok) {
-        return preparedFailure(
-          command.operation,
-          'prepared-candidate-digest-mismatch',
-          candidateProof.issues.join('；'),
-          { candidate, candidatePreserved: true, issues: candidateProof.issues },
-        );
-      }
-      const sourceDigest = await sha256Json(formal.payload);
-      const storedBaseDigest = await sha256Json(candidateNode.basePayload);
-      if (sourceDigest !== storedBaseDigest) {
-        return preparedFailure(
-          command.operation,
-          'prepared-base-payload-mismatch',
-          'candidate base payload 不再等于当前 formal source payload；拒绝 apply。',
-          { candidate, candidatePreserved: true },
-        );
-      }
-
-      const committed = await client.commit(candidateNode.id, {
-        label: `Apply ${candidateNode.label}`,
-        riskFlags: candidateNode.riskFlags,
-        approval: {
-          mode: 'manual',
-          approvedAt: Date.now(),
-          approvedBy: 'user',
-          rationale: 'V2 prepared candidate 已通过 Host capability、binding、revision、scope 与 digest 校验。',
-        },
-      });
-      commitId = committed.commit.id;
-      if (committed.commit.nodeId !== candidateNode.id
-        || !sameOperatorConfigPayload(committed.commit.appliedPayload, candidateNode.workingPayload)
-        || !sameOperatorConfigPayload(committed.commit.basePayload, candidateNode.basePayload)) {
-        return preparedFailure(
-          command.operation,
-          'prepared-commit-payload-mismatch',
-          'SQLite commit payload 没有精确绑定 candidate；live checkout 未触碰。',
-          { candidate, candidatePreserved: true, commitId },
-        );
-      }
-
-      const previousCheckoutRef = { ...formal.checkoutRef };
-      const previousDocument = { id: activeTimelineId, label: activeTimelineLabel };
-      const previousVisibleIds = Object.keys(formal.payload.skillButtonTable || {}).sort();
-      const candidateVisibleIds = Object.keys(candidateNode.workingPayload.skillButtonTable || {}).sort();
-      isCheckoutMutationPendingRef.current = true;
-      liveCheckoutTouched = true;
-      try {
-        await runAtomicPreparedWorkNodeApply({
-          applyTarget: async () => {
-            hydrateCheckoutRuntime(candidateNode.workingPayload, { flushRender: true });
-            refreshWorkbenchAfterCheckout();
-          },
-          verifyVisibleTarget: async () => {
-            if (document.visibilityState !== 'visible') {
-              return { pass: false, reason: '前台 Canvas 不可见' };
-            }
-            const visible = await waitForVisibleCanvasButtons(candidateVisibleIds);
-            const postcondition = await buildWorkNodePayloadPostcondition({
-              expectedPayload: candidateNode.workingPayload,
-              actualPayload: getCurrentTimelineSnapshotPayload(),
-              expectedVisibleButtonIds: candidateVisibleIds,
-              actualVisibleButtonIds: visible.actual,
-            });
-            return postcondition.pass
-              ? postcondition
-              : { pass: false, reason: postcondition.failures.join('；'), observed: postcondition };
-          },
-          persistCheckout: async () => {
-            targetCheckoutRef = {
-              timelineId: activeTimelineId,
-              targetType: 'work-node',
-              targetId: candidateNode.id,
-              updatedAt: Date.now(),
-            };
-            await createTimelineRepositoryClient().setCheckoutRef(targetCheckoutRef);
-            activateTimeline({
-              document: previousDocument,
-              checkoutRef: targetCheckoutRef,
-              workingPayload: candidateNode.workingPayload,
-            });
-          },
-          persistAppliedLedger: async () => {
-            if (!targetCheckoutRef) throw new Error('prepared checkout ref 未生成。');
-            const marked = await client.markCheckoutApplied(candidateNode.id, {
-              commitId: commitId!,
-              appliedAt: targetCheckoutRef.updatedAt,
-              appliedBy: 'user',
-              rationale: 'prepared candidate visible postcondition 已通过，已原子应用正式 checkout。',
-            });
-            const applied = marked.node.id === candidateNode.id
-              && marked.commit.id === commitId
-              && marked.commit.checkoutApplied
-              && Number(marked.commit.checkout?.appliedAt) === targetCheckoutRef.updatedAt
-              && sameOperatorConfigPayload(marked.commit.appliedPayload, candidateNode.workingPayload);
-            return { applied };
-          },
-          verifyPersistedTarget: async () => {
-            if (!targetCheckoutRef) return { pass: false, reason: 'prepared checkout ref 未生成' };
-            const repository = createTimelineRepositoryClient();
-            const persistedCheckout = await repository.getCheckoutRef(activeTimelineId);
-            const persistedNode = (await client.get(candidateNode.id)).node;
-            const visible = await waitForVisibleCanvasButtons(candidateVisibleIds);
-            finalPostcondition = await buildWorkNodePayloadPostcondition({
-              expectedPayload: candidateNode.workingPayload,
-              actualPayload: getCurrentTimelineSnapshotPayload(),
-              expectedVisibleButtonIds: candidateVisibleIds,
-              actualVisibleButtonIds: visible.actual,
-              expectedCheckout: { targetType: 'work-node', targetId: candidateNode.id },
-              observedCheckout: persistedCheckout,
-              expectedNodeRevision: candidateRevision,
-              observedNodeRevision: authoritativePreparedNodeRevision(persistedNode),
-            });
-            return finalPostcondition.pass
-              ? finalPostcondition
-              : { pass: false, reason: finalPostcondition.failures.join('；'), observed: finalPostcondition };
-          },
-          restorePreviousState: async () => {
-            const failures: string[] = [];
-            const repository = createTimelineRepositoryClient();
-            try {
-              await repository.setCheckoutRef(previousCheckoutRef);
-            } catch (error) {
-              failures.push(`恢复原 checkout 失败：${error instanceof Error ? error.message : String(error)}`);
-            }
-            try {
-              activateTimeline({
-                document: previousDocument,
-                checkoutRef: previousCheckoutRef,
-                workingPayload: formal.payload,
-              });
-              hydrateCheckoutRuntime(formal.payload, { flushRender: true });
-              refreshWorkbenchAfterCheckout();
-              const visible = await waitForVisibleCanvasButtons(previousVisibleIds);
-              if (!visible.pass) failures.push('恢复原 live checkout 后可见按钮集合不一致。');
-            } catch (error) {
-              failures.push(`恢复原 live checkout 失败：${error instanceof Error ? error.message : String(error)}`);
-            }
-            try {
-              await client.markRollbackApplied(candidateNode.id, {
-                appliedAt: Date.now(),
-                appliedBy: 'system',
-                rationale: 'prepared candidate apply 失败，已恢复原 live checkout；候选保留供审计。',
-              });
-            } catch (error) {
-              failures.push(`candidate rollback audit 失败：${error instanceof Error ? error.message : String(error)}`);
-            }
-            if (failures.length > 0) throw new Error(failures.join('；'));
-          },
-          verifyPreviousState: async () => {
-            const repository = createTimelineRepositoryClient();
-            const persistedCheckout = await repository.getCheckoutRef(activeTimelineId);
-            const visible = await waitForVisibleCanvasButtons(previousVisibleIds);
-            rollbackPostcondition = await buildWorkNodePayloadPostcondition({
-              expectedPayload: formal.payload,
-              actualPayload: getCurrentTimelineSnapshotPayload(),
-              expectedVisibleButtonIds: previousVisibleIds,
-              actualVisibleButtonIds: visible.actual,
-              expectedCheckout: {
-                targetType: previousCheckoutRef.targetType,
-                targetId: previousCheckoutRef.targetId,
-              },
-              observedCheckout: persistedCheckout,
-              expectedNodeRevision: formal.sourceRevision,
-              observedNodeRevision: formal.sourceRevision,
-            });
-            return rollbackPostcondition.pass
-              ? rollbackPostcondition
-              : { pass: false, reason: rollbackPostcondition.failures.join('；'), observed: rollbackPostcondition };
-          },
-        });
-      } finally {
-        isCheckoutMutationPendingRef.current = false;
-        setProjectionVisibilityRevision((revision) => revision + 1);
-      }
-
-      const receiptPostcondition = finalPostcondition as Awaited<ReturnType<typeof buildWorkNodePayloadPostcondition>> | null;
-      if (!targetCheckoutRef || receiptPostcondition?.pass !== true) {
-        throw new Error('prepared apply 成功后没有形成可验证的 checkout/postcondition receipt。');
-      }
-      return {
-        ok: true as const,
-        applied: true as const,
-        operation: command.operation,
-        liveCheckoutTouched: true as const,
-        rollbackApplied: false as const,
-        candidate,
-        nodeId: candidateNode.id,
-        nodeRevision: candidateRevision,
-        commitId,
-        basePayloadDigest: candidate.basePayloadDigest,
-        workingPayloadDigest: candidate.workingPayloadDigest,
-        diffDigest: candidate.diffDigest,
-        proposalDigest: candidate.proposalDigest,
-        checkout: targetCheckoutRef,
-        checkoutApplied: true as const,
-        postcondition: receiptPostcondition,
-      };
-    } catch (error) {
-      const atomicError = error instanceof PreparedWorkNodeAtomicApplyError ? error : null;
-      const rollbackApplied = Boolean(atomicError && !atomicError.rollbackError);
-      const postcondition = atomicError
-        ? (rollbackPostcondition || {
-            pass: rollbackApplied,
-            checkoutRestored: rollbackApplied,
-            liveCheckoutTouched: true,
-            reason: atomicError.message,
-          })
-        : {
-            pass: true,
-            checkoutUnchanged: !liveCheckoutTouched,
-            liveCheckoutTouched,
-            reason: error instanceof Error ? error.message : String(error),
-          };
-      return preparedFailure(
-        command.operation,
-        atomicError?.rollbackError
-          ? 'prepared-atomic-rollback-failed'
-          : atomicError
-            ? 'prepared-atomic-apply-failed'
-            : 'prepared-apply-preflight-failed',
-        error instanceof Error ? error.message : String(error),
-        {
-          candidate,
-          candidatePreserved: true,
-          liveCheckoutTouched,
-          rollbackApplied,
-          commitId,
-          postcondition,
-        },
-      );
-    }
-  };
-
-  const abandonPreparedWorkNodeProposalFromCommand = async (
-    command: Extract<MainWorkbenchCommand, { op: 'abandonPreparedWorkNodeProposal' }>,
-  ) => {
-    const candidate = command.candidate;
-    const cleanup = (
-      status: 'deleted' | 'preserved' | 'failed',
-      reason: string,
-    ) => ({
-      contract: 'DefPreparedWorkNodeCleanupAuditV1' as const,
-      schemaVersion: 1 as const,
-      proposalId: candidate.proposalId,
-      nodeId: candidate.nodeId,
-      candidateTimelineId: candidate.candidateTimelineId,
-      status,
-      reason,
-    });
-    try {
-      const binding = browserAgentRuntime.getBinding();
-      if (!binding
-        || binding.timelineId !== activeTimelineId
-        || candidate.candidateTimelineId !== activeTimelineId
-        || candidate.destination !== 'current-timeline'
-        || (candidate.intent !== 'timeline' && candidate.intent !== 'buff')) {
-        return {
-          ok: false as const,
-          liveCheckoutTouched: false as const,
-          deleted: false as const,
-          candidate,
-          cleanup: cleanup('preserved', '候选不属于当前已绑定的 current-timeline，无法证明可安全清理。'),
-          postcondition: { pass: true, liveCheckoutTouched: false, candidatePreserved: true },
-        };
-      }
-      const client = createAiTimelineWorkNodeClient();
-      const before = await client.list();
-      const target = before.nodes.find((node) => node.id === candidate.nodeId);
-      if (!target) {
-        return {
-          ok: true as const,
-          liveCheckoutTouched: false as const,
-          deleted: false as const,
-          candidate,
-          cleanup: cleanup('deleted', 'candidate 已不存在，无残留节点需要删除。'),
-          postcondition: { pass: true, liveCheckoutTouched: false, candidateDeleted: true },
-        };
-      }
-      if (target.timelineId !== candidate.candidateTimelineId || target.timelineId !== activeTimelineId) {
-        return {
-          ok: false as const,
-          liveCheckoutTouched: false as const,
-          deleted: false as const,
-          candidate,
-          cleanup: cleanup('preserved', 'candidate timeline 不匹配，按 fail-closed 保留。'),
-          postcondition: { pass: true, liveCheckoutTouched: false, candidatePreserved: true },
-        };
-      }
-      const repository = createTimelineRepositoryClient();
-      const bundle = await repository.exportDocumentBundle(candidate.candidateTimelineId);
-      const sourceNode = bundle.workNodes.find((node) => node.id === candidate.sourceTargetId);
-      const sourceSnapshot = bundle.snapshots.find((snapshot) => snapshot.id === candidate.sourceTargetId);
-      const sourcePayload = sourceNode?.workingPayload || sourceSnapshot?.payload;
-      const sourceRevision = sourceNode
-        ? authoritativePreparedNodeRevision(sourceNode)
-        : sourceSnapshot?.createdAt;
-      const expectedParentNodeId = sourceNode?.id || null;
-      if (!sourcePayload || typeof sourceRevision !== 'number' || !Number.isSafeInteger(sourceRevision) || sourceRevision < 0
-        || candidate.sourceRevision !== sourceRevision
-        || (target.parentNodeId || null) !== expectedParentNodeId) {
-        return {
-          ok: false as const,
-          liveCheckoutTouched: false as const,
-          deleted: false as const,
-          candidate,
-          cleanup: cleanup('preserved', 'source target、source revision 或 structural parent 无法证明，按 fail-closed 保留。'),
-          postcondition: { pass: true, liveCheckoutTouched: false, candidatePreserved: true },
-        };
-      }
-      const fullTarget = (await client.get(target.id)).node;
-      const [sourceDigest, baseDigest, workingDigest] = await Promise.all([
-        sha256Json(sourcePayload),
-        sha256Json(fullTarget.basePayload),
-        sha256Json(fullTarget.workingPayload),
-      ]);
-      const candidateAuditMarker = `[prepared-candidate:v1:${candidate.proposalId}:${candidate.proposalDigest}]`;
-      const diff = diffPreparedPayloads(fullTarget.basePayload, fullTarget.workingPayload);
-      const diffDigest = await sha256Json(diff.changes);
-      const scopeGate = checkPreparedScope(diff, candidate.scope);
-      const restoreMetadata = parsePreparedRestoreBranchId(candidate.proposalId, fullTarget.branchId);
-      const branchIsProven = fullTarget.branchId === `prepared-${candidate.proposalId}`
-        || restoreMetadata !== null;
-      let restoreProofPass = true;
-      if (restoreMetadata) {
-        const expectedScope = PREPARED_RESTORE_PROPOSAL_SCOPES[restoreMetadata.scope];
-        const expectedIntent = restoreMetadata.scope === 'timeline.structure' ? 'timeline' : 'buff';
-        const restoreTarget = (await client.get(restoreMetadata.nodeId)).node;
-        const rebuilt = applyPreparedRestoreScope(
-          restoreMetadata.scope,
-          sourcePayload,
-          restoreTarget.basePayload,
-        );
-        restoreProofPass = candidate.intent === expectedIntent
-          && samePreparedScope(candidate.scope, expectedScope)
-          && restoreTarget.timelineId === activeTimelineId
-          && authoritativePreparedNodeRevision(restoreTarget) === restoreMetadata.nodeRevision
-          && rebuilt.ok
-          && sameOperatorConfigPayload(rebuilt.payload, fullTarget.workingPayload);
-      }
-      if (sourceDigest !== baseDigest
-        || candidate.basePayloadDigest !== baseDigest
-        || candidate.workingPayloadDigest !== workingDigest
-        || candidate.diffDigest !== diffDigest
-        || !scopeGate.pass
-        || candidate.nodeRevision !== authoritativePreparedNodeRevision(fullTarget)
-        || !branchIsProven
-        || !restoreProofPass
-        || fullTarget.status !== 'ready'
-        || !fullTarget.description.startsWith(candidateAuditMarker)) {
-        return {
-          ok: false as const,
-          liveCheckoutTouched: false as const,
-          deleted: false as const,
-          candidate,
-          cleanup: cleanup('preserved', 'candidate payload、scope、branch、status、revision 或 provenance marker 无法与引用完整匹配，按 fail-closed 保留。'),
-          postcondition: { pass: true, liveCheckoutTouched: false, candidatePreserved: true },
-        };
-      }
-      const descendants = before.nodes.filter((node) => node.parentNodeId === target.id);
-      const checkout = await repository.getCheckoutRef(candidate.candidateTimelineId);
-      const commits = before.commits.filter((commit) => commit.nodeId === target.id);
-      const auditEvents = await repository.listAuditEvents(candidate.candidateTimelineId, 500);
-      const auditWindowComplete = auditEvents.length < 500;
-      const hasHistoricalCheckout = auditEvents.some((event) => (
-        event.subjectId === target.id
-        && (event.subjectType === 'checkout' || event.eventType === 'checkout.updated' || event.eventType === 'work-node.base-restored')
-      ));
-      if (descendants.length > 0
-        || (checkout?.targetType === 'work-node' && checkout.targetId === target.id)
-        || commits.length > 0
-        || !auditWindowComplete
-        || hasHistoricalCheckout) {
-        return {
-          ok: false as const,
-          liveCheckoutTouched: false as const,
-          deleted: false as const,
-          candidate,
-          cleanup: cleanup('preserved', '存在 checkout、commit、后代或不完整的历史审计证据，绝不删除。'),
-          postcondition: { pass: true, liveCheckoutTouched: false, candidatePreserved: true },
-        };
-      }
-      const deleted = await client.delete(
-        target.id,
-        target.timelineId,
-        {
-          nodes: [{
-            id: target.id,
-            contentRevision: authoritativePreparedNodeRevision(target),
-            updatedAt: target.updatedAt,
-          }],
-        },
-      );
-      const stillExists = deleted.nodes.some((node) => node.id === target.id);
-      if (stillExists) {
-        return {
-          ok: false as const,
-          liveCheckoutTouched: false as const,
-          deleted: false as const,
-          candidate,
-          cleanup: cleanup('failed', '删除调用完成但 candidate 仍存在，未伪报成功。'),
-          postcondition: { pass: true, liveCheckoutTouched: false, candidatePreserved: true },
-        };
-      }
-      return {
-        ok: true as const,
-        liveCheckoutTouched: false as const,
-        deleted: true as const,
-        candidate,
-        cleanup: cleanup('deleted', command.reason),
-        postcondition: { pass: true, liveCheckoutTouched: false, candidateDeleted: true },
-      };
-    } catch (error) {
-      return {
-        ok: false as const,
-        liveCheckoutTouched: false as const,
-        deleted: false as const,
-        candidate,
-        cleanup: cleanup('failed', error instanceof Error ? error.message : String(error)),
-        postcondition: { pass: true, liveCheckoutTouched: false, candidatePreserved: true },
-      };
-    }
-  };
-
   const restoreAiTimelineWorkNodeBaseFromCommand = async (
     command: Extract<MainWorkbenchCommand, { op: 'restoreAiTimelineWorkNodeBase' }>,
   ) => {
@@ -3896,275 +2191,40 @@ export function CanvasBoard({
     }
     const client = createAiTimelineWorkNodeClient();
     const { node } = await client.get(nodeId);
-    if (node.timelineId !== activeTimelineId) {
-      throw new Error(`AI work node ${node.id} 不属于当前排轴，拒绝恢复。`);
-    }
-    const targetNodeRevision = operatorConfigNodeRevision(node);
     const validation = validateTimelinePayload(node.basePayload);
     if (!validation.ok) {
       throw new Error(`AI work node basePayload 校验失败：${validation.issues.map((issue) => issue.message).join('；')}`);
     }
 
-    const repository = createTimelineRepositoryClient();
     saveTimelineData();
     setSelectedCharacterIds(selectedCharacters.map((character) => character.id));
     const currentPayload = getCurrentTimelineSnapshotPayload();
-    if (!currentPayload) {
-      throw new Error('当前 Canvas runtime payload 不可用，restore 未执行。');
-    }
-    const previousCheckoutRef = await repository.getCheckoutRef(activeTimelineId);
-    if (!previousCheckoutRef) {
-      throw new Error('当前正式 SQLite 没有可恢复的 checkout，restore 未执行。');
-    }
-    if (checkoutIdentity(activeCheckoutRef) !== checkoutIdentity(previousCheckoutRef)) {
-      throw new Error('当前页面 checkout 与 SQLite checkout 不一致，拒绝执行 restore。');
-    }
-    if (previousCheckoutRef.targetType !== 'work-node' || previousCheckoutRef.targetId !== node.id) {
-      throw new Error('restore 只能作用于当前 checkout 的 Work Node，目标节点已失去 checkout 所有权。');
-    }
-    const latestTargetNode = (await client.get(node.id)).node;
-    if (operatorConfigNodeRevision(latestTargetNode) !== targetNodeRevision
-      || latestTargetNode.timelineId !== node.timelineId
-      || (latestTargetNode.parentNodeId || null) !== (node.parentNodeId || null)
-      || !sameOperatorConfigPayload(latestTargetNode.basePayload, node.basePayload)
-      || !sameOperatorConfigPayload(latestTargetNode.workingPayload, node.workingPayload)) {
-      throw new Error('restore 目标 Work Node 在执行前发生 revision、lineage 或 payload 漂移，拒绝恢复。');
-    }
-    const formalBefore = await readFormalCheckoutPayload(activeTimelineId, previousCheckoutRef);
-    if (!sameOperatorConfigPayload(currentPayload, formalBefore.payload)) {
-      throw new Error('当前 Canvas payload 与正式 checkout 不一致，拒绝执行 restore。');
-    }
-    const currentDiff = diffTimelinePayloads(currentPayload, node.basePayload).summary;
+    const currentDiff = currentPayload ? diffTimelinePayloads(currentPayload, node.basePayload).summary : null;
+    hydrateCheckoutRuntime(node.basePayload);
 
-    // A Work Node base belongs to its parent.  A root node has no parent, so
-    // materialize the base as a browser SQLite snapshot instead of pointing a
-    // checkout at a node whose working payload is still the candidate.
-    let baseCheckoutTarget: {
-      targetType: 'snapshot' | 'work-node';
-      targetId: string;
-      revision: number;
-    };
-    let createdRollbackSnapshotId: string | null = null;
-    if (node.parentNodeId) {
-      const { node: parent } = await client.get(node.parentNodeId);
-      if (parent.timelineId !== node.timelineId
-        || parent.id !== node.parentNodeId
-        || !sameOperatorConfigPayload(parent.workingPayload, node.basePayload)) {
-        throw new Error('restore target lineage/base payload 不一致，拒绝恢复。');
-      }
-      baseCheckoutTarget = {
-        targetType: 'work-node',
-        targetId: parent.id,
-        revision: operatorConfigNodeRevision(parent),
-      };
-    } else if (sameOperatorConfigPayload(currentPayload, node.basePayload)) {
-      const currentTargetRevision = operatorConfigNodeRevision((await client.get(previousCheckoutRef.targetId)).node);
-      baseCheckoutTarget = {
-        targetType: 'work-node',
-        targetId: previousCheckoutRef.targetId,
-        revision: currentTargetRevision,
-      };
-    } else {
-      const baseSnapshot = await repository.saveSnapshot({
-        id: `ai-rollback-base-${node.id}-${generateId()}`,
-        timelineId: activeTimelineId,
-        label: `[rollback base] ${node.label}`,
-        payload: node.basePayload,
-      });
-      createdRollbackSnapshotId = baseSnapshot.reused ? null : baseSnapshot.snapshot.id;
-      baseCheckoutTarget = {
-        targetType: 'snapshot',
-        targetId: baseSnapshot.snapshot.id,
-        revision: baseSnapshot.snapshot.createdAt,
-      };
-    }
-
-    let targetCheckoutRef: TimelineCheckoutRef | null = null;
-    let finalPostcondition: Awaited<ReturnType<typeof buildWorkNodePayloadPostcondition>> | null = null;
-    const previousDocument = { id: activeTimelineId, label: activeTimelineLabel };
-    const previousVisibleIds = Object.keys(currentPayload.skillButtonTable || {}).sort();
-
-    isCheckoutMutationPendingRef.current = true;
+    let rollbackApplied: Awaited<ReturnType<ReturnType<typeof createAiTimelineWorkNodeClient>['markRollbackApplied']>> | null = null;
+    let rollbackMarkError: string | undefined;
     try {
-      await runAtomicWorkNodeRestore({
-      applyTarget: async () => {
-        hydrateCheckoutRuntime(node.basePayload, { flushRender: true });
-        refreshWorkbenchAfterCheckout();
-      },
-      verifyVisibleTarget: async () => {
-        if (document.visibilityState !== 'visible') {
-          return { pass: false, reason: '前台 Canvas 不可见' };
-        }
-        const visible = await waitForVisibleCanvasButtons(Object.keys(node.basePayload.skillButtonTable || {}).sort());
-        const postcondition = await buildWorkNodePayloadPostcondition({
-          expectedPayload: node.basePayload,
-          actualPayload: getCurrentTimelineSnapshotPayload(),
-          expectedVisibleButtonIds: Object.keys(node.basePayload.skillButtonTable || {}).sort(),
-          actualVisibleButtonIds: visible.actual,
-        });
-        return postcondition.pass
-          ? postcondition
-          : { pass: false, reason: postcondition.failures.join('；'), observed: postcondition };
-      },
-      persistCheckout: async () => {
-        const nextCheckoutRef: TimelineCheckoutRef = {
-          timelineId: activeTimelineId,
-          targetType: baseCheckoutTarget.targetType,
-          targetId: baseCheckoutTarget.targetId,
-          updatedAt: Date.now(),
-        };
-        targetCheckoutRef = nextCheckoutRef;
-        await repository.setCheckoutRef(nextCheckoutRef);
-        activateTimeline({
-          document: previousDocument,
-          checkoutRef: nextCheckoutRef,
-          workingPayload: node.basePayload,
-        });
-      },
-      persistRollbackLedger: async () => {
-        if (!targetCheckoutRef) {
-          throw new Error('restore rollback ledger 缺少目标 checkout ref。');
-        }
-        const latestNode = (await client.get(node.id)).node;
-        if (operatorConfigNodeRevision(latestNode) !== targetNodeRevision
-          || !sameOperatorConfigPayload(latestNode.basePayload, node.basePayload)
-          || !sameOperatorConfigPayload(latestNode.workingPayload, node.workingPayload)) {
-          throw new Error('restore 目标 Work Node 在 rollback ledger 写入前发生 revision 或 payload 漂移。');
-        }
-        const marked = await client.markRollbackApplied(node.id, {
-          appliedAt: targetCheckoutRef.updatedAt,
-          appliedBy: command.approval?.approvedBy || 'ai',
-          rationale: command.approval?.rationale || 'Renderer rollback applied from AI timeline work node basePayload.',
-          checkout: targetCheckoutRef,
-          basePayloadDigest: await digestJson(node.basePayload),
-          baseRevision: baseCheckoutTarget.revision,
-        });
-        return {
-          rollbackApplied: marked.node.id === node.id
-            && marked.node.status === 'ready'
-            && operatorConfigNodeRevision(marked.node) === targetNodeRevision,
-        };
-      },
-      verifyPersistedTarget: async () => {
-        if (!targetCheckoutRef) return { pass: false, reason: 'restore checkout ref 未生成' };
-        const persistedCheckout = await repository.getCheckoutRef(activeTimelineId);
-        const persistedNode = (await client.get(node.id)).node;
-        const rollbackEvent = (await repository.listAuditEvents(activeTimelineId, 200)).find((event) => (
-          event.eventType === 'work-node.base-restored'
-          && event.subjectType === 'work-node'
-          && event.subjectId === node.id
-        ));
-        const visible = await waitForVisibleCanvasButtons(Object.keys(node.basePayload.skillButtonTable || {}).sort());
-        finalPostcondition = await buildWorkNodePayloadPostcondition({
-          expectedPayload: node.basePayload,
-          actualPayload: getCurrentTimelineSnapshotPayload(),
-          expectedVisibleButtonIds: Object.keys(node.basePayload.skillButtonTable || {}).sort(),
-          actualVisibleButtonIds: visible.actual,
-          expectedCheckout: {
-            targetType: targetCheckoutRef.targetType,
-            targetId: targetCheckoutRef.targetId,
-          },
-          observedCheckout: persistedCheckout,
-          expectedNodeRevision: baseCheckoutTarget.revision,
-          observedNodeRevision: targetCheckoutRef.targetType === 'work-node'
-            ? operatorConfigNodeRevision((await client.get(targetCheckoutRef.targetId)).node)
-            : (await repository.exportDocumentBundle(activeTimelineId)).snapshots.find((snapshot) => snapshot.id === targetCheckoutRef?.targetId)?.createdAt || null,
-        });
-        if (persistedNode.status !== 'ready' || operatorConfigNodeRevision(persistedNode) !== targetNodeRevision) {
-          return { pass: false, reason: `rollback ledger 状态/revision 不正确：status=${persistedNode.status} revision=${operatorConfigNodeRevision(persistedNode)}`, observed: persistedNode };
-        }
-        const rollbackDetails = rollbackEvent?.details || {};
-        const rollbackCheckout = rollbackDetails.checkout as { targetType?: unknown; targetId?: unknown; updatedAt?: unknown } | undefined;
-        if (!rollbackEvent
-          || rollbackCheckout?.targetType !== targetCheckoutRef.targetType
-          || rollbackCheckout.targetId !== targetCheckoutRef.targetId
-          || rollbackCheckout.updatedAt !== targetCheckoutRef.updatedAt
-          || rollbackDetails.basePayloadDigest !== finalPostcondition.expected.payloadDigest
-          || rollbackDetails.baseRevision !== baseCheckoutTarget.revision) {
-          return { pass: false, reason: 'rollback ledger 没有精确记录本次 checkout、revision 和 base payload digest', observed: rollbackEvent || null };
-        }
-        return finalPostcondition.pass
-          ? finalPostcondition
-          : { pass: false, reason: finalPostcondition.failures.join('；'), observed: finalPostcondition };
-      },
-      restorePreviousState: async () => {
-        const rollbackFailures: string[] = [];
-        try {
-          await repository.setCheckoutRef(previousCheckoutRef);
-        } catch (error) {
-          rollbackFailures.push(`恢复原 checkout 失败：${error instanceof Error ? error.message : String(error)}`);
-        }
-        try {
-          activateTimeline({
-            document: previousDocument,
-            checkoutRef: previousCheckoutRef,
-            workingPayload: currentPayload,
-          });
-          hydrateCheckoutRuntime(currentPayload, { flushRender: true });
-          refreshWorkbenchAfterCheckout();
-          await waitForVisibleCanvasButtons(previousVisibleIds);
-        } catch (error) {
-          rollbackFailures.push(`恢复原页面失败：${error instanceof Error ? error.message : String(error)}`);
-        }
-        if (createdRollbackSnapshotId) {
-          try {
-            await repository.archiveSnapshot(createdRollbackSnapshotId);
-          } catch (error) {
-            rollbackFailures.push(`清理临时 rollback snapshot 失败：${error instanceof Error ? error.message : String(error)}`);
-          }
-        }
-        if (rollbackFailures.length > 0) {
-          throw new Error(rollbackFailures.join('；'));
-        }
-      },
-      verifyPreviousState: async () => {
-        const persistedCheckout = await repository.getCheckoutRef(activeTimelineId);
-        const visible = await waitForVisibleCanvasButtons(previousVisibleIds);
-        const previousRevision = operatorConfigNodeRevision((await client.get(previousCheckoutRef.targetId)).node);
-        const postcondition = await buildWorkNodePayloadPostcondition({
-          expectedPayload: currentPayload,
-          actualPayload: getCurrentTimelineSnapshotPayload(),
-          expectedVisibleButtonIds: previousVisibleIds,
-          actualVisibleButtonIds: visible.actual,
-          expectedCheckout: {
-            targetType: previousCheckoutRef.targetType,
-            targetId: previousCheckoutRef.targetId,
-          },
-          observedCheckout: persistedCheckout,
-          expectedNodeRevision: previousRevision,
-          observedNodeRevision: operatorConfigNodeRevision((await client.get(previousCheckoutRef.targetId)).node),
-        });
-        return postcondition.pass
-          ? postcondition
-          : { pass: false, reason: postcondition.failures.join('；'), observed: postcondition };
-      },
+      rollbackApplied = await client.markRollbackApplied(node.id, {
+        appliedAt: Date.now(),
+        appliedBy: command.approval?.approvedBy || 'ai',
+        rationale: command.approval?.rationale || 'Renderer rollback applied from AI timeline work node basePayload.',
       });
-    } finally {
-      isCheckoutMutationPendingRef.current = false;
-      setProjectionVisibilityRevision((revision) => revision + 1);
+    } catch (error) {
+      rollbackMarkError = error instanceof Error ? error.message : String(error);
     }
 
-    const finalReceipt = finalPostcondition as Awaited<ReturnType<typeof buildWorkNodePayloadPostcondition>> | null;
-    if (!targetCheckoutRef || !finalReceipt || !finalReceipt.pass) {
-      throw new Error('restore 成功后没有形成可验证的 checkout/postcondition receipt。');
-    }
     if (command.reload === true) {
       window.setTimeout(() => window.location.reload(), 80);
     }
+
     return {
-      ok: true,
-      done: true,
-      nodeId: node.id,
-      nodeRevision: targetNodeRevision,
-      status: 'ready' as const,
-      rollbackApplied: true,
-      rollbackMarkError: null,
-      checkout: targetCheckoutRef,
-      checkoutTargetRevision: baseCheckoutTarget.revision,
-      basePayloadDigest: finalReceipt.observed.payloadDigest,
-      currentDiff,
-      visiblePostcondition: finalReceipt,
+      nodeId: rollbackApplied?.node.id || node.id,
+      status: rollbackApplied?.node.status || 'rolled-back-unrecorded',
+      rollbackApplied: Boolean(rollbackApplied),
+      rollbackMarkError,
       reloaded: command.reload === true,
+      currentDiff,
     };
   };
 
@@ -4193,29 +2253,20 @@ export function CanvasBoard({
         'listTimelineSnapshots',
         'createAiTimelineWorkNodeFromCurrent',
         'diffAiTimelineWorkNode',
-        ...CANVAS_WORK_NODE_MANAGEMENT_COMMANDS,
         'patchAiTimelineWorkNode',
         'patchAndValidateAiTimelineWorkNode',
-        'prepareReviewedWorkNodeProposal',
-        'applyReviewedWorkNodeProposal',
-        'abandonPreparedWorkNodeProposal',
-        'applyApprovedWorkNodePatch',
         'checkoutAiTimelineWorkNode',
         'restoreAiTimelineWorkNodeBase',
         'refreshOperatorConfig',
-        'prepareOperatorConfigProposal',
-        'applyPreparedOperatorConfigProposal',
+        'setOperatorWeapon',
+        'setOperatorEquipment',
+        'setOperatorConfig',
+        'previewOperatorConfig',
+        'applyPreparedOperatorConfig',
+        'finalizePreparedOperatorConfig',
+        'restoreAtomicTeamParent',
         'refreshSnapshot',
-      ]).find((entry) => {
-        if (entry.command.op === 'prepareReviewedWorkNodeProposal') {
-          return entry.command.intent !== 'selection';
-        }
-        if (entry.command.op === 'applyReviewedWorkNodeProposal'
-          || entry.command.op === 'abandonPreparedWorkNodeProposal') {
-          return entry.command.candidate.intent !== 'selection';
-        }
-        return true;
-      });
+      ])[0];
       if (!commandEntry) {
         return;
       }
@@ -4227,14 +2278,6 @@ export function CanvasBoard({
         if (settledEntry) void pushMainWorkbenchCommandResult(settledEntry);
       };
       try {
-        const agentWorkNodeTimelineId = commandEntry.source === 'agent-host'
-          && isAgentWorkNodeBrowserCommand(command)
-          ? await assertAgentWorkNodeCommandTimelineBoundary({
-              entry: commandEntry,
-              activeTimelineId,
-              readNode: async (nodeId) => (await createAiTimelineWorkNodeClient().get(nodeId)).node,
-            })
-          : null;
         if (command.op === 'addSkillButton') {
           const result = addSkillButtonFromWorkbenchCommand(command);
           settleCommand({ status: 'done', result });
@@ -4508,212 +2551,6 @@ export function CanvasBoard({
           return;
         }
 
-        if (isCanvasWorkNodeManagementCommand(command)) {
-          switch (command.op) {
-          case 'listAiTimelineWorkNodes': {
-            const result = await createAiTimelineWorkNodeClient().list();
-            const timelineId = agentWorkNodeTimelineId || command.timelineId?.trim() || '';
-            const scopedResult = timelineId
-              ? projectMainWorkbenchWorkNodeListToTimeline(result, timelineId)
-              : result;
-            settleCommand({
-              status: 'done',
-              result: {
-                ...scopedResult,
-                timelineId: timelineId || null,
-              },
-            });
-            return;
-          }
-          case 'readAiTimelineWorkNode': {
-            const client = createAiTimelineWorkNodeClient();
-            const result = await client.get(command.nodeId);
-            const list = await client.list();
-            const listedTarget = list.nodes.find((node) => node.id === result.node.id);
-            if (!listedTarget
-              || authoritativePreparedNodeRevision(listedTarget) !== authoritativePreparedNodeRevision(result.node)
-              || listedTarget.updatedAt !== result.node.updatedAt) {
-              throw new Error('AI_WORKNODE_READ_STALE: Work Node 在读取期间发生变化，请重新审阅。');
-            }
-            const nodeRevision = authoritativePreparedNodeRevision(result.node);
-            const diff = diffTimelinePayloads(result.node.basePayload, result.node.workingPayload);
-            const reviewIdentity = await buildReviewedWorkNodeIdentity({
-              nodeId: result.node.id,
-              timelineId: result.node.timelineId,
-              nodeRevision,
-              workingPayload: result.node.workingPayload,
-              diffChanges: diff,
-            });
-            const deletionIdentity = await buildReviewedWorkNodeDeletionIdentity({
-              nodeId: result.node.id,
-              nodes: list.nodes,
-            });
-            if (command.includePayload === false) {
-              const { basePayload: _basePayload, workingPayload: _workingPayload, ...node } = result.node;
-              settleCommand({
-                status: 'done',
-                result: { ...result, node, diffSummary: diff.summary, reviewIdentity, deletionIdentity },
-              });
-              return;
-            }
-            settleCommand({
-              status: 'done',
-              result: { ...result, diffSummary: diff.summary, reviewIdentity, deletionIdentity },
-            });
-            return;
-          }
-          case 'validateAiTimelineWorkNode': {
-            const client = createAiTimelineWorkNodeClient();
-            const { node } = await client.get(command.nodeId);
-            const validation = validateTimelinePayload(node.workingPayload);
-            let nextNode = node;
-            let repairedStatus = false;
-            // Validation is intentionally allowed to repair only the repository
-            // lifecycle marker. It never changes payload or formal checkout.
-            if (command.repairStatus !== false && validation.ok && node.status === 'open') {
-              nextNode = (await client.update(node.id, { status: 'ready' })).node;
-              repairedStatus = true;
-              setNodeReviewRefreshRevision((revision) => revision + 1);
-            }
-            const diff = diffTimelinePayloads(nextNode.basePayload, nextNode.workingPayload);
-            const checkoutDecision = buildAiTimelineCheckoutDecision({
-              approvalPolicy: nextNode.approvalPolicy,
-              riskFlags: nextNode.riskFlags,
-              diff,
-            });
-            settleCommand({
-              status: validation.ok ? 'done' : 'error',
-              result: {
-                ok: validation.ok,
-                nodeId: nextNode.id,
-                status: nextNode.status,
-                contentRevision: nextNode.contentRevision,
-                validation,
-                repairedStatus,
-                diff,
-                checkoutDecision,
-                path: 'browser-sqlite://timeline-work-nodes',
-              },
-              ...(validation.ok ? {} : {
-                error: validation.issues.map((issue) => issue.message).join('；'),
-              }),
-            });
-            return;
-          }
-          case 'deleteAiTimelineWorkNode': {
-          const client = createAiTimelineWorkNodeClient();
-          const before = await client.list();
-          const target = before.nodes.find((node) => node.id === command.nodeId);
-          if (!target) {
-            const result = {
-              ok: false as const,
-              deleted: false as const,
-              nodeId: command.nodeId,
-              deletedNodeIds: [] as string[],
-              protected: false as const,
-              code: 'ai-worknode-not-found',
-              message: `AI timeline work node not found: ${command.nodeId}`,
-            };
-            settleCommand({ status: 'error', result, error: result.message });
-            return;
-          }
-          const deletionIdentity = await buildReviewedWorkNodeDeletionIdentity({
-            nodeId: target.id,
-            nodes: before.nodes,
-          });
-          const deletionVerification = verifyReviewedWorkNodeDeletionIdentity({
-            expected: {
-              nodeId: command.nodeId,
-              nodeRevision: command.expectedNodeRevision,
-              subtreeNodeCount: command.expectedSubtreeNodeCount,
-              subtreeDigest: command.expectedSubtreeDigest,
-            },
-            observed: deletionIdentity,
-          });
-          if (!deletionVerification.pass) {
-            throw new Error(
-              `AI_WORKNODE_DELETE_REVIEW_STALE: ${deletionVerification.reason || 'Work Node 删除子树已变化。'}`,
-            );
-          }
-          const deletedCandidateIds = new Set(deletionIdentity.subtreeNodeIds);
-          if (agentWorkNodeTimelineId) {
-            for (const node of before.nodes) {
-              if (deletedCandidateIds.has(node.id)) {
-                assertMainWorkbenchWorkNodeTimeline(node, agentWorkNodeTimelineId, command.op);
-              }
-            }
-          }
-          const checkout = await createTimelineRepositoryClient().getCheckoutRef(target.timelineId);
-          if (checkout?.targetType === 'work-node' && deletedCandidateIds.has(checkout.targetId)) {
-            const result = {
-              ok: false as const,
-              deleted: false as const,
-              nodeId: command.nodeId,
-              deletedNodeIds: [] as string[],
-              protected: true as const,
-              checkoutNodeId: checkout.targetId,
-              code: 'timeline-work-node-current-checkout-protected',
-              message: 'Cannot delete the current Work Node path. Checkout another target first.',
-            };
-            settleCommand({ status: 'error', result, error: result.message });
-            return;
-          }
-          const deleteExpectationNodes = before.nodes
-            .filter((node) => deletedCandidateIds.has(node.id))
-            .map((node) => ({
-              id: node.id,
-              contentRevision: authoritativePreparedNodeRevision(node),
-              updatedAt: node.updatedAt,
-            }));
-          const deleted = await client.delete(
-            command.nodeId,
-            target.timelineId,
-            { nodes: deleteExpectationNodes },
-          );
-          const remainingIds = new Set(deleted.nodes.map((node) => node.id));
-          const deletedNodeIds = before.nodes
-            .filter((node) => !remainingIds.has(node.id))
-            .map((node) => node.id);
-          const ledgerPostcondition = verifyWorkNodeDeleteLedger({
-            requestedNodeId: command.nodeId,
-            expectedDeletedNodeIds: [...deletedCandidateIds],
-            remainingNodeIds: deleted.nodes.map((node) => node.id),
-            actualDeletedNodeIds: deletedNodeIds,
-          });
-          if (!ledgerPostcondition.pass) {
-            const result = {
-              ok: false as const,
-              deleted: false as const,
-              nodeId: command.nodeId,
-              deletedNodeIds,
-              protected: false as const,
-              code: 'ai-worknode-delete-postcondition-failed',
-              message: ledgerPostcondition.reason || 'Work Node 删除后的 SQLite ledger 校验失败。',
-              ledgerPostcondition,
-            };
-            settleCommand({ status: 'error', result, error: result.message });
-            return;
-          }
-          settleCommand({
-            status: 'done',
-            result: {
-              ok: true,
-              deleted: true,
-              nodeId: command.nodeId,
-              deletedNodeIds,
-              protected: false,
-              remainingNodeCount: deleted.nodes.length,
-              path: deleted.path,
-              ledgerPostcondition,
-            },
-          });
-          return;
-          }
-          default:
-            return;
-          }
-        }
-
         if (command.op === 'patchAiTimelineWorkNode') {
           const result = await patchAiTimelineWorkNodeFromCommand(command);
           if ('issues' in result) {
@@ -4724,7 +2561,6 @@ export function CanvasBoard({
             });
             return;
           }
-          setNodeReviewRefreshRevision((revision) => revision + 1);
           settleCommand({ status: 'done', result });
           return;
         }
@@ -4735,80 +2571,6 @@ export function CanvasBoard({
             status: result.ok ? 'done' : 'error',
             result,
             ...(result.ok ? {} : { error: result.issues?.map((issue) => issue.message).join('；') || 'patch_and_validate failed' }),
-          });
-          if (result.ok) setNodeReviewRefreshRevision((revision) => revision + 1);
-          return;
-        }
-
-        if (command.op === 'prepareReviewedWorkNodeProposal') {
-          const result = await prepareReviewedWorkNodeProposalFromCommand(command);
-          settleCommand({
-            status: result.ok ? 'done' : 'error',
-            result,
-            ...(result.ok ? {} : { error: result.message }),
-          });
-          if (result.ok) setNodeReviewRefreshRevision((revision) => revision + 1);
-          return;
-        }
-
-        if (command.op === 'applyReviewedWorkNodeProposal') {
-          const result = await applyReviewedWorkNodeProposalFromCommand(command);
-          settleCommand({
-            status: result.ok ? 'done' : 'error',
-            result,
-            ...(result.ok ? {} : { error: result.message }),
-          });
-          if (result.ok) setNodeReviewRefreshRevision((revision) => revision + 1);
-          return;
-        }
-
-        if (command.op === 'abandonPreparedWorkNodeProposal') {
-          const result = await abandonPreparedWorkNodeProposalFromCommand(command);
-          settleCommand({
-            status: result.ok && result.cleanup.status === 'deleted' ? 'done' : 'error',
-            result,
-            ...(result.ok && result.cleanup.status === 'deleted' ? {} : { error: result.cleanup.reason }),
-          });
-          if (result.cleanup.status === 'deleted') setNodeReviewRefreshRevision((revision) => revision + 1);
-          return;
-        }
-
-        if (command.op === 'applyApprovedWorkNodePatch') {
-          const prepared = await patchAndValidateAiTimelineWorkNodeFromCommand({
-            op: 'patchAndValidateAiTimelineWorkNode',
-            patch: command.patch,
-            label: command.label,
-            description: command.description,
-            approvalPolicy: 'manual',
-          });
-          if (!prepared.ok) {
-            settleCommand({
-              status: 'error',
-              result: prepared,
-              error: prepared.issues?.map((issue) => issue.message).join('；') || 'Work Node patch validation failed',
-            });
-            return;
-          }
-          const checkout = await checkoutAiTimelineWorkNodeFromCommand({
-            op: 'checkoutAiTimelineWorkNode',
-            nodeId: prepared.nodeId,
-            reload: false,
-            approval: {
-              mode: 'manual',
-              approvedBy: 'user',
-              rationale: 'Approved in the embedded DEF AI mode.',
-            },
-          });
-          if (!checkout.checkoutApplied) {
-            throw new Error(checkout.checkoutMarkError || 'Work Node checkout was not applied');
-          }
-          settleCommand({
-            status: 'done',
-            result: {
-              prepared,
-              checkout,
-              visiblePostcondition: checkout.visiblePostcondition,
-            },
           });
           return;
         }
@@ -4821,7 +2583,6 @@ export function CanvasBoard({
 
         if (command.op === 'restoreAiTimelineWorkNodeBase') {
           const result = await restoreAiTimelineWorkNodeBaseFromCommand(command);
-          setNodeReviewRefreshRevision((revision) => revision + 1);
           settleCommand({ status: 'done', result });
           return;
         }
@@ -4835,14 +2596,44 @@ export function CanvasBoard({
           return;
         }
 
-        if (command.op === 'prepareOperatorConfigProposal') {
-          const result = await prepareOperatorConfigProposalFromWorkbenchCommand(command);
+        if (command.op === 'setOperatorWeapon') {
+          const result = await setOperatorWeaponFromWorkbenchCommand(command);
           settleCommand({ status: 'done', result });
           return;
         }
 
-        if (command.op === 'applyPreparedOperatorConfigProposal') {
-          const result = await applyPreparedOperatorConfigProposalFromWorkbenchCommand(command);
+        if (command.op === 'setOperatorEquipment') {
+          const result = await setOperatorEquipmentFromWorkbenchCommand(command);
+          settleCommand({ status: 'done', result });
+          return;
+        }
+
+        if (command.op === 'setOperatorConfig') {
+          const result = await setOperatorConfigFromWorkbenchCommand(command);
+          settleCommand({ status: 'done', result });
+          return;
+        }
+
+        if (command.op === 'previewOperatorConfig') {
+          const result = await buildOperatorConfigPreviewFromWorkbenchCommand(command.request);
+          settleCommand({ status: 'done', result });
+          return;
+        }
+
+        if (command.op === 'applyPreparedOperatorConfig') {
+          const result = await applyPreparedOperatorConfigFromWorkbenchCommand(command);
+          settleCommand({ status: 'done', result });
+          return;
+        }
+
+        if (command.op === 'finalizePreparedOperatorConfig') {
+          const result = await finalizePreparedOperatorConfigFromWorkbenchCommand(command);
+          settleCommand({ status: 'done', result });
+          return;
+        }
+
+        if (command.op === 'restoreAtomicTeamParent') {
+          const result = await restoreAtomicTeamParentFromWorkbenchCommand(command);
           settleCommand({ status: 'done', result });
           return;
         }
@@ -5159,7 +2950,7 @@ export function CanvasBoard({
   }, [setSessionWorkingPayload]);
 
   const { draggingState, mousePosition, handleSandboxDragStart, handleButtonMouseDown } = useCanvasDrag({
-    disabled: isAgentMode,
+    disabled: false,
     config: canvasConfig,
     canvasWidth,
     staffCount,
@@ -5172,67 +2963,23 @@ export function CanvasBoard({
     moveTimelineButtonToStaff: moveSkillButtonToStaff,
   });
 
-  processMainWorkbenchCanvasCommandRef.current = processMainWorkbenchCanvasCommand;
-
   useEffect(() => {
-    if (!isAgentMode) {
-      browserAgentRuntime.cancelCommandPull();
+    if (currentView !== 'canvas' || selectedCharacters.length === 0) {
       return undefined;
     }
-    let stopped = false;
-    let running = false;
-    let retryDelay = 100;
-    let timer: number | null = null;
-    const schedule = (delay: number) => {
-      if (stopped || timer !== null) return;
-      timer = window.setTimeout(() => {
-        timer = null;
-        void runOnce();
-      }, Math.max(25, Math.min(delay, 1000)));
-    };
-    const runOnce = async () => {
-      if (stopped || running || document.visibilityState !== 'visible') {
-        if (!stopped && document.visibilityState !== 'visible') schedule(250);
-        return;
-      }
-      running = true;
-      try {
-        await processMainWorkbenchCanvasCommandRef.current?.();
-        retryDelay = 100;
-        schedule(25);
-      } catch (error) {
-        if (!stopped) {
-          console.warn('[CanvasBoard] Agent command pull failed; recovery path will retry.', error);
-          schedule(retryDelay);
-          retryDelay = Math.min(retryDelay * 2, 1000);
-        }
-      } finally {
-        running = false;
-      }
-    };
+    void processMainWorkbenchCanvasCommand();
     const handleControlEvent = () => {
-      if (running) {
-        schedule(50);
-        return;
-      }
-      void runOnce();
+      void processMainWorkbenchCanvasCommand();
     };
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        void runOnce();
-      }
-    };
-    void runOnce();
+    const timer = window.setInterval(() => {
+      void processMainWorkbenchCanvasCommand();
+    }, 1200);
     window.addEventListener('def-main-workbench-control', handleControlEvent);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
-      stopped = true;
-      if (timer !== null) window.clearTimeout(timer);
-      browserAgentRuntime.cancelCommandPull();
+      window.clearInterval(timer);
       window.removeEventListener('def-main-workbench-control', handleControlEvent);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [isAgentMode]);
+  }, [currentView, selectedCharacters, skillButtons, staffCount]);
 
   useEffect(() => {
     const publishWhenVisible = () => {
@@ -5241,106 +2988,6 @@ export function CanvasBoard({
     document.addEventListener('visibilitychange', publishWhenVisible);
     return () => document.removeEventListener('visibilitychange', publishWhenVisible);
   }, []);
-
-  useEffect(() => {
-    if (!isAgentMode) {
-      setAiHoverZone('right');
-      return undefined;
-    }
-    const updateHoverZone = (clientX: number) => {
-      const panelWidth = Math.min(window.innerWidth * 0.5, 760, Math.max(0, window.innerWidth - 96));
-      setAiHoverZone(clientX >= window.innerWidth - panelWidth ? 'right' : 'left');
-    };
-    const handlePointerMove = (event: PointerEvent) => updateHoverZone(event.clientX);
-    window.addEventListener('pointermove', handlePointerMove, { passive: true });
-    return () => window.removeEventListener('pointermove', handlePointerMove);
-  }, [isAgentMode]);
-
-  // The Native UI used to read node/working/* from a materialized Node DB.
-  // The browser now owns the same review projection in SQLite. Every request
-  // is keyed by the checkout identity and a local generation so a slower read
-  // from the previous checkout cannot overwrite the current snapshot.
-  useEffect(() => {
-    const requestId = ++nodeReviewRequestRef.current;
-    let cancelled = false;
-    const checkout = activeCheckoutRef;
-    const isCurrentWorkNode = checkout?.targetType === 'work-node';
-    if (!isTimelineSessionReady || currentView !== 'canvas' || document.visibilityState !== 'visible' || !isCurrentWorkNode) {
-      nodeReviewRef.current = isCurrentWorkNode ? null : emptyAiTimelineNodeReviewProjection();
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    nodeReviewRef.current = null;
-    let latestReadId = 0;
-    const refresh = async () => {
-      const readId = ++latestReadId;
-      try {
-        const { node } = await createAiTimelineWorkNodeClient().get(checkout.targetId);
-        const currentIdentity = activeTimelineIdentityRef.current;
-        if (cancelled
-          || requestId !== nodeReviewRequestRef.current
-          || readId !== latestReadId
-          || currentIdentity.timelineId !== activeTimelineId
-          || currentIdentity.checkout !== checkoutIdentity(checkout)
-          || node.timelineId !== activeTimelineId
-          || node.id !== checkout.targetId) {
-          return;
-        }
-        if (!Number.isSafeInteger(node.contentRevision) || Number(node.contentRevision) < 0) {
-          setAuthoritativeCheckoutContentRevision(null);
-          await browserAgentRuntime.suspendWritableBinding().catch(() => undefined);
-          return;
-        }
-        const nodeRevision = Number(node.contentRevision);
-        const runtimePayload = getCurrentTimelineSnapshotPayload();
-        if (!runtimePayload || !sameOperatorConfigPayload(runtimePayload, node.workingPayload)) {
-          setAuthoritativeCheckoutContentRevision(null);
-          await browserAgentRuntime.suspendWritableBinding().catch(() => undefined);
-          return;
-        }
-        const previousManifest = nodeReviewRef.current?.report?.manifest;
-        if (previousManifest?.nodeId === node.id
-          && previousManifest.revision === nodeRevision
-          && previousManifest.updatedAt === node.updatedAt) {
-          return;
-        }
-        const review = buildAiTimelineNodeReviewProjection(node, checkout);
-        nodeReviewRef.current = review;
-        setAuthoritativeCheckoutContentRevision(nodeRevision);
-        const snapshot = readMainWorkbenchSnapshot();
-        if (!snapshot || snapshot.checkout?.targetType !== 'work-node'
-          || snapshot.checkout.targetId !== checkout.targetId
-          || snapshot.activeTimelineId !== activeTimelineId) {
-          return;
-        }
-        const nextSnapshot: MainWorkbenchSnapshot = {
-          ...snapshot,
-          updatedAt: Date.now(),
-          checkout: {
-            ...snapshot.checkout,
-            contentRevision: nodeRevision,
-            updatedAt: checkout.updatedAt,
-          },
-          nodeReview: review,
-        };
-        writeMainWorkbenchSnapshot(nextSnapshot);
-        await pushMainWorkbenchSnapshot(nextSnapshot);
-      } catch {
-        // A deleted or concurrently replaced node is represented by the next
-        // checkout/snapshot generation; do not publish an error as old data.
-      }
-    };
-    void refresh();
-    const revisionTimer = window.setInterval(() => {
-      void refresh();
-    }, 1500);
-    return () => {
-      cancelled = true;
-      window.clearInterval(revisionTimer);
-    };
-  }, [activeCheckoutRef, activeTimelineId, checkoutBootstrapRevision, currentView, isTimelineSessionReady, nodeReviewRefreshRevision, projectionVisibilityRevision]);
 
   useEffect(() => {
     if (currentView !== 'canvas') {
@@ -5359,32 +3006,12 @@ export function CanvasBoard({
     const currentSkillButtonIds = skillButtons.length > 0
       ? skillButtons.map((button) => button.id)
       : timelineButtons.map((button) => button.id);
-    let computedDamageReport: ReturnType<typeof buildDamageReportSnapshot> | null = null;
-    let damageReportDiagnostic: MainWorkbenchSnapshot['damageReportDiagnostic'];
-    try {
-      computedDamageReport = buildDamageReportSnapshot({ buttonIds: currentSkillButtonIds });
-    } catch (error) {
-      damageReportDiagnostic = {
-        status: 'formula-error',
-        code: 'DAMAGE_REPORT_FORMULA_ERROR',
-        message: (error instanceof Error ? error.message : String(error)).slice(0, 1_000),
-      };
-    }
+    const computedDamageReport = buildDamageReportSnapshot({ buttonIds: currentSkillButtonIds });
     const operatorConfigCache = getOperatorConfigPageCache();
     const persistedButtonTable = getSkillButtonTable();
-    const projectButtonState = (buttonId: string, persistedButton: PersistedSkillButton | undefined) => (
-      projectMainWorkbenchButtonState({
-        selectedBuffIds: persistedButton?.selectedBuff ?? [],
-        selectedBuffs: getBuffsByButtonId(buttonId),
-        buffStackCounts: persistedButton?.buffStackCounts,
-        panelConfig: persistedButton?.panelConfig,
-        targetResistance: persistedButton?.resistanceConfig?.targetResistance,
-      })
-    );
     const mirroredButtons: MainWorkbenchSnapshot['skillButtons'] = skillButtons.length > 0
       ? skillButtons.map((button) => {
           const persistedButton = persistedButtonTable[button.id];
-          const buttonState = projectButtonState(button.id, persistedButton);
           return {
             id: button.id,
             characterId: button.characterId,
@@ -5398,13 +3025,26 @@ export function CanvasBoard({
             persistenceNodeIndex: button.staffIndex * GRID_NODE_COUNT + (button.nodeIndex ?? 0),
             nodeIndex: button.nodeIndex,
             nodeNumber: button.nodeNumber,
-            ...buttonState,
+            selectedBuffIds: [...(persistedButton?.selectedBuff ?? [])],
+            selectedBuffs: getBuffsByButtonId(button.id).map((buff) => ({
+              id: buff.id,
+              name: buff.name,
+              displayName: buff.displayName,
+              sourceName: buff.sourceName,
+              level: buff.level,
+              type: buff.type,
+              value: buff.value,
+              description: buff.description,
+              source: buff.source,
+              condition: buff.condition,
+              category: buff.category,
+              effectKind: buff.effectKind,
+            })),
           };
         })
-        : timelineButtons.length > 0
+      : timelineButtons.length > 0
         ? timelineButtons.map((button) => {
           const persistedButton = persistedButtonTable[button.id];
-          const buttonState = projectButtonState(button.id, persistedButton);
           return {
             id: button.id,
             characterId: persistedButton?.characterId ?? button.characterName,
@@ -5418,7 +3058,21 @@ export function CanvasBoard({
             persistenceNodeIndex: button.nodeIndex,
             nodeIndex: button.nodeIndex % GRID_NODE_COUNT,
             nodeNumber: calculateNodeNumber(button.nodeIndex % GRID_NODE_COUNT),
-            ...buttonState,
+            selectedBuffIds: [...(persistedButton?.selectedBuff ?? [])],
+            selectedBuffs: getBuffsByButtonId(button.id).map((buff) => ({
+              id: buff.id,
+              name: buff.name,
+              displayName: buff.displayName,
+              sourceName: buff.sourceName,
+              level: buff.level,
+              type: buff.type,
+              value: buff.value,
+              description: buff.description,
+              source: buff.source,
+              condition: buff.condition,
+              category: buff.category,
+              effectKind: buff.effectKind,
+            })),
           };
         })
       : [];
@@ -5440,8 +3094,6 @@ export function CanvasBoard({
         source: skill.source,
       }));
     });
-    const mirroredCandidateBuffs: NonNullable<MainWorkbenchSnapshot['candidateBuffs']> = getCandidateBuffList()
-      .map((buff) => projectMainWorkbenchCandidateBuff(buff));
     const mirroredOperatorConfigs: MainWorkbenchSnapshot['operatorConfigs'] = selectedCharacters.flatMap((character) => {
       const configSnapshot = operatorConfigCache[character.id];
       if (!configSnapshot) return [];
@@ -5483,93 +3135,46 @@ export function CanvasBoard({
       }];
     });
     if (isCheckoutBootstrapPendingRef.current || isCheckoutMutationPendingRef.current) return;
-    if (!activeCheckoutRef || authoritativeCheckoutContentRevision === null) {
-      void browserAgentRuntime.suspendWritableBinding().catch(() => undefined);
-      return;
-    }
     const previousSnapshot = readMainWorkbenchSnapshot();
-    const nodeReview = activeCheckoutRef?.targetType === 'work-node'
-      ? (nodeReviewRef.current?.bound
-        && nodeReviewRef.current.report?.manifest.nodeId === activeCheckoutRef.targetId
-        && nodeReviewRef.current.report.manifest.timelineId === activeTimelineId
-        ? nodeReviewRef.current
-        : null)
-      : emptyAiTimelineNodeReviewProjection();
-    if (activeCheckoutRef.targetType === 'work-node'
-      && nodeReview?.report?.manifest.revision !== authoritativeCheckoutContentRevision) {
-      void browserAgentRuntime.suspendWritableBinding().catch(() => undefined);
-      return;
-    }
-    const currentSignature = buildMainWorkbenchSnapshotSignature(
-      mirroredSelectedCharacters,
-      mirroredButtons,
-      mirroredOperatorConfigs,
-      mirroredSkillCatalog,
-      mirroredCandidateBuffs,
-    );
+    const currentSignature = buildMainWorkbenchSnapshotSignature(mirroredSelectedCharacters, mirroredButtons, mirroredOperatorConfigs, mirroredSkillCatalog);
     const previousSignature = previousSnapshot
-      ? buildMainWorkbenchSnapshotSignature(
-          previousSnapshot.selectedCharacters,
-          previousSnapshot.skillButtons,
-          previousSnapshot.operatorConfigs,
-          previousSnapshot.skillCatalog,
-          previousSnapshot.candidateBuffs,
-        )
+      ? buildMainWorkbenchSnapshotSignature(previousSnapshot.selectedCharacters, previousSnapshot.skillButtons, previousSnapshot.operatorConfigs, previousSnapshot.skillCatalog)
       : '';
-    const previousDamageReportIsComplete = Boolean(
-      previousSnapshot?.damageReport
-      && typeof previousSnapshot.damageReport.totalDamage === 'number'
-      && Array.isArray(previousSnapshot.damageReport.characters),
-    );
-    const canReusePreviousDamageReport = computedDamageReport !== null &&
-      computedDamageReport.buttonCount === 0 &&
+    const canReusePreviousDamageReport = computedDamageReport.buttonCount === 0 &&
       mirroredButtons.length > 0 &&
-      previousDamageReportIsComplete &&
       previousSnapshot?.damageReport &&
       previousSnapshot.damageReport.buttonCount === mirroredButtons.length &&
       previousSignature === currentSignature;
-    const damageReport = damageReportDiagnostic
-      ? undefined
-      : canReusePreviousDamageReport && previousSnapshot?.damageReport
-        ? previousSnapshot.damageReport
-        : computedDamageReport ?? undefined;
+    const damageReport = canReusePreviousDamageReport && previousSnapshot?.damageReport
+      ? previousSnapshot.damageReport
+      : computedDamageReport;
     const snapshot = {
       schemaVersion: 1 as const,
       updatedAt: Date.now(),
       source: 'app' as const,
       timelineId: activeTimelineId,
       activeTimelineId,
-      checkout: {
+      checkout: activeCheckoutRef ? {
         targetType: activeCheckoutRef.targetType,
         targetId: activeCheckoutRef.targetId,
-        contentRevision: authoritativeCheckoutContentRevision,
         updatedAt: activeCheckoutRef.updatedAt,
-      },
+      } : null,
       currentView,
       selectedCharacters: mirroredSelectedCharacters,
       skillCatalog: mirroredSkillCatalog,
-      candidateBuffs: mirroredCandidateBuffs,
       skillButtons: mirroredButtons,
-      damageReportStatus: damageReportDiagnostic
-        ? 'formula-error' as const
-        : damageReport?.buttonCount === mirroredButtons.length
-          ? 'ready' as const
-          : 'placeholder' as const,
-      ...(damageReport ? { damageReport } : {}),
-      ...(damageReportDiagnostic ? { damageReportDiagnostic } : {}),
+      damageReport: {
+        generatedAt: damageReport.generatedAt,
+        totalExpected: damageReport.totalExpected,
+        totalNonCrit: damageReport.totalNonCrit,
+        buttonCount: damageReport.buttonCount,
+        buttons: damageReport.buttons,
+      },
       operatorConfigs: mirroredOperatorConfigs,
-      nodeReview,
     };
-    if (previousSnapshot
-      && serializeWorkbenchSnapshotSemantics(previousSnapshot) === serializeWorkbenchSnapshotSemantics(snapshot)) {
-      if (isAgentMode && !browserAgentRuntime.getBinding()) {
-        void pushMainWorkbenchSnapshot(snapshot);
-      }
-      return;
-    }
     writeMainWorkbenchSnapshot(snapshot);
     void pushMainWorkbenchSnapshot(snapshot);
-  }, [activeCheckoutRef, activeTimelineId, authoritativeCheckoutContentRevision, candidateBuffRevision, checkoutBootstrapRevision, currentView, isAgentMode, nodeReviewRefreshRevision, projectionVisibilityRevision, selectedCharacters, skillButtons, timelineData, resistanceRevision]);
+  }, [activeCheckoutRef, activeTimelineId, checkoutBootstrapRevision, currentView, projectionVisibilityRevision, selectedCharacters, skillButtons, timelineData, resistanceRevision]);
 
   useEffect(() => {
     if (isCheckoutBootstrapPendingRef.current || currentView !== 'canvas') return undefined;
@@ -6092,7 +3697,7 @@ export function CanvasBoard({
         : checkoutRef?.targetType === 'snapshot'
           ? documentBundle.snapshots.find((snapshot) => snapshot.id === checkoutRef.targetId)?.payload
           : undefined;
-      if (nodes.length > 0 && checkoutPayload && !hasCheckpointPayloadChanged(checkoutPayload, payload)) {
+      if (nodes.length > 0 && checkoutPayload && !hasTimelineCheckpointPayloadChanged(checkoutPayload, payload)) {
         setWorkNodeSaveNotice('当前工作区没有新改动，未新增工作节点');
         window.setTimeout(() => setWorkNodeSaveNotice(''), 2200);
         return true;
@@ -6230,6 +3835,23 @@ export function CanvasBoard({
 
   const handleCloseSnapshotModal = () => {
     setIsSnapshotModalOpen(false);
+  };
+
+  const handleTacticalShareImageSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    if (!file || isDecodingTacticalShare) return;
+    setIsDecodingTacticalShare(true);
+    try {
+      const shareId = await decodeMobileShareIdFromImage(file);
+      setIsSnapshotModalOpen(false);
+      navigateToAppPath(`${APP_ROUTE_PATHS.tacticalShare}/${shareId}`);
+    } catch (error) {
+      alert(`二维码识别失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      input.value = '';
+      setIsDecodingTacticalShare(false);
+    }
   };
 
   const handleConvertTimelineArchive = async (archive: TimelineArchiveSummary, payloadOnly = false) => {
@@ -6546,7 +4168,7 @@ export function CanvasBoard({
       const refreshedCharacters = await refreshSelectedCharacters();
       const charactersForRefresh = refreshedCharacters.length > 0 ? refreshedCharacters : selectedCharacters;
       await refreshOperatorConfigSnapshotsForCharacters(charactersForRefresh);
-      await refreshCandidateBuffsForCharacters(
+      await refreshAvailableCandidateBuffsForCharacters(
         charactersForRefresh.map((character) => ({
           id: character.id,
           name: character.name,
@@ -6563,31 +4185,9 @@ export function CanvasBoard({
     }
   };
 
-  const handleToggleAgentMode = async () => {
-    if (isAgentModeLaunching) return;
-    setIsAgentModeLaunching(true);
-    setWorkNodeSaveNotice(isAgentMode ? '正在退出 AI 模式…' : '正在启动 AI 模式…');
-    try {
-      if (isAgentMode) {
-        browserAgentRuntime.cancelCommandPull();
-        await exitDesktopAgentModeToWorkbench();
-      }
-      else await enterDesktopAgentModeFromWorkbench();
-      setWorkNodeSaveNotice('');
-    } catch (error) {
-      setWorkNodeSaveNotice(error instanceof Error ? error.message : String(error));
-      window.setTimeout(() => setWorkNodeSaveNotice(''), 4_200);
-    } finally {
-      setIsAgentModeLaunching(false);
-    }
-  };
-
   const canvasBoardClassName = [
     'canvas-board',
     isWorkbenchTopZoneOpen ? 'has-top-zone' : '',
-    isAgentMode ? 'is-ai-mode' : '',
-    isAgentMode && aiHoverZone === 'left' ? 'is-ai-hover-left' : '',
-    isAgentMode && aiHoverZone === 'right' ? 'is-ai-hover-right' : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -6607,15 +4207,9 @@ export function CanvasBoard({
       isInspectMode={isInspectMode}
       onInspectStart={() => setIsInspectMode(true)}
       onInspectEnd={() => setIsInspectMode(false)}
-      isAiMode={isAgentMode}
-      showAiMode={isAgentMode || isDesktopWebHost()}
-      onToggleAiMode={() => void handleToggleAgentMode()}
       onOpenWorkNodePanel={openWorkNodePanel}
     />
   );
-  const renderedAgentModePanel = typeof agentModePanel === 'function'
-    ? agentModePanel({ onOpenWorkNodePanel: openWorkNodePanel })
-    : agentModePanel;
 
   return (
     <div className={canvasBoardClassName}>
@@ -6649,25 +4243,14 @@ export function CanvasBoard({
             isDraggingActive={Boolean(draggingState)}
             isBrowseMode={isBrowseMode}
             isInspectMode={isInspectMode}
-            isDragDisabled={isAgentMode}
+            isDragDisabled={false}
             resistanceRevision={resistanceRevision}
           />
         </div>
 
-        {isAgentMode ? (
-          <>
-            <aside className="canvas-right-zone is-ai-real-right is-skill-sandbox">
-              {rightWorkbenchContent}
-            </aside>
-            <aside className="canvas-right-zone is-ai-panel">
-              {renderedAgentModePanel}
-            </aside>
-          </>
-        ) : (
-          <aside className="canvas-right-zone is-skill-sandbox">
-            {rightWorkbenchContent}
-          </aside>
-        )}
+        <aside className="canvas-right-zone is-skill-sandbox">
+          {rightWorkbenchContent}
+        </aside>
 
         <div className="canvas-bottom-zone">
           <div className="canvas-bottom-zone-left">
@@ -6819,10 +4402,28 @@ export function CanvasBoard({
                 <h3>恢复排轴</h3>
                 <p>存档不是可直接应用的状态：先转换为 SQLite 工作区；只有 SQLite 工作区可以直接应用。节点树仅显示数量。</p>
               </div>
-              <button type="button" className="modal-close-btn" onClick={handleCloseSnapshotModal}>
-                关闭
-              </button>
+              <div className="timeline-snapshot-modal-head-actions">
+                <button
+                  type="button"
+                  className="btn-save"
+                  disabled={isDecodingTacticalShare}
+                  onClick={() => tacticalShareImageInputRef.current?.click()}
+                >
+                  {isDecodingTacticalShare ? '正在识别…' : '扫码导入'}
+                </button>
+                <button type="button" className="modal-close-btn" onClick={handleCloseSnapshotModal}>
+                  关闭
+                </button>
+              </div>
             </div>
+
+            <input
+              ref={tacticalShareImageInputRef}
+              className="timeline-share-file-input"
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/*"
+              onChange={(event) => void handleTacticalShareImageSelected(event)}
+            />
 
             <div className="timeline-restore-tabs" role="tablist" aria-label="恢复来源">
               {([

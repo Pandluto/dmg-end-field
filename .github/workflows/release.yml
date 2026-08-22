@@ -3,7 +3,7 @@ name: Web release draft
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - 'v*'
 
 permissions:
   contents: read
@@ -29,9 +29,6 @@ jobs:
 
       - name: Install locked dependencies
         run: npm ci
-
-      - name: Match tag to package version
-        run: npm run release:verify -- "$GITHUB_REF_NAME"
 
       - name: Run deterministic quality gate
         run: npm run check

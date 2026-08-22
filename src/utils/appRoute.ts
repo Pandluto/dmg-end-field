@@ -3,9 +3,9 @@ export const APP_ROUTE_PATHS = {
   welcome: '/welcome',
   home: '/timeline',
   timelineWorkspace: '/timeline',
-  agentMode: '/timeline/ai',
   dataWorkspace: '/data',
   settings: '/settings',
+  resourcePackager: '/settings/resource-packager',
   draft: '/data/operators',
   buffSheet: '/data/buffs',
   weaponSheet: '/data/weapons',
@@ -14,9 +14,13 @@ export const APP_ROUTE_PATHS = {
   operatorConfig: '/timeline/operator-config',
   timelineSkillDetail: '/timeline/skill',
   damageReportPpt: '/timeline/report/presentation',
-  mcpFill: '/mcp-fill',
-  legacyFillReview: '/legacy-fill-review',
+  tacticalShare: '/share',
 } as const;
+
+export function getTacticalShareId(path: string): string | null {
+  const match = path.match(/^\/share\/([A-Za-z0-9_-]{16})$/);
+  return match?.[1] ?? null;
+}
 
 export function getTimelineSkillDetailPath(buttonId: string): string {
   return `${APP_ROUTE_PATHS.timelineSkillDetail}/${encodeURIComponent(buttonId)}`;

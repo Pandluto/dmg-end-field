@@ -1,6 +1,5 @@
 import { LOCAL_LIBRARY_CHANGED_EVENT } from '../../constants/events';
 import { STORAGE_KEYS } from '../../constants/storage-keys';
-import { resolvePublicPath } from '../../utils/assetResolver';
 import {
   importLegacyTimelineArchive,
   exportLegacyTimelineArchives,
@@ -13,6 +12,7 @@ import {
   type PortableWebImageAsset,
 } from '../resources/webImageLibrary';
 import { webDatabase, type SqlPrimitive } from '../database/webDatabase';
+import { readInstalledResourcePackageFile } from '../resources/resourcePackage';
 import {
   persistentLocalStorage,
   flushPersistentStorage,
@@ -100,7 +100,7 @@ type PackageRow = Record<string, SqlPrimitive> & {
 };
 
 const DEFAULT_DATA_ARCHIVE_PATH = 'data/default-local-data.json';
-const DEFAULT_DATA_ARCHIVE_ID = 'web-lts-1.8-default-data';
+const DEFAULT_DATA_ARCHIVE_ID_PREFIX = 'web-lts-official-';
 const ACTIVE_DATA_PACKAGE_META_KEY = 'active_local_data_package';
 const MAX_IMPORT_BYTES = 64 * 1024 * 1024;
 
@@ -493,33 +493,32 @@ export async function importLocalDataPackageFile(
 }
 
 export async function fetchDefaultLocalDataArchive(): Promise<LocalDataArchive> {
-  const response = await fetch(resolvePublicPath(DEFAULT_DATA_ARCHIVE_PATH), {
-    cache: 'no-store',
-  });
-  if (!response.ok) {
-    throw new Error(`基础数据包加载失败：HTTP ${response.status}`);
-  }
-  const archive = normalizeLocalDataArchive(await response.json());
-  if (archive.id !== DEFAULT_DATA_ARCHIVE_ID) {
-    throw new Error('基础数据包 ID 无效。');
-  }
-  return archive;
+  const { bytes, installed } = await readInstalledResourcePackageFile(DEFAULT_DATA_ARCHIVE_PATH);
+  const archive = normalizeLocalDataArchive(JSON.parse(new TextDecoder().decode(bytes)));
+  const versionId = `${DEFAULT_DATA_ARCHIVE_ID_PREFIX}${installed.version.replace(/[^A-Za-z0-9._-]/g, '-')}`;
+  return {
+    ...archive,
+    id: versionId,
+    name: `Web LTS 官方基础数据 · ${installed.version}`,
+    description: '已下载到 Share Data；只有明确点击应用后才会替换当前资料。',
+    dataVersion: installed.version,
+  };
 }
 
 export async function ensureDefaultLocalDataPackage(
   options: { replace?: boolean } = {},
 ): Promise<LocalDataPackageSummary> {
+  const archive = await fetchDefaultLocalDataArchive();
   if (!options.replace) {
     const existing = await listLocalDataPackages('share');
-    const found = existing.find((item) => item.packageId === DEFAULT_DATA_ARCHIVE_ID);
+    const found = existing.find((item) => item.packageId === archive.id);
     if (found) return found;
   }
-  const archive = await fetchDefaultLocalDataArchive();
   return (
     await saveLocalDataPackage({
       scope: 'share',
       archive,
-      sourceName: DEFAULT_DATA_ARCHIVE_PATH,
+      sourceName: `${DEFAULT_DATA_ARCHIVE_PATH}@${archive.dataVersion || 'unknown'}`,
       replace: true,
     })
   ).summary;

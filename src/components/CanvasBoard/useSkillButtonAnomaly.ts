@@ -42,11 +42,15 @@ function buildMockAnomalyCard(
   level: number,
   sourceName?: string,
   burnDamageMode: BurnDamageMode = 'initialOnly',
-  durationSeconds?: number
+  durationSeconds?: number,
+  sourceCharacterId?: string
 ): SelectedAnomalyCard {
   if (option.key === 'combo-state' || option.key === 'imbalance-state') {
     const comboSkillBonus = [30, 45, 60, 75][level - 1] ?? 30;
     const comboUltimateBonus = [20, 30, 40, 50][level - 1] ?? 20;
+    const comboSourceText = option.key === 'combo-state' && sourceName
+      ? ` · 来源 ${sourceName}`
+      : '';
     return {
       id: createAnomalyCardId(option.key),
       key: option.key,
@@ -54,7 +58,11 @@ function buildMockAnomalyCard(
       kind: option.kind,
       category: option.category,
       level,
-      primaryText: option.label,
+      sourceName: option.key === 'combo-state' ? sourceName : undefined,
+      sourceCharacterId: option.key === 'combo-state' ? sourceCharacterId : undefined,
+      primaryText: option.key === 'combo-state'
+        ? `${option.label} Lv${level}${comboSourceText}`
+        : option.label,
       secondaryText: option.key === 'combo-state'
         ? `战技 +${comboSkillBonus}% / 终结技 +${comboUltimateBonus}%`
         : '状态区 +30%',
@@ -286,6 +294,7 @@ export function useSkillButtonAnomaly({
       return {
         lines: [
           '状态区入口',
+          `来源干员: ${activeSourceCharacter?.name ?? '未选择'}`,
           `连击层数: ${activeAnomalyLevel} 层`,
           `战技增伤: +${comboSkillBonus.toFixed(1)}%`,
           `终结技增伤: +${comboUltimateBonus.toFixed(1)}%`,
@@ -351,7 +360,7 @@ export function useSkillButtonAnomaly({
           : null,
       ].filter((line): line is string => Boolean(line)),
     };
-  }, [activeAnomaly, activeAnomalyLevel, activeDurationSeconds, burnDamageMode, buttonCharacterId, buttonSkillType, fullCombinedModifierBuffList, getEffectiveCharacterSourceSkillBoost]);
+  }, [activeAnomaly, activeAnomalyLevel, activeDurationSeconds, activeSourceCharacter?.name, burnDamageMode, buttonCharacterId, buttonSkillType, fullCombinedModifierBuffList, getEffectiveCharacterSourceSkillBoost]);
 
   const activeAnomalyStatePreview = useMemo(() => {
     if (!activeAnomalyStateOption) {
@@ -433,13 +442,18 @@ export function useSkillButtonAnomaly({
   }, [selectedAnomalyStateSnapshotIds]);
 
   const handleSelectAnomaly = useCallback((option: AnomalyOption) => {
+    const persistedCard = option.kind === 'state'
+      ? selectedStatusCards.find((card) => card.key === option.key)
+      : selectedAnomalyDamages.find((card) => card.key === option.key);
     setActiveAnomalyKey((prev) => (prev === option.key ? null : option.key));
-    setActiveAnomalyLevel(option.levelOptions[0] ?? 1);
+    setActiveAnomalyLevel(persistedCard?.level ?? option.levelOptions[0] ?? 1);
     const durationOptions = getAnomalyDurationOptions(option);
     setActiveDurationSeconds(durationOptions[0] ?? 0);
     setBurnDamageMode(option.key === 'burn' ? 'dotOnly' : 'initialOnly');
-    setActiveAnomalySourceId(option.supportsSource ? (sourceCharacters[0]?.id ?? buttonCharacterId) : null);
-  }, [buttonCharacterId, sourceCharacters]);
+    setActiveAnomalySourceId(option.supportsSource
+      ? (persistedCard?.sourceCharacterId ?? buttonCharacterId ?? sourceCharacters[0]?.id ?? null)
+      : null);
+  }, [buttonCharacterId, selectedAnomalyDamages, selectedStatusCards, sourceCharacters]);
 
   const handleSelectAnomalyState = useCallback((key: 'conductive' | 'corrosion' | 'armor-break') => {
     const option = ANOMALY_STATE_OPTIONS.find((item) => item.key === key) ?? null;
@@ -453,13 +467,15 @@ export function useSkillButtonAnomaly({
 
   const handleApplyActiveAnomaly = useCallback(() => {
     if (!activeAnomaly) return;
-    const sourceName = sourceCharacters.find((character) => character.id === activeAnomalySourceId)?.name;
+    const activeSourceCharacter = sourceCharacters.find((character) => character.id === activeAnomalySourceId);
+    const sourceName = activeSourceCharacter?.name;
     const nextCard = buildMockAnomalyCard(
       activeAnomaly,
       activeAnomalyLevel,
       sourceName,
       burnDamageMode,
-      activeDurationSeconds
+      activeDurationSeconds,
+      activeAnomaly.supportsSource ? activeAnomalySourceId ?? undefined : undefined
     );
 
     if (activeAnomaly.kind === 'state') {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-const sourcePath = fileURLToPath(new URL('./AppContext.tsx', import.meta.url));
+const sourcePath = fileURLToPath(new URL('./AppContext.desktop.tsx', import.meta.url));
 const source = fs.readFileSync(sourcePath, 'utf8');
 
 const snapshotStart = source.indexOf('export function buildSelectionWorkbenchSnapshot');

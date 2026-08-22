@@ -1,14 +1,13 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { WebBootstrap } from './components/WebApp/WebBootstrap'
-import { installDesktopResourceWorkerRuntime } from './platform/desktop/desktopResourceWorker'
+import { getAppHostExtension } from './platform/host/appHost'
 
 declare global {
   interface Window {
-    __DMG_DESKTOP_WEB_HOST__?: boolean
     __DMG_MARK_MODULE_READY__?: () => void
     __DMG_RECOVER_STARTUP__?: () => Promise<void>
     __DMG_ENSURE_SERVICE_WORKER__?: () => Promise<boolean>
+    __DMG_MOBILE_ENTRY__?: boolean
   }
 }
 
@@ -20,15 +19,29 @@ declare global {
 //   return event.returnValue
 // }
 
-installDesktopResourceWorkerRuntime()
+const root = ReactDOM.createRoot(document.getElementById('root')!)
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <WebBootstrap />
-  </React.StrictMode>,
-)
+async function mountEntry() {
+  await getAppHostExtension().beforeMount?.()
+  const isLocalResourcePackager = (
+    ['127.0.0.1', 'localhost'].includes(window.location.hostname)
+    && window.location.hash.split('?')[0] === '#/settings/resource-packager'
+  )
+  const Entry = isLocalResourcePackager
+    ? (await import('./components/WebApp/ResourcePackagerPage')).ResourcePackagerPage
+    : window.__DMG_MOBILE_ENTRY__
+      ? (await import('./mobile/MobileBootstrap')).MobileBootstrap
+      : (await import('./components/WebApp/WebBootstrap')).WebBootstrap
 
-// The bundled application shell is usable without an optional theme package.
-// The selected theme is loaded by WebBootstrap only after the image service is
-// ready, so theme image requests cannot race the controlling service worker.
-window.__DMG_MARK_MODULE_READY__?.()
+  root.render(
+    <React.StrictMode>
+      <Entry />
+    </React.StrictMode>,
+  )
+
+  // The selected entry module is now usable. Desktop themes and image services
+  // continue their own initialization after WebBootstrap mounts.
+  window.__DMG_MARK_MODULE_READY__?.()
+}
+
+void mountEntry()

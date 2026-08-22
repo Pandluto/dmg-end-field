@@ -87,7 +87,7 @@ function renderResultPreview(domain: LegacyFillReviewProposal['domain'], value: 
 }
 
 export function isMcpFillPath(pathname: string) {
-  return pathname === APP_ROUTE_PATHS.mcpFill || pathname === APP_ROUTE_PATHS.legacyFillReview;
+  return pathname === '/mcp-fill' || pathname === '/legacy-fill-review';
 }
 
 function displayTime(value: string) {

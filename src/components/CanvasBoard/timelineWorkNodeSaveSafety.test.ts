@@ -5,12 +5,11 @@ import { fileURLToPath } from 'node:url';
 const sourcePath = fileURLToPath(new URL('./index.tsx', import.meta.url));
 const source = fs.readFileSync(sourcePath, 'utf8');
 const saveStart = source.indexOf('const handleSaveWorkNodeCheckpoint');
-const saveEnd = [
+const nextHandlerCandidates = [
   source.indexOf('\n  const handleForkWorkNodeAsSqlite', saveStart),
   source.indexOf('\n  const handleOpenSaveSnapshotModal', saveStart),
-]
-  .filter((index) => index > saveStart)
-  .sort((left, right) => left - right)[0] ?? -1;
+].filter((offset) => offset > saveStart);
+const saveEnd = Math.min(...nextHandlerCandidates);
 
 assert.ok(saveStart >= 0, 'the Work Node save handler must remain present');
 assert.ok(saveEnd > saveStart, 'the Work Node save handler boundary must remain detectable');

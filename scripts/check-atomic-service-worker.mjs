@@ -7,9 +7,11 @@ import zlib from 'node:zlib';
 const outputDirectory = path.resolve(process.argv[2] || 'dist');
 const serviceWorkerPath = path.join(outputDirectory, 'sw.js');
 const indexPath = path.join(outputDirectory, 'index.html');
+const cacheRecoveryPath = path.join(outputDirectory, 'cache-recovery.html');
 const versionManifestPath = path.join(outputDirectory, 'version.json');
 const source = fs.readFileSync(serviceWorkerPath, 'utf8');
 const indexHtml = fs.readFileSync(indexPath, 'utf8');
+const cacheRecoveryHtml = fs.readFileSync(cacheRecoveryPath, 'utf8');
 const versionManifest = JSON.parse(fs.readFileSync(versionManifestPath, 'utf8'));
 const incidentShellVersions = [
   'e564a69322ae3fc8',
@@ -55,6 +57,27 @@ assert.match(
 
 const appShellFiles = JSON.parse(filesMatch[1]);
 assert.ok(appShellFiles.includes('/index.html'), 'Offline shell must contain index.html.');
+assert.equal(
+  appShellFiles.includes('/cache-recovery.html'),
+  false,
+  'Cache recovery must stay outside every versioned app shell.',
+);
+assert.match(
+  cacheRecoveryHtml,
+  /navigator\.serviceWorker\.getRegistrations\(\)/,
+  'Cache recovery must unregister service workers.',
+);
+assert.match(cacheRecoveryHtml, /caches\.keys\(\)/, 'Cache recovery must enumerate app caches.');
+assert.doesNotMatch(
+  cacheRecoveryHtml,
+  /searchParams\.set\(['"]cache-recovery['"]/,
+  'Cache recovery must return to the clean root URL without a recovery query.',
+);
+assert.doesNotMatch(
+  cacheRecoveryHtml,
+  /(?:localStorage|sessionStorage)\.clear\(|indexedDB\.deleteDatabase\(/,
+  'Cache recovery must preserve workspace and browser storage.',
+);
 assert.ok(
   appShellFiles.includes('/assets/images/_manifest.json'),
   'Offline shell must contain the browser image index used during workspace startup.',
@@ -296,6 +319,26 @@ assert.equal(
   successfulInstall.readFetchCalls(),
   installFetchCalls,
   'A controlled navigation must not switch to the server page before user activation.',
+);
+
+const cacheRecoveryHarness = createInstallHarness();
+let cacheRecoveryResponsePromise;
+cacheRecoveryHarness.listeners.get('fetch')({
+  request: cacheRecoveryHarness.createRequest('/cache-recovery.html', { mode: 'navigate' }),
+  respondWith(promise) {
+    cacheRecoveryResponsePromise = promise;
+  },
+});
+assert.ok(cacheRecoveryResponsePromise, 'Cache recovery must bypass the installed app shell.');
+assert.equal(
+  await (await cacheRecoveryResponsePromise).text(),
+  'asset:/cache-recovery.html',
+  'Cache recovery must always come directly from the network.',
+);
+assert.equal(
+  cacheRecoveryHarness.readFetchCalls(),
+  1,
+  'Cache recovery must make exactly one network request.',
 );
 
 let imageIndexResponsePromise;

@@ -1736,10 +1736,13 @@ export function SkillButtonComponent({
                         activeAnomaly={activeAnomaly}
                         activeAnomalyLevel={activeAnomalyLevel}
                         activeAnomalyPreview={activeAnomalyPreview}
+                        activeSourceCharacter={activeSourceCharacter}
+                        sourceCharacters={sourceCharacters}
                         selectedStatusCards={selectedStatusCards}
                         onSelectAnomaly={handleSelectAnomaly}
                         onApplyActiveAnomaly={handleApplyActiveAnomaly}
                         onSetActiveAnomalyLevel={setActiveAnomalyLevel}
+                        onSetActiveAnomalySourceId={setActiveAnomalySourceId}
                         onRemoveAnomalyCard={removeAnomalyCard}
                       />
                     ) : (

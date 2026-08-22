@@ -15,12 +15,15 @@ import {
 import { AppShell } from './components/WebApp/AppShell';
 import { DataWorkspacePage } from './components/WebApp/DataWorkspacePage';
 import { SettingsPage } from './components/WebApp/SettingsPage';
+import { ResourcePackagerPage } from './components/WebApp/ResourcePackagerPage';
 import { StartPage } from './components/WebApp/StartPage';
 import {
   APP_ROUTE_PATHS,
   getCurrentAppPath,
+  getTacticalShareId,
   getTimelineSkillDetailButtonId,
 } from './utils/appRoute';
+import { getAppHostExtension } from './platform/host/appHost';
 import './styles/global.css';
 
 const loadWorkbenchFrame = () => import('./components/WorkbenchFrame');
@@ -29,26 +32,9 @@ const loadBuffDraftPage = () => import('./components/BuffDraftPage');
 const loadWeaponDraftPage = () => import('./components/WeaponDraftPage');
 const loadEquipmentSheetPage = () => import('./components/EquipmentSheetPage');
 const loadDamageReportPptPage = () => import('./components/DamageReportPptPage');
+const loadDesktopTacticalSharePage = () => import('./components/DesktopTacticalSharePage');
 const loadImageManagerPage = () => import('./components/ImageManagerPage');
 const loadOperatorConfigPage = () => import('./components/OperatorConfigPage');
-const loadMcpFillPage = () => import('./components/McpFillPage');
-const loadAgentModePanel = async () => {
-  const [{ AgentModeOverlay }, runtime] = await Promise.all([
-    import('./components/AgentMode'),
-    import('./platform/agent/browserAgentRuntime'),
-  ]);
-  return {
-    default: ({ onOpenWorkNodePanel }: { onOpenWorkNodePanel?: () => void }) => (
-      <AgentModeOverlay
-        embedded
-        bridge={runtime.desktopAgentBridge}
-        consumerController={runtime.desktopAgentConsumerController}
-        onOpenWorkNodePanel={onOpenWorkNodePanel}
-        onExit={() => void runtime.exitDesktopAgentModeToWorkbench()}
-      />
-    ),
-  };
-};
 
 const WorkbenchFrame = lazy(async () => ({
   default: (await loadWorkbenchFrame()).WorkbenchFrame,
@@ -68,16 +54,15 @@ const EquipmentSheetPage = lazy(async () => ({
 const DamageReportPptPage = lazy(async () => ({
   default: (await loadDamageReportPptPage()).DamageReportPptPage,
 }));
+const DesktopTacticalSharePage = lazy(async () => ({
+  default: (await loadDesktopTacticalSharePage()).DesktopTacticalSharePage,
+}));
 const ImageManagerPage = lazy(async () => ({
   default: (await loadImageManagerPage()).ImageManagerPage,
 }));
 const OperatorConfigPage = lazy(async () => ({
   default: (await loadOperatorConfigPage()).OperatorConfigPage,
 }));
-const McpFillPage = lazy(async () => ({
-  default: (await loadMcpFillPage()).McpFillPage,
-}));
-const AgentModePanel = lazy(loadAgentModePanel);
 
 const routePreloaders = [
   loadWorkbenchFrame,
@@ -94,17 +79,14 @@ function isOverlayPath(path: string): boolean {
   return path === APP_ROUTE_PATHS.root
     || path === APP_ROUTE_PATHS.welcome
     || path === APP_ROUTE_PATHS.dataWorkspace
-    || path === APP_ROUTE_PATHS.settings;
+    || path === APP_ROUTE_PATHS.settings
+    || path === APP_ROUTE_PATHS.resourcePackager;
 }
 
 function isWorkbenchPath(path: string): boolean {
   return path === APP_ROUTE_PATHS.timelineWorkspace
-    || path === APP_ROUTE_PATHS.agentMode
-    || path.startsWith(`${APP_ROUTE_PATHS.timelineSkillDetail}/`);
-}
-
-function isMcpFillPath(path: string): boolean {
-  return path === APP_ROUTE_PATHS.mcpFill || path === APP_ROUTE_PATHS.legacyFillReview;
+    || path.startsWith(`${APP_ROUTE_PATHS.timelineSkillDetail}/`)
+    || getAppHostExtension().routes?.isWorkspacePath?.(path) === true;
 }
 
 function PageLoadingFallback() {
@@ -165,6 +147,7 @@ function IdleWorkbenchBackdrop() {
 }
 
 function App() {
+  const hostExtension = getAppHostExtension();
   const [currentPath, setCurrentPath] = useState(() => {
     if (typeof window === 'undefined') return APP_ROUTE_PATHS.root;
     return getCurrentAppPath(window.location);
@@ -196,7 +179,7 @@ function App() {
   useEffect(() => {
     let cancelled = false;
     let idleHandle: number | null = null;
-    let timerHandle: number | null = null;
+    let timerHandle: ReturnType<typeof globalThis.setTimeout> | null = null;
     let preloadIndex = 1;
 
     const scheduleNext = () => {
@@ -213,7 +196,7 @@ function App() {
       if (typeof requestIdle === 'function') {
         idleHandle = requestIdle.call(window, run, { timeout: 2_000 });
       } else {
-        timerHandle = window.setTimeout(run, 450);
+        timerHandle = globalThis.setTimeout(run, 450);
       }
     };
 
@@ -228,15 +211,16 @@ function App() {
       if (idleHandle !== null && typeof cancelIdle === 'function') {
         cancelIdle.call(window, idleHandle);
       }
-      if (timerHandle !== null) window.clearTimeout(timerHandle);
+      if (timerHandle !== null) globalThis.clearTimeout(timerHandle);
     };
   }, []);
 
-  if (isMcpFillPath(currentPath)) {
+  const hostRoute = hostExtension.routes?.resolve?.(currentPath) ?? null;
+  if (hostRoute?.kind === 'exclusive') {
     return (
       <div className="app">
-        <RouteLoadBoundary key={currentPath}>
-          <Suspense fallback={<PageLoadingFallback />}><McpFillPage /></Suspense>
+        <RouteLoadBoundary key={hostRoute.boundaryKey || currentPath}>
+          <Suspense fallback={<PageLoadingFallback />}>{hostRoute.node}</Suspense>
         </RouteLoadBoundary>
       </div>
     );
@@ -248,6 +232,7 @@ function App() {
     page = workspaceActivated ? <WorkbenchFrame /> : <IdleWorkbenchBackdrop />;
     if (currentPath === APP_ROUTE_PATHS.dataWorkspace) overlay = <DataWorkspacePage />;
     else if (currentPath === APP_ROUTE_PATHS.settings) overlay = <SettingsPage />;
+    else if (currentPath === APP_ROUTE_PATHS.resourcePackager) overlay = <ResourcePackagerPage />;
     else overlay = <StartPage />;
   } else if (currentPath === APP_ROUTE_PATHS.draft) {
     page = <OperatorDraftPage />;
@@ -259,23 +244,14 @@ function App() {
     page = <EquipmentSheetPage />;
   } else if (currentPath === APP_ROUTE_PATHS.damageReportPpt) {
     page = <DamageReportPptPage />;
+  } else if (getTacticalShareId(currentPath)) {
+    page = <DesktopTacticalSharePage />;
   } else if (currentPath === APP_ROUTE_PATHS.imageManager) {
     page = <ImageManagerPage />;
   } else if (currentPath === APP_ROUTE_PATHS.operatorConfig) {
     page = <OperatorConfigPage />;
-  } else if (currentPath === APP_ROUTE_PATHS.agentMode) {
-    page = (
-      <WorkbenchFrame
-        isAgentMode
-        agentModePanel={({ onOpenWorkNodePanel }) => (
-          <AgentModePanel
-            onOpenWorkNodePanel={onOpenWorkNodePanel
-              ? () => void onOpenWorkNodePanel()
-              : undefined}
-          />
-        )}
-      />
-    );
+  } else if (hostRoute) {
+    page = hostRoute.node;
   } else {
     const activeSkillButtonId = getTimelineSkillDetailButtonId(currentPath);
     page = <WorkbenchFrame activeSkillButtonId={activeSkillButtonId} />;
@@ -284,7 +260,7 @@ function App() {
   return (
     <div className="app">
       <AppShell currentPath={currentPath} overlay={overlay}>
-        <RouteLoadBoundary key={isWorkbenchPath(currentPath) ? 'workbench' : currentPath}>
+        <RouteLoadBoundary key={hostRoute?.boundaryKey || (isWorkbenchPath(currentPath) ? 'workbench' : currentPath)}>
           <Suspense fallback={<PageLoadingFallback />}>{page}</Suspense>
         </RouteLoadBoundary>
       </AppShell>

@@ -5,13 +5,10 @@ Update this file whenever a domain, host, path, protocol, or deployment provider
 ## Source and builds
 
 - Default release branch: `codex/v1.8-lts-slimming`
-- Desktop authoring/producer branch: `codex/v1.8-lts-desktop-shell`
 - Maintained application build: `npm run build:local`
 - Domestic static root: `dist`
 - Overseas retirement build: `npm run build:sites`
 - Sites project metadata: `.openai/hosting.json`
-
-Desktop Shell can generate and verify `dmg.resource-release.v1` with `npm run resource:build` and `npm run resource:verify`. Resource materialization and every website deployment still occur only from Slimming. Never deploy the Desktop tree as the domestic Web application.
 
 ## Retired overseas Sites route
 

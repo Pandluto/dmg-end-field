@@ -574,7 +574,7 @@ async function run(): Promise<void> {
       }
       assert.ok(terminal, JSON.stringify(events, null, 2));
       assert.equal(terminal.type, 'turn.completed', JSON.stringify(events, null, 2));
-      assert.equal(provider.failure, null, provider.failure?.stack);
+      assert.equal(provider.failure, null, provider.failure?.stack || 'provider must not fail');
       assert.deepEqual(
         events.filter((event) => event.type === 'tool.requested').map((event) => event.payload.name),
         expectedScenarioTools(scenario),
@@ -636,7 +636,7 @@ async function run(): Promise<void> {
         answer,
       });
     }
-    assert.equal(provider.failure, null, provider.failure?.stack);
+    assert.equal(provider.failure, null, provider.failure?.stack || 'provider must not fail');
     assert.equal(provider.requestCount, providerPlan.length);
     // Candidate-first selection reads once for context, once to pin the
     // prepare source, and once more to prove the approved binding stayed exact.

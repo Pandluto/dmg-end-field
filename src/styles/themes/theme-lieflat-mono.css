@@ -647,6 +647,10 @@
   color: var(--ink-indigo);
 }
 
+:root[data-theme="lieflat-mono"] .report-ppt-share-color.is-segment-4 {
+  color: #c8c2b7;
+}
+
 :root[data-theme="lieflat-mono"] .report-ppt-petal-base {
   fill: var(--ink-paper-deep);
   stroke: var(--ink-outline-soft);
@@ -1517,3 +1521,22 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ── RDPS 图 3 / 图 4（lieflat-mono） ─────────────────────────────────────── */
+:root[data-theme="lieflat-mono"] .rdps-overview-pie-panel { border-right-color: var(--ink-outline-soft); }
+:root[data-theme="lieflat-mono"] :is(.rdps-overview-panel h3, .rdps-overview-legend, .rdps-overview-total, .rdps-overview-pie-fallback) { color: var(--ink-body); }
+:root[data-theme="lieflat-mono"] :is(.rdps-overview-panel h3 span, .rdps-overview-legend-row em, .rdps-overview-legend-row small) { color: var(--ink-muted); }
+:root[data-theme="lieflat-mono"] .rdps-overview-total { border-top-color: var(--ink-outline-soft); }
+:root[data-theme="lieflat-mono"] .rdps-overview-pie .rdps-overview-series { stroke: var(--ink-paper-deep); }
+:root[data-theme="lieflat-mono"] .rdps-overview-axis { stroke: var(--ink-outline-soft); }
+:root[data-theme="lieflat-mono"] .rdps-overview-bar { fill: var(--ink-charcoal); }
+:root[data-theme="lieflat-mono"] .rdps-overview-bar-value { fill: var(--ink-charcoal); }
+:root[data-theme="lieflat-mono"] .rdps-overview-bar-label { fill: var(--ink-body); }
+:root[data-theme="lieflat-mono"] .rdps-empty { color: var(--ink-charcoal); }
+:root[data-theme="lieflat-mono"] .rdps-warn { color: var(--ink-charcoal); }
+:root[data-theme="lieflat-mono"] .rdps-character-card { border-color: var(--ink-skill-outline); background: var(--ink-paper-deep); }
+:root[data-theme="lieflat-mono"] .rdps-character-heading span { color: var(--ink-charcoal); }
+:root[data-theme="lieflat-mono"] .rdps-domain-label { color: var(--ink-charcoal); }
+:root[data-theme="lieflat-mono"] .rdps-domain-bar-track { background: color-mix(in srgb, var(--ink-skill-outline) 30%, transparent); }
+:root[data-theme="lieflat-mono"] .rdps-domain-bar { background: var(--ink-charcoal); }
+:root[data-theme="lieflat-mono"] .rdps-domain-raw, :root[data-theme="lieflat-mono"] .rdps-character-total { color: var(--ink-charcoal); }

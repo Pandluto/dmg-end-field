@@ -1,5 +1,19 @@
 import type { SkillButton as RuntimeSkillButton, SkillType } from '../../types';
 import type { DamageBonusSnapshot, PersistedAnomalyCard, PersistedSkillButton, SkillButtonBuff } from '../../types/storage';
+import type { DamageReportSourceFilter, RdpsAttributionSummary } from './rdpsAttribution.types';
+import { buildRdpsSourceKey } from './rdpsAttribution.types';
+import { computeRdpsAttribution } from './rdpsContributionService';
+import { getSelectedCharacterIds } from '../../utils/storage';
+import { getCandidateBuffList } from '../repositories/candidateBuffRepository';
+import { getOperatorConfigPageCache } from '../repositories/operatorConfigRepository';
+import {
+  buffApplicationKeyOf,
+  buildRdpsResolutionContext,
+  sourceKeyFromSidecar,
+  type RdpsResolutionContext,
+} from './rdpsSourceResolutionContext';
+import type { RdpsSourceSidecar } from './rdpsSourceResolution.types';
+import type { AnomalyStateSnapshot } from '../../types/storage';
 import { getCharacterComputed, getCharacterConfig, getCharacterInput, getRuntimeOperatorTemplateById } from '../../utils/storage';
 import { getBuffById, getSkillButtonById, loadTimelineData } from '../repositories';
 import { resolveSkillDamageTemplate } from './skillDamageTemplateResolver';
@@ -33,6 +47,14 @@ export interface DamageReportBuffRow {
   effectiveValue?: number;
   multiplierCoefficient?: number;
   multiplier?: boolean;
+  /** RDPS 归因元数据：展示用来源名，不参与分组。 */
+  sourceName?: string;
+  /** RDPS 归因主键的一部分；缺失时不得按名称推断。 */
+  ownerCharacterId?: string;
+  /** 原始配置域；异常快照/连击派生 Buff 显式映射为 operator。 */
+  ownerBuffDomain?: 'operator' | 'weapon' | 'equipment';
+  /** 诊断与后续细分用，不作为图 3 / 图 4 当前分组层级。 */
+  ownerBuffGroup?: 'talent' | 'potential' | 'skill' | 'weaponSkill' | 'threePiece';
 }
 
 export interface DamageReportZoneRow {
@@ -98,10 +120,14 @@ export interface DamageReportSnapshot {
   buttonCount: number;
   buttons: DamageReportButtonRow[];
   characters: DamageReportCharacterRow[];
+  /** RDPS 归因结果；仅 includeRdps 开启时填充。 */
+  rdps?: RdpsAttributionSummary;
 }
 
 export interface DamageReportSnapshotOptions {
   buttonIds?: Iterable<string>;
+  /** 是否执行 RDPS 归因（默认 false；只有桌面报表页开启）。 */
+  includeRdps?: boolean;
 }
 
 const EMPTY_DAMAGE_BONUS: DamageBonusSnapshot = {
@@ -125,6 +151,29 @@ const LOCAL_BUFF_LIBRARY_KEY = 'def.buff-editor.library.v1';
 
 function isModifierBuff(buff: SkillButtonBuff): boolean {
   return buff.effectKind !== 'extraHit';
+}
+
+/** 默认来源键：ownerCharacterId + ownerBuffDomain；缺一不可归因。 */
+function defaultSourceKeyOf(buff: SkillButtonBuff): string | null {
+  if (typeof buff.ownerCharacterId !== 'string' || !buff.ownerCharacterId.trim()) return null;
+  const domain = buff.ownerBuffDomain;
+  if (domain !== 'operator' && domain !== 'weapon' && domain !== 'equipment') return null;
+  return buildRdpsSourceKey(buff.ownerCharacterId, domain);
+}
+
+/**
+ * RDPS 来源过滤：只保留"来源在启用集合内"的可归因 Buff；Owen 世界默认
+ * 保留无 owner Buff，直接伤害基线可以显式关闭它们；失衡按严格口径过滤。
+ */
+function applySourceFilter(buffs: SkillButtonBuff[], filter: DamageReportSourceFilter | undefined): SkillButtonBuff[] {
+  if (!filter) return buffs;
+  return buffs.filter((buff) => {
+    if (filter.imbalanceEnabled === false && buff.type === 'imbalanceDmgBonus') return false;
+    if (filter.enabledSourceKeys === undefined || filter.enabledSourceKeys === null) return true;
+    const key = filter.sourceKeyOf ? filter.sourceKeyOf(buff) : defaultSourceKeyOf(buff);
+    if (key === null) return filter.unattributedBuffsEnabled !== false;
+    return filter.enabledSourceKeys.has(key);
+  });
 }
 
 function isExtraHitBuff(buff: SkillButtonBuff): buff is SkillButtonBuff & { effectKind: 'extraHit'; extraHitConfig: NonNullable<SkillButtonBuff['extraHitConfig']> } {
@@ -254,7 +303,8 @@ function buildBuffTraceId(buff: SkillButtonBuff): string {
 
 function toBuffRows(
   buffs: SkillButtonBuff[],
-  contributions: BuffContribution[] = []
+  contributions: BuffContribution[] = [],
+  traceIds?: Map<string, string>
 ): DamageReportBuffRow[] {
   return buffs.map((buff) => ({
     ...(() => {
@@ -270,9 +320,13 @@ function toBuffRows(
       } : {};
     })(),
     id: buff.id,
-    traceId: buildBuffTraceId(buff),
+    traceId: traceIds?.get(buff.id) ?? buildBuffTraceId(buff),
     name: buff.displayName || buff.name,
     effect: formatBuffEffect(buff),
+    sourceName: buff.sourceName,
+    ownerCharacterId: buff.ownerCharacterId,
+    ownerBuffDomain: buff.ownerBuffDomain,
+    ownerBuffGroup: buff.ownerBuffGroup,
   }));
 }
 
@@ -855,10 +909,35 @@ function buildAnomalyReportHits(
   return [...anomalyRows, ...extraHitRows];
 }
 
-function buildButtonReportRow(
+/** 一次 resolve 得到的按钮级不可变计算输入（反事实循环中不再读取存储）。 */
+export interface ResolvedButtonInputs {
+  button: PersistedSkillButton;
+  orderIndex: number;
+  runtimeButton: ReturnType<typeof buildRuntimeButton>;
+  resolvedTemplate: ReturnType<typeof resolveSkillDamageTemplate>;
+  damageBonus: DamageBonusSnapshot;
+  panel: { atk: number; critRate: number; critDmg: number };
+  panelBase: ReturnType<typeof buildDamageReportPanelBase> | null;
+  disabledBuffIdsBySegmentKey: Record<string, string[]>;
+  disabledHitKeys: string[];
+  buffStackCountsByHitKey: Record<string, Record<string, number>>;
+  disabledBuffIdsByHitKey: Record<string, string[]>;
+  allBuffs: SkillButtonBuff[];
+  globallyDisabledBuffIds: Set<string>;
+  anomalyStatuses: PersistedAnomalyCard[];
+  anomalyStateSnapshots: ReturnType<typeof getAnomalyStateSnapshotsByIds>;
+  /** buff.id → 展示用 traceId（resolve 阶段预计算，反事实循环不重解析）。 */
+  traceIds: Map<string, string>;
+  /** RDPS 只读来源 sidecar（应用键 → 解析来源）。 */
+  resolvedSourceSidecar: RdpsSourceSidecar;
+}
+
+/** Resolve 阶段：读取并固化一个按钮的全部计算输入。 */
+function resolveButtonInputs(
   button: PersistedSkillButton,
-  orderIndex: number
-): DamageReportButtonRow | null {
+  orderIndex: number,
+  resolution?: RdpsResolutionContext
+): ResolvedButtonInputs {
   const runtimeButton = buildRuntimeButton(button);
   const resolvedTemplate = resolveSkillDamageTemplate(runtimeButton);
   const characterConfig = getCharacterConfig(button.characterId || button.characterName);
@@ -891,14 +970,93 @@ function buildButtonReportRow(
     : {};
   const allBuffs = getButtonBuffs(button);
   const globallyDisabledBuffIds = new Set(button.panelConfig?.globallyDisabledBuffIds ?? []);
-  const modifierBuffList = allBuffs.filter((buff) => isModifierBuff(buff) && !globallyDisabledBuffIds.has(buff.id));
   const anomalyStatuses = button.anomalyConfig?.selectedStatuses ?? [];
   const anomalyStateSnapshots = getAnomalyStateSnapshotsByIds(button.anomalyConfig?.selectedStateSnapshotIds ?? []);
-  const stateDerivedBuffList = buildAnomalyStateDerivedBuffs(anomalyStatuses, button.skillType);
-  const stateSnapshotBuffList = buildAnomalyStateSnapshotBuffs(anomalyStateSnapshots);
-  const combinedModifierBuffList = [...modifierBuffList, ...stateDerivedBuffList, ...stateSnapshotBuffList];
-  const extraHitBuffList = allBuffs.filter(isExtraHitBuff).filter((buff) => !globallyDisabledBuffIds.has(buff.id));
+  const traceIds = new Map(allBuffs.map((buff) => [buff.id, buildBuffTraceId(buff)]));
+  return {
+    button,
+    orderIndex,
+    runtimeButton,
+    resolvedTemplate,
+    damageBonus,
+    panel,
+    panelBase,
+    disabledBuffIdsBySegmentKey,
+    disabledHitKeys,
+    buffStackCountsByHitKey,
+    disabledBuffIdsByHitKey,
+    allBuffs,
+    globallyDisabledBuffIds,
+    anomalyStatuses,
+    anomalyStateSnapshots,
+    traceIds,
+    resolvedSourceSidecar: resolution?.sidecar ?? newSidecar(),
+  };
+}
 
+/** 空 sidecar（未启用 RDPS 解析时的降级）。 */
+function newSidecar(): RdpsSourceSidecar {
+  const map = new Map<string, import('./rdpsSourceResolution.types').RdpsResolvedSource>();
+  return {
+    get: (key) => map.get(key),
+    set: (key, source) => { map.set(key, source); },
+    entries: () => map.entries(),
+  };
+}
+
+/** Evaluate 阶段：用 resolve 好的输入（+可选来源过滤器）计算按钮报告行。 */
+function evaluateButtonReportRow(
+  inputs: ResolvedButtonInputs,
+  filter?: DamageReportSourceFilter
+): DamageReportButtonRow | null {
+  const {
+    button,
+    orderIndex,
+    runtimeButton,
+    resolvedTemplate,
+    damageBonus,
+    panel,
+    panelBase,
+    disabledBuffIdsBySegmentKey,
+    disabledHitKeys,
+    buffStackCountsByHitKey,
+    disabledBuffIdsByHitKey,
+    allBuffs,
+    globallyDisabledBuffIds,
+    anomalyStatuses,
+    anomalyStateSnapshots,
+    traceIds,
+    resolvedSourceSidecar,
+  } = inputs;
+  // 来源过滤消费只读 sidecar（v2）：普通 Buff 与异常派生 Buff 都按解析结果归属。
+  const sidecarFilter: DamageReportSourceFilter | undefined = filter
+    ? {
+        ...filter,
+        sourceKeyOf: (buff) => (
+          filter.sourceKeyOf?.(buff)
+          ?? sourceKeyFromSidecar(resolvedSourceSidecar, buffApplicationKeyOf(button.id, buff))
+          ?? defaultSourceKeyOf(buff)
+        ),
+      }
+    : undefined;
+  const filteredAllBuffs = applySourceFilter(allBuffs, sidecarFilter);
+  const modifierBuffList = filteredAllBuffs.filter((buff) => isModifierBuff(buff) && !globallyDisabledBuffIds.has(buff.id));
+  const stateDerivedBuffList = applySourceFilter(
+    buildAnomalyStateDerivedBuffs(anomalyStatuses, button.skillType),
+    sidecarFilter,
+  );
+  const stateSnapshotBuffList = applySourceFilter(
+    buildAnomalyStateSnapshotBuffs(anomalyStateSnapshots),
+    sidecarFilter,
+  );
+  const combinedModifierBuffList = [...modifierBuffList, ...stateDerivedBuffList, ...stateSnapshotBuffList];
+  const extraHitBuffList = filteredAllBuffs
+    .filter(isExtraHitBuff)
+    .filter((buff) => !globallyDisabledBuffIds.has(buff.id));
+
+  const effectiveDamageBonus = filter?.imbalanceEnabled === false
+    ? { ...damageBonus, imbalanceDmgBonus: 0 }
+    : damageBonus;
   const normalHits = resolvedTemplate
     ? calculateSkillButtonDamageV2({
         buttonId: button.id,
@@ -913,7 +1071,7 @@ function buildButtonReportRow(
         disabledBuffIdsByHitKey,
         disabledHitKeys,
         targetResistance: button.resistanceConfig?.targetResistance,
-        damageBonus,
+        damageBonus: effectiveDamageBonus,
       }).hits.map((hit, index) => ({
         id: `normal-${button.id}-${hit.hit.key}-${index}`,
         title: `${index + 1}段 · ${hit.hit.displayName}`,
@@ -926,7 +1084,7 @@ function buildButtonReportRow(
         nonCrit: hit.nonCrit.final,
         resistanceZone: hit.zones.resistanceZone,
         resistance: hit.zones.resistance,
-        buffs: toBuffRows(hit.appliedBuffs, hit.buffContributions),
+        buffs: toBuffRows(hit.appliedBuffs, hit.buffContributions, traceIds),
         zones: toZoneRows([
           ['skillMultiplier', hit.zones.skillMultiplier],
           ['damageBonus', hit.zones.damageBonus],
@@ -939,7 +1097,7 @@ function buildButtonReportRow(
 
   const anomalyHits = buildAnomalyReportHits(
     button,
-    damageBonus,
+    effectiveDamageBonus,
     panel,
     panelBase,
     disabledBuffIdsBySegmentKey,
@@ -1002,6 +1160,144 @@ function buildCharacterReportRow(characterId: string, fallbackName: string): Dam
   };
 }
 
+/**
+ * Resolve 阶段：一次性读取时间轴、按钮持久化数据和全部计算输入，生成
+ * 不可变的按钮输入列表与上下文指纹。反事实评估循环不得再次读取存储。
+ */
+export function resolveDamageReportContext(options: DamageReportSnapshotOptions = {}): {
+  inputs: ResolvedButtonInputs[];
+  fingerprint: string;
+  resolution?: RdpsResolutionContext;
+} {
+  const timelineData = loadTimelineData();
+  if (!timelineData || !Array.isArray(timelineData.staffLines)) {
+    return { inputs: [], fingerprint: 'empty' };
+  }
+  const allowedButtonIds = options.buttonIds ? new Set(options.buttonIds) : null;
+  const flattenedButtons = timelineData.staffLines.flatMap((staffLine) =>
+    (Array.isArray(staffLine.buttons) ? staffLine.buttons : []).map((timelineButton) => ({
+      timelineButton,
+      staffIndex: staffLine.staffIndex,
+    }))
+  );
+  const sorted = [...flattenedButtons].sort((left, right) => {
+    const xDiff = (left.timelineButton.position?.x ?? 0) - (right.timelineButton.position?.x ?? 0);
+    if (Math.abs(xDiff) > 0.001) {
+      return xDiff;
+    }
+    const yDiff = (left.timelineButton.position?.y ?? 0) - (right.timelineButton.position?.y ?? 0);
+    if (Math.abs(yDiff) > 0.001) {
+      return yDiff;
+    }
+    return (left.timelineButton.nodeIndex ?? 0) - (right.timelineButton.nodeIndex ?? 0);
+  });
+
+  const persistedButtons: Array<{ persisted: PersistedSkillButton; orderIndex: number }> = [];
+  sorted.forEach(({ timelineButton, staffIndex }, orderIndex) => {
+    if (allowedButtonIds && !allowedButtonIds.has(timelineButton.id)) {
+      return;
+    }
+    persistedButtons.push({
+      persisted: getSkillButtonById(timelineButton.id) ?? {
+        id: timelineButton.id,
+        characterId: timelineButton.characterId || timelineButton.characterName,
+        characterName: timelineButton.characterName,
+        skillType: timelineButton.skillType,
+        staffIndex,
+        nodeIndex: timelineButton.nodeIndex,
+        nodeNumber: timelineButton.nodeNumber,
+        position: timelineButton.position,
+        runtimeSkillId: timelineButton.runtimeSkillId,
+        skillDisplayName: timelineButton.skillDisplayName,
+        skillIconUrl: timelineButton.skillIconUrl,
+        customHits: timelineButton.customHits,
+        selectedBuff: [],
+        panelConfig: { selectedBuff: [] },
+        runtimeSnapshot: null,
+      },
+      orderIndex,
+    });
+  });
+
+  // ── RDPS 来源解析上下文（只读，本次计算内） ─────────────────────────────
+  const selectedCharacterIds = getSelectedCharacterIds();
+  const operatorConfigCache = getOperatorConfigPageCache() ?? {};
+  const candidateBuffList = getCandidateBuffList();
+  const allBuffIds = Array.from(new Set(
+    persistedButtons.flatMap(({ persisted }) => persisted.selectedBuff ?? []),
+  ));
+  const allBuffs = allBuffIds
+    .map((buffId) => getBuffById(buffId))
+    .filter((buff): buff is SkillButtonBuff => Boolean(buff));
+  const anomalySnapshotsByButton: Record<string, AnomalyStateSnapshot[]> = {};
+  const allAnomalySnapshots: AnomalyStateSnapshot[] = [];
+  for (const { persisted } of persistedButtons) {
+    const snapshots = getAnomalyStateSnapshotsByIds(persisted.anomalyConfig?.selectedStateSnapshotIds ?? []);
+    anomalySnapshotsByButton[persisted.id] = snapshots;
+    for (const snapshot of snapshots) {
+      if (!allAnomalySnapshots.some((existing) => existing.id === snapshot.id)) {
+        allAnomalySnapshots.push(snapshot);
+      }
+    }
+  }
+  const anomalyStatusesByButton: Record<string, PersistedAnomalyCard[]> = Object.fromEntries(
+    persistedButtons.map(({ persisted }) => [persisted.id, persisted.anomalyConfig?.selectedStatuses ?? []]),
+  );
+  const resolution = buildRdpsResolutionContext({
+    selectedCharacterIds,
+    staffLines: timelineData.staffLines,
+    buttons: persistedButtons.map(({ persisted }) => persisted),
+    operatorConfigCache: operatorConfigCache as never,
+    candidateBuffList: candidateBuffList as never,
+    anomalyStatusesByButton,
+    anomalySnapshotsByButton,
+    allAnomalySnapshots,
+    allBuffs,
+  });
+
+  const inputs = persistedButtons.map(({ persisted, orderIndex }) =>
+    resolveButtonInputs(persisted, orderIndex, resolution),
+  );
+  const fingerprint = buildContextFingerprint(inputs);
+  return { inputs, fingerprint, resolution };
+}
+
+/** 内容指纹：至少受按钮、Buff、层数、禁用项、异常与来源解析结果影响。 */
+function buildContextFingerprint(inputs: readonly ResolvedButtonInputs[]): string {
+  const parts = inputs.map((input) => {
+    const buffFingerprints = input.allBuffs.map((buff) => {
+      const key = buffApplicationKeyOf(input.button.id, buff);
+      const source = sourceKeyFromSidecar(input.resolvedSourceSidecar, key);
+      return `${buff.id}:${buff.name ?? ''}:${String(buff.value ?? '')}:${buff.category ?? ''}:${source ?? 'unresolved'}`;
+    }).join(',');
+    const anomalyFingerprints = input.anomalyStatuses.map((card) => `${card.id}:${card.key}:${String(card.sourceCharacterId ?? '')}`).join(',');
+    const snapshotFingerprints = input.anomalyStateSnapshots.map((snapshot) => `${snapshot.id}:${snapshot.key}:${String(snapshot.sourceCharacterId ?? '')}`).join(',');
+    return `${input.button.id}[${buffFingerprints}][${anomalyFingerprints}][${snapshotFingerprints}][${JSON.stringify(input.button.buffStackCounts ?? {})}][${JSON.stringify(input.button.panelConfig?.globallyDisabledBuffIds ?? [])}]`;
+  });
+  return parts.join('|');
+}
+
+/**
+ * Evaluate 阶段：对 resolve 好的按钮输入执行可过滤评估，输出总期望伤害、
+ * 总非暴击伤害与 Hit 评估计数。不启用过滤器时结果与现有报表路径一致。
+ */
+export function evaluateDamageReportContext(
+  inputs: readonly ResolvedButtonInputs[],
+  filter?: DamageReportSourceFilter,
+): { totalExpected: number; totalNonCrit: number; hitEvaluationCount: number } {
+  let totalExpected = 0;
+  let totalNonCrit = 0;
+  let hitEvaluationCount = 0;
+  for (const input of inputs) {
+    const row = evaluateButtonReportRow(input, filter);
+    if (!row) continue;
+    totalExpected += row.expected;
+    totalNonCrit += row.nonCrit;
+    hitEvaluationCount += row.hits.length;
+  }
+  return { totalExpected, totalNonCrit, hitEvaluationCount };
+}
+
 export function buildDamageReportSnapshot(options: DamageReportSnapshotOptions = {}): DamageReportSnapshot {
   const timelineData = loadTimelineData();
   if (!timelineData || !Array.isArray(timelineData.staffLines)) {
@@ -1017,55 +1313,18 @@ export function buildDamageReportSnapshot(options: DamageReportSnapshotOptions =
   }
 
   const allowedButtonIds = options.buttonIds ? new Set(options.buttonIds) : null;
+  const context = resolveDamageReportContext({ buttonIds: options.buttonIds });
+  const inputs = context.inputs;
   const buttons: DamageReportButtonRow[] = [];
-  const flattenedButtons = timelineData.staffLines.flatMap((staffLine) =>
-    (Array.isArray(staffLine.buttons) ? staffLine.buttons : []).map((timelineButton) => ({
-      timelineButton,
-      staffIndex: staffLine.staffIndex,
-    }))
-  );
-
-  flattenedButtons
-    .sort((left, right) => {
-      const xDiff = (left.timelineButton.position?.x ?? 0) - (right.timelineButton.position?.x ?? 0);
-      if (Math.abs(xDiff) > 0.001) {
-        return xDiff;
-      }
-      const yDiff = (left.timelineButton.position?.y ?? 0) - (right.timelineButton.position?.y ?? 0);
-      if (Math.abs(yDiff) > 0.001) {
-        return yDiff;
-      }
-      return (left.timelineButton.nodeIndex ?? 0) - (right.timelineButton.nodeIndex ?? 0);
-    })
-    .forEach(({ timelineButton, staffIndex }, orderIndex) => {
-      if (allowedButtonIds && !allowedButtonIds.has(timelineButton.id)) {
-        return;
-      }
-      const persisted = getSkillButtonById(timelineButton.id);
-      const reportRow = buildButtonReportRow(
-        persisted ?? {
-          id: timelineButton.id,
-          characterId: timelineButton.characterId || timelineButton.characterName,
-          characterName: timelineButton.characterName,
-          skillType: timelineButton.skillType,
-          staffIndex,
-          nodeIndex: timelineButton.nodeIndex,
-          nodeNumber: timelineButton.nodeNumber,
-          position: timelineButton.position,
-          runtimeSkillId: timelineButton.runtimeSkillId,
-          skillDisplayName: timelineButton.skillDisplayName,
-          skillIconUrl: timelineButton.skillIconUrl,
-          customHits: timelineButton.customHits,
-          selectedBuff: [],
-          panelConfig: { selectedBuff: [] },
-          runtimeSnapshot: null,
-        },
-        orderIndex
-      );
-      if (reportRow) {
-        buttons.push(reportRow);
-      }
-    });
+  for (const input of inputs) {
+    if (allowedButtonIds && !allowedButtonIds.has(input.button.id)) {
+      continue;
+    }
+    const reportRow = evaluateButtonReportRow(input);
+    if (reportRow) {
+      buttons.push(reportRow);
+    }
+  }
 
   const totalExpected = buttons.reduce((sum, button) => sum + button.expected, 0);
   const totalNonCrit = buttons.reduce((sum, button) => sum + button.nonCrit, 0);
@@ -1080,6 +1339,19 @@ export function buildDamageReportSnapshot(options: DamageReportSnapshotOptions =
     characters.push(buildCharacterReportRow(button.characterId, button.characterName));
   });
 
+  const rdps = options.includeRdps === true
+    ? computeRdpsAttribution(inputs, {
+        contextFingerprint: context.fingerprint,
+        resolutionDiagnostics: context.resolution?.diagnostics,
+        characterNameById: context.resolution?.directory.nameByCharacterId,
+        teamCharacterIds: context.resolution
+          ? Array.from(context.resolution.directory.teamOrder.entries())
+              .sort((left, right) => left[1] - right[1])
+              .map(([characterId]) => characterId)
+          : undefined,
+      })
+    : undefined;
+
   return {
     generatedAt: Date.now(),
     totalDamage: totalExpected,
@@ -1091,5 +1363,6 @@ export function buildDamageReportSnapshot(options: DamageReportSnapshotOptions =
       share: totalExpected > 0 ? button.expected / totalExpected : 0,
     })),
     characters,
+    ...(rdps ? { rdps } : {}),
   };
 }

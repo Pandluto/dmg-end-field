@@ -28,6 +28,13 @@ function isCoreAppShellFile(relativePath) {
     return true;
   }
   if (!relativePath.startsWith('assets/')) return false;
+  // Online mobile image files are deliberately not part of the offline shell.
+  // Desktop may still install the image archive through its explicit package
+  // flow, while /mobile always reads hash-versioned network files.
+  if (
+    relativePath.startsWith('assets/images/')
+    && relativePath !== 'assets/images/_manifest.json'
+  ) return false;
   if (relativePath.startsWith('assets/themes/')) return false;
   return !path.posix.basename(relativePath).startsWith('theme-');
 }

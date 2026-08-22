@@ -16,6 +16,7 @@ const {
   utilityProcess,
 } = require('electron');
 const { createDesktopStaticServer } = require('./static-host.cjs');
+const { createOfficialResourceProxyHandler } = require('./official-resource-proxy.cjs');
 const { createLegacyFillRuntime } = require('./legacy-fill-runtime.cjs');
 const { createAgentRuntime } = require('./agent-runtime.cjs');
 const {
@@ -49,6 +50,7 @@ const isDevelopment = process.argv.includes('--dev');
 const SCALE_OPTIONS = ['0.8', '0.85', '1', '1.25', '1.5'];
 const DEFAULT_SCALE = process.platform === 'darwin' ? '0.85' : '1';
 const diagnosticsEnabled = process.env.DMG_DESKTOP_DIAGNOSTICS === '1';
+const officialResourceProxyHandler = createOfficialResourceProxyHandler();
 
 function diagnostic(message) {
   if (diagnosticsEnabled) console.log(`[desktop] ${message}`);
@@ -646,6 +648,7 @@ async function startApplication() {
     requestHandler: async (request, response) => (
       await agentRuntime.handleBrowserRequest(request, response)
       || await legacyFillRuntime.handleBrowserRequest(request, response)
+      || await officialResourceProxyHandler(request, response)
     ),
     serveStatic: !isDevelopment,
   });

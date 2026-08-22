@@ -140,7 +140,8 @@ function activeDefTurnId(snapshot: ConversationSnapshot | null): string | null {
     || snapshot.status.status === 'waiting-interaction'
   ) return String(snapshot.status.defTurnId);
   if (snapshot.status.status === 'compacting') {
-    return snapshot.messages.at(-1)?.defTurnId ? String(snapshot.messages.at(-1)!.defTurnId) : null;
+    const latestMessage = snapshot.messages[snapshot.messages.length - 1];
+    return latestMessage?.defTurnId ? String(latestMessage.defTurnId) : null;
   }
   return null;
 }

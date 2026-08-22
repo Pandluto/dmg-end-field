@@ -17,7 +17,7 @@ import {
   type InstalledImagePackage,
 } from '../../platform/resources/imagePackage';
 import { usePageVersionUpdate } from '../../platform/runtime/usePageVersionUpdate';
-import { isDesktopWebHost } from '../../platform/runtime/desktopWebHost';
+import { getAppHostExtension } from '../../platform/host/appHost';
 import { workspaceLease } from '../../platform/runtime/workspaceLease';
 import { flushPersistentStorage } from '../../platform/storage/persistentStorage';
 import {
@@ -27,6 +27,7 @@ import {
   subscribeAppTheme,
   type AppThemeId,
 } from '../../platform/theme/appTheme';
+import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 
 type StorageOverview = {
   usage: number;
@@ -53,7 +54,10 @@ function formatDate(value: number | null): string {
 }
 
 export function SettingsPage() {
-  const desktopWebHost = isDesktopWebHost();
+  const hostUi = getAppHostExtension().ui;
+  const showPageVersionUpdate = hostUi?.showPageVersionUpdate !== false;
+  const showAccessSettings = hostUi?.showAccessSettings !== false;
+  const showLocalResourcePackager = hostUi?.showLocalResourcePackager !== false;
   const [databaseInfo] = useState<WebDatabaseInfo | null>(() => webDatabase.getInfo());
   const [storage, setStorage] = useState<StorageOverview>({ usage: 0, quota: 0, persisted: false });
   const [resourcePackage, setResourcePackage] = useState<InstalledResourcePackage | null>(null);
@@ -62,7 +66,7 @@ export function SettingsPage() {
   const [message, setMessage] = useState('');
   const [theme, setTheme] = useState<AppThemeId>(() => readAppTheme());
   const [loadingTheme, setLoadingTheme] = useState<AppThemeId | null>(null);
-  const { state: pageVersionUpdate, update: updatePageVersion } = usePageVersionUpdate();
+  const { state: pageVersionUpdate, update: updatePageVersion } = usePageVersionUpdate(showPageVersionUpdate);
   const pageVersionCanUpdate = ['update-available', 'update-failed']
     .includes(pageVersionUpdate.phase);
   const pageVersionTargetLabel = pageVersionUpdate.latestVersionLabel
@@ -199,7 +203,7 @@ export function SettingsPage() {
           ))}
         </div>
       </section>
-      {!desktopWebHost && <section className="settings-section">
+      {showPageVersionUpdate && <section className="settings-section">
         <div className="settings-section-heading">
           <div>
             <p>更新</p>
@@ -317,9 +321,20 @@ export function SettingsPage() {
           </div>
           <button type="button" onClick={handleRemovePackage}>移除资料包</button>
         </div>
+        {showLocalResourcePackager && ['127.0.0.1', 'localhost'].includes(window.location.hostname) && (
+          <div className="settings-action-row">
+            <div>
+              <strong>制作完整资源发布包</strong>
+              <span>选择图片目录与一份 Share Data，自动生成版本号并下载发布 ZIP。</span>
+            </div>
+            <button type="button" onClick={() => navigateToAppPath(APP_ROUTE_PATHS.resourcePackager)}>
+              打开发包工具
+            </button>
+          </div>
+        )}
       </section>
 
-      {!desktopWebHost && <section className="settings-section">
+      {showAccessSettings && <section className="settings-section">
         <div className="settings-section-heading">
           <div>
             <p>访问</p>

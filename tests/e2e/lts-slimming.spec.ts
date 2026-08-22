@@ -1399,6 +1399,47 @@ test('candidate browser behavior regression', async ({ context, page }) => {
     await expect(page.getByText('已选 4/4', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: '开始排轴', exact: true }).click();
     await expect(page.locator('.canvas-container')).toBeVisible();
+
+    await test.step('新建存档会创建独立 SQLite 并保留原存档', async () => {
+      const previousTimelineId = await page.evaluate(() => (
+        window.sessionStorage.getItem('dmg.active-timeline-document-id')
+      ));
+      expect(previousTimelineId).toBeTruthy();
+
+      await page.getByRole('button', { name: '队伍', exact: true }).click();
+      await expect(page.getByRole('heading', { name: '选择干员', exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: '继续排轴', exact: true })).toBeVisible();
+      await page.getByRole('button', { name: '新建存档', exact: true }).click();
+      await expect(page.locator('.canvas-container')).toBeVisible();
+
+      const detachedWorkspace = await page.evaluate(async (originalTimelineId) => {
+        const activeTimelineId = window.sessionStorage.getItem('dmg.active-timeline-document-id');
+        const moduleUrl = performance
+          .getEntriesByType('resource')
+          .map((entry) => entry.name)
+          .find((name) => /\/src\/agentKernel\/timelineRepository\/localTimelineClient\.ts(?:\?|$)/.test(name));
+        if (!moduleUrl) throw new Error('Timeline repository module URL is unavailable.');
+        const repositoryModule = await import(/* @vite-ignore */ moduleUrl);
+        const repository = repositoryModule.createTimelineRepositoryClient();
+        const [documents, originalWorkNodes] = await Promise.all([
+          repository.listDocuments(),
+          repository.listWorkNodes(originalTimelineId),
+        ]);
+        return {
+          activeTimelineId,
+          originalPreserved: documents.some((document: { id: string }) => document.id === originalTimelineId),
+          detachedExists: documents.some((document: { id: string }) => document.id === activeTimelineId),
+          originalCheckpointCount: originalWorkNodes.length,
+        };
+      }, previousTimelineId);
+
+      expect(detachedWorkspace.activeTimelineId).toBeTruthy();
+      expect(detachedWorkspace.activeTimelineId).not.toBe(previousTimelineId);
+      expect(detachedWorkspace.originalPreserved).toBe(true);
+      expect(detachedWorkspace.detachedExists).toBe(true);
+      expect(detachedWorkspace.originalCheckpointCount).toBeGreaterThan(0);
+    });
+
     await expect(page.getByRole('button', { name: '表格', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '伤害表', exact: true })).toHaveCount(0);
     const calculateDamageButton = page.getByRole('button', { name: '计算伤害', exact: true });

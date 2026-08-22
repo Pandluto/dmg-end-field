@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { safeSessionStorage } from '../../utils/storage';
 import { STORAGE_KEYS } from '../../constants/storage-keys';
@@ -13,17 +13,9 @@ export type WorkbenchMode = 'selection' | 'timeline' | 'buffBatchEdit';
 
 interface WorkbenchFrameProps {
   activeSkillButtonId?: string | null;
-  isAgentMode?: boolean;
-  agentModePanel?: ReactNode | ((controls: {
-    onOpenWorkNodePanel?: () => void | Promise<void>;
-  }) => ReactNode);
 }
 
-export function WorkbenchFrame({
-  activeSkillButtonId = null,
-  isAgentMode = false,
-  agentModePanel = null,
-}: WorkbenchFrameProps) {
+export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFrameProps) {
   const { state, dispatch } = useAppContext();
   const { currentView, selectedCharacters } = state;
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -38,13 +30,6 @@ export function WorkbenchFrame({
       setWorkbenchMode('timeline');
     }
   }, [activeSkillButtonId, dispatch]);
-
-  useEffect(() => {
-    if (!isAgentMode || selectedCharacters.length === 0) return;
-    dispatch({ type: 'SET_VIEW', view: 'canvas' });
-    setWorkbenchMode('timeline');
-    setIsDrawerOpen(false);
-  }, [dispatch, isAgentMode, selectedCharacters.length]);
 
   useEffect(() => {
     if (currentView === 'canvas' && workbenchMode === 'selection') {
@@ -128,12 +113,6 @@ export function WorkbenchFrame({
     </div>
   );
 
-  const selectionAgentModePanel = isAgentMode && currentView === 'selection'
-    ? typeof agentModePanel === 'function'
-      ? agentModePanel({})
-      : agentModePanel
-    : null;
-
   return (
     <div className={`workbench-frame ${isDrawerOpen ? 'has-top-zone' : ''}`}>
       <div className={`workbench-top-zone ${isDrawerOpen ? 'is-open' : ''}`}>
@@ -174,15 +153,10 @@ export function WorkbenchFrame({
 
       <main className="workbench-content">
         {currentView === 'selection' && (
-          <div className={`selection-workbench-layout ${isDrawerOpen ? 'has-top-zone' : ''} ${isAgentMode ? 'is-ai-mode' : ''}`}>
+          <div className={`selection-workbench-layout ${isDrawerOpen ? 'has-top-zone' : ''}`}>
             <div className="selection-middle-zone">
               <SelectionPanel />
             </div>
-            {isAgentMode && (
-              <div className="selection-agent-mode-panel">
-                {selectionAgentModePanel}
-              </div>
-            )}
             <div className="workbench-selection-bottom-bar">
               {workbenchControl}
               {workspaceActions}
@@ -200,8 +174,6 @@ export function WorkbenchFrame({
         {currentView === 'canvas' && workbenchMode !== 'buffBatchEdit' && (
           <CanvasBoard
             activeSkillButtonId={activeSkillButtonId}
-            isAgentMode={isAgentMode}
-            agentModePanel={agentModePanel}
             onOpenOperatorConfig={openOperatorConfig}
             workbenchControl={workbenchControl}
             bottomRightControl={workspaceActions}

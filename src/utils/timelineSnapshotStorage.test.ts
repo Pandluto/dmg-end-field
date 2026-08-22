@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { assertBoundedJson, diffPreparedPayloads } from '../platform/agent/preparedWorkNodeProposal';
 import {
   toJsonSafeTimelineSnapshotPayload,
   type TimelineSnapshotPayload,
@@ -47,13 +46,11 @@ function fixture(): TimelineSnapshotPayload {
 
 const runtimePayload = fixture();
 const persistedPayload = JSON.parse(JSON.stringify(runtimePayload)) as TimelineSnapshotPayload;
-assert.throws(() => assertBoundedJson(runtimePayload, 'runtimePayload'), /not bounded JSON-safe data/);
 
 const normalized = toJsonSafeTimelineSnapshotPayload(runtimePayload);
-assert.doesNotThrow(() => assertBoundedJson(normalized, 'normalizedPayload'));
 assert.equal('optionalRuntimeField' in normalized.skillButtonTable['button-a']!, false);
 assert.equal('optionalProjection' in normalized.characterComputedMap['operator-a']!.panel, false);
-assert.equal(diffPreparedPayloads(persistedPayload, normalized).changes.length, 0);
+assert.deepEqual(normalized, persistedPayload);
 
 const invalidNumber = fixture();
 invalidNumber.timelineData.updatedAt = Number.NaN;

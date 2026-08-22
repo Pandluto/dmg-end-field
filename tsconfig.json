@@ -6,6 +6,7 @@
     "module": "ESNext",
     "skipLibCheck": true,
     "moduleResolution": "bundler",
+    "moduleSuffixes": [".desktop", ""],
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
@@ -16,7 +17,16 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"],
-  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"],
+  "include": ["src", "worker", "db"],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/components/CanvasBoard/index.tsx",
+    "src/components/CanvasBoard/SkillSandbox.tsx",
+    "src/components/WorkbenchFrame/WorkbenchFrame.tsx",
+    "src/context/AppContext.tsx",
+    "src/core/services/selectionWorkspaceTransition.ts",
+    "src/utils/mainWorkbenchControl.ts"
+  ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

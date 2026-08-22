@@ -7,22 +7,39 @@
 - [Web 数据生命周期](../architecture/data-lifecycle.md)
 - [Timeline 数据生命周期](./timeline-data-lifecycle-phase5/spec.md)
 - [Timeline Worktree · Web 合同](./ai-timeline-worktree/spec.md)
+- [数据层持久化与分享边界](./data-persistence-share-boundary/spec.md)
 - [主界面](./main-workbench/spec.md)
 - [主界面下一阶段](./main-workbench-next-phase/spec.md)
 - [主界面 Buff 计层](./main-workbench-buff-countable-phase/spec.md)
 
-## 计算与导出
+## 计算
 
 - [Buff 计算链路重构](./buff-calculation-pipeline-refactor/spec.md)
 - [抗性区](./resistance-zone/spec.md)
-- [伤害 Excel 导出](./damage-excel-export/spec.md)
+- [RDPS 归因分析与报表图 3/图 4](./rdps-attribution/spec.md)
+- [RDPS 归因 Phase 2：旧数据来源恢复与真实数据闭环](./rdps-attribution-phase2/spec.md)
+
+## 资源与运行时
+
+- [服务器资源通道](./resource-delivery-channel/spec.md)
+- [Web 页面更新策略与缓存恢复](./web-page-update-recovery/spec.md)
+- [Web LTS 通知中心](./notification-center/spec.md)
 
 ## 干员与配置
 
-- [Operator Studio](./operator-studio/spec1.md)
+- [Operator Studio](./operator-studio/spec1.md)（页面职责概述）
+- [Operator Studio Spec 2](./operator-studio/spec2.md)（干员自带 Buff 内联编辑）
+- [Operator Studio Spec 3](./operator-studio/spec3.md)（来源值派生 Buff）
+- [Operator Studio Spec 4](./operator-studio/spec4.md)（技能 ID 类型化命名与列表筛选）
 - [OperatorConfigPage 替换 Phase 1](./operator-config-page-replacement/spec.md)
 - [OperatorConfigPage 替换 Phase 2](./operator-config-page-replacement-phase2/spec.md)
 - [OperatorConfigPage 替换 Phase 3](./operator-config-page-replacement-phase3/spec.md)
+
+## 移动端
+
+- [手机版竖屏工作台 Spec](./mobile-portrait-workbench/spec.md)（首版产品定位）
+- [移动端工作台运行时合同](./mobile-portrait-workbench/mobile-workbench-runtime.md)（存档、报表、桌面适配）
+- [移动端 QR 战术分享与分享服务](./mobile-qr-share/spec.md)
 
 ## 装备、武器与 Buff 编辑
 
@@ -48,6 +65,10 @@
 - [OpenCode EngineAdapter Phase 4](./def-opencode-engine-phase4/spec.md)
 - [OpenCode EngineAdapter Phase 4 Tasks](./def-opencode-engine-phase4/tasks.md)
 - [ADR-0008：AI 模式复用原生 OpenCode UI](../architecture/decisions/0008-native-opencode-ui.md)
+
+## 已退役（历史存档）
+
+- [伤害 Excel 导出](./damage-excel-export/spec.md)：Damage Sheet、XLSX 导出与 ExcelJS 已整体退役，仅作历史设计证据，不参与验收。
 
 ## 目录内文件约定
 

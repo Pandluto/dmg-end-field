@@ -10,11 +10,11 @@
 ## 1.8 LTS 分支合同
 
 - `v1.8-LTS` 是共同祖先与审计锚点，不是当前开发或生产部署分支。
-- `codex/v1.8-lts-desktop-shell` 是桌面数据制作分支，保留 Electron、MCP、DEF Agent、桌面发包与相应文档；当前工作区默认在这里完成桌面能力和共通补丁适配。
-- `codex/v1.8-lts-slimming` 是唯一维护中的 Web/国内生产分支，拥有移动端、通知、资源物化和服务器部署。
-- 两个分支专业职责不同，禁止整分支互相合并。先用 `git merge-base` 与提交/文件差异确认来源，再只移植共同的领域逻辑、SQLite/存档语义、导出 schema、交互修复和资源协议。
-- Desktop 的 Electron、MCP、Agent 与打包宿主不得进入 Slimming；Slimming 的移动端、通知中心、生产部署实现和退役海外 Worker 不得整块进入 Desktop。
-- 共通补丁在目标分支必须按目标分支现有结构重放并做聚焦验证；不能用 Slim 文件覆盖 Desktop 中已经扩展的 Agent 事务逻辑。
+- `codex/v1.8-lts-slimming` 是唯一共享 Web 基线和国内生产分支，拥有普通工作台、SQLite/存档、移动端、通知、资源消费者/物化和服务器部署。
+- `codex/v1.8-lts-desktop-shell` 是 Slimming 的单向下游叠加层，只增加 Electron、MCP、DEF Agent、Desktop Host Adapter、桌面发包和相应文档。
+- 只允许把已验证的 Slimming 提交向 Desktop 合入；Desktop 专属提交严禁反向进入 Slimming。共同 Bug 必须先在 Slimming 修复，再向下同步。
+- 共享 `src/core/`、数据库、资源消费者、普通 Timeline/Canvas、移动端和 Web/PWA 文件必须与记录的 Slimming 基线一致；宿主差异只能通过中性扩展合同和 Desktop 独占目录接入。
+- Desktop 的 Electron、MCP、Agent、桌面代理和打包宿主不得进入 Slimming；Desktop 分支继承的生产源码不代表它获得网站部署职责。
 - 完整规则与当前同步清单见 `docs/architecture/lts-branch-contract.md`。
 
 ## 数据发包与部署

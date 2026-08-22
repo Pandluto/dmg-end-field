@@ -1,5 +1,11 @@
 # Operator Studio Spec 3 - 来源值派生 Buff
 
+## Status
+
+已实现。
+
+> **现行状态说明（2026-08-14）：** 本 spec 描述的能力已按代码现状实现并保持有效；`dotDmgBonus` 计算链继续生效，历史文字中的已退役页面引用不得用于重新实现。
+
 ## Why
 
 Spec 2 已经支持干员顶层 Buff，并支持 `positive` Buff 在 `operator-config` 中立即结算。但有些干员能力的数值不是固定值，而是来自当前面板中的某个来源值。

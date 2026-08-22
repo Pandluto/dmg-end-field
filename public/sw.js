@@ -2,6 +2,7 @@ const RESOURCE_CACHE_NAME = 'dmg-resource-pack-v1';
 const IMAGE_CACHE_NAME = 'dmg-image-pack-v1';
 const THEME_CACHE_NAME = 'dmg-theme-assets-v1';
 const APP_SHELL_CACHE_PREFIX = 'dmg-app-shell-';
+const CACHE_RECOVERY_PATH = '/cache-recovery.html';
 const APP_SHELL_COMPLETE_MARKER = '/__dmg_app_shell_complete__';
 const APP_RELEASE_VERSION = '__DMG_APP_RELEASE_VERSION__';
 const APP_SHELL_VERSION = '__DMG_APP_SHELL_VERSION__';
@@ -321,6 +322,32 @@ self.addEventListener('fetch', (event) => {
   // must never be read from or written to an application cache.
   if (url.pathname.startsWith('/agent-host/')) return;
 
+  // Keep the emergency recovery page independent from every installed page
+  // version. It must always reach the server so it can unregister this worker
+  // and remove stale application caches without touching workspace storage.
+  if (url.pathname === CACHE_RECOVERY_PATH) {
+    event.respondWith(fetch(request, { cache: 'no-store' }));
+    return;
+  }
+
+  // Tactical share records are server state. They must never be
+  // answered from an app-shell or resource cache.
+  if (url.pathname.startsWith('/api/mobile-shares')) {
+    event.respondWith(fetch(request, { cache: 'no-store' }));
+    return;
+  }
+
+  // The portrait mobile workbench is online-only. Never answer its entry
+  // navigation from the offline app-shell cache, even when this worker still
+  // controls the origin from a previous desktop visit.
+  if (
+    request.mode === 'navigate'
+    && (/^\/mobile\/?$/.test(url.pathname) || /^\/share\/[A-Za-z0-9_-]{16}\/?$/.test(url.pathname))
+  ) {
+    event.respondWith(fetch(request, { cache: 'no-store' }));
+    return;
+  }
+
   // The generated browser image index lives below /assets/images/, but it is
   // application code metadata rather than an installed image. Serve every
   // explicit non-navigation shell entry before the generic package routes.
@@ -332,6 +359,11 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(readAppShellResource(request));
     return;
   }
+
+  // The source worker served by Vite has no atomic app shell. Let the browser
+  // use the development server directly instead of reviving package caches
+  // left by an earlier local session on the same origin.
+  if (!HAS_BUILT_APP_SHELL) return;
 
   if (url.pathname.includes('/assets/images/')) {
     event.respondWith(readInstalledPackage(request, IMAGE_CACHE_NAME));

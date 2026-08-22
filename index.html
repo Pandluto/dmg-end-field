@@ -4,10 +4,30 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#e9ecea" />
-    <meta name="description" content="离线优先的终末地配装、排轴与伤害计算工作台" />
+    <meta name="description" content="终末地配装、排轴与伤害计算工作台" />
     <meta name="dmg-app-shell-version" content="__DMG_APP_SHELL_VERSION__" />
+    <script>
+      (() => {
+        const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
+        const isSharePath = /^\/share\/[A-Za-z0-9_-]{16}$/.test(pathname);
+        const prefersMobileShareEntry = isSharePath && (
+          /Android|iPhone|iPod|Mobile/i.test(navigator.userAgent)
+          || (navigator.maxTouchPoints > 0 && window.innerWidth <= 900)
+        );
+        window.__DMG_MOBILE_ENTRY__ = pathname === '/mobile'
+          || window.location.hash.startsWith('#/mobile')
+          || prefersMobileShareEntry;
+        if (window.__DMG_MOBILE_ENTRY__) {
+          document.documentElement.dataset.mobileEntry = 'true';
+          return;
+        }
+        const manifest = document.createElement('link');
+        manifest.rel = 'manifest';
+        manifest.href = '/manifest.webmanifest';
+        document.head.appendChild(manifest);
+      })();
+    </script>
     <link rel="icon" href="./app-icon.png" type="image/png" />
-    <link rel="manifest" href="/manifest.webmanifest" />
     <title>终末地伤害工作台</title>
     <script>
       (() => {
@@ -34,6 +54,7 @@
     </script>
     <script>
       (() => {
+        if (window.__DMG_MOBILE_ENTRY__) return;
         if (!('serviceWorker' in navigator)) return;
         // The independent Electron Shell opens this page in the system browser.
         // That local host uses /sw-desktop.js for image/data caches only.
@@ -344,7 +365,7 @@
           recoveryRunning = true;
           writeRecoveryAttempt(attempt + 1);
           try {
-            if ('serviceWorker' in navigator) {
+            if ('serviceWorker' in navigator && !window.__DMG_MOBILE_ENTRY__) {
               await prepareRecoveryWorker();
             }
             const target = new URL(window.location.href);
@@ -397,6 +418,6 @@
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="/src/desktop-entry.ts"></script>
   </body>
 </html>

@@ -17,7 +17,6 @@
  */
 
 import React, { createContext, useCallback, useContext, useMemo, useReducer, ReactNode, useEffect, useRef } from 'react';
-import { flushSync } from 'react-dom';
 import { LOCAL_LIBRARY_CHANGED_EVENT } from '../constants/events';
 import {
   AppState,
@@ -30,7 +29,6 @@ import {
 import {
   cleanupStorage,
   getSelectedCharacterIds,
-  getRuntimeOperatorTemplateById,
   safeSessionStorage,
   setSelectedCharacterIds,
 } from '../utils/storage';
@@ -43,212 +41,71 @@ import {
   loadLocalOperatorCharacters,
   loadLocalOperatorDraftMap,
 } from '../core/services/localOperatorAdapter';
-import {
-  abandonReviewedSelectionProposal,
-  applyReviewedSelectionProposal,
-  applySelectionWorkspaceTransition,
-  ensureSelectionWorkspaceSourceCheckout,
-  prepareReviewedSelectionProposal,
-  type PersistedWorkspaceCheckout,
-  type PreparedSelectionProjectionCallbacks,
-  type PreparedSelectionProjectionTarget,
-} from '../core/services/selectionWorkspaceTransition';
+import { applySelectionWorkspaceTransition } from '../core/services/selectionWorkspaceTransition';
 import { getTimelineSessionSnapshot } from '../agentKernel/timelineRepository/timelineSession';
 import {
-  buildSandboxSkillsFromRuntimeTemplate,
   buildRuntimeOperatorTemplateFromDraft,
 } from '../core/services/operatorTemplateAdapter';
 import { setRuntimeOperatorTemplateMap } from '../utils/storage';
 import {
   getPendingMainWorkbenchCommands,
-  executeAgentProductCatalogCommand,
   patchMainWorkbenchCommand,
   pullRemoteMainWorkbenchCommands,
   pushMainWorkbenchCommandResult,
   pushMainWorkbenchSnapshot,
   readMainWorkbenchSnapshot,
-  projectMainWorkbenchButtonState,
-  projectMainWorkbenchCandidateBuff,
   writeMainWorkbenchSnapshot,
   type MainWorkbenchSnapshot,
 } from '../utils/mainWorkbenchControl';
 import {
   removeTimelineData,
-  getCandidateBuffList,
   setAllBuffList,
   setSkillButtonTable,
 } from '../core/repositories';
-import {
-  buildAiTimelineNodeReviewProjection,
-  emptyAiTimelineNodeReviewProjection,
-} from '../agentKernel/timelineWorktree/nodeReview';
-import { browserAgentRuntime } from '../platform/agent/browserAgentRuntime';
-import { diffPreparedPayloads } from '../platform/agent/preparedWorkNodeProposal';
-import { getCurrentTimelineSnapshotPayload } from '../utils/timelineSnapshotStorage';
-import { calculateNodeNumber } from '../utils/nodeNumbering';
 
-function exactCharacterRosterFromPayload(
-  characterIds: readonly string[],
-  availableCharacters: readonly Character[],
-): Character[] {
-  const byId = new Map<string, Character[]>();
-  for (const character of availableCharacters) {
-    byId.set(character.id, [...(byId.get(character.id) ?? []), character]);
-  }
-  const resolved = characterIds.map((characterId) => {
-    const matches = byId.get(characterId) ?? [];
-    if (matches.length !== 1) {
-      throw new Error(matches.length === 0
-        ? `selection checkout roster 缺少干员：${characterId}`
-        : `selection checkout roster 干员 ID 不唯一：${characterId}`);
-    }
-    return matches[0]!;
-  });
-  if (new Set(resolved.map((character) => character.id)).size !== resolved.length) {
-    throw new Error('selection checkout roster 含重复干员。');
-  }
-  return resolved;
-}
-
-function buildSelectionRuntimeButtons(
-  payload: PersistedWorkspaceCheckout['payload'],
-  selectedCharacters: readonly Character[],
-): SkillButton[] {
-  const selectedById = new Map(selectedCharacters.map((character, index) => [character.id, { character, index }]));
-  return Object.values(payload.skillButtonTable)
-    .sort((left, right) => (left.nodeIndex - right.nodeIndex) || left.id.localeCompare(right.id))
-    .map((button) => {
-      const resolved = selectedById.get(button.characterId || '')
-        ?? [...selectedById.values()].find(({ character }) => character.name === button.characterName);
-      if (!resolved
-        || (button.characterId && button.characterId !== resolved.character.id)
-        || button.characterName !== resolved.character.name) {
-        throw new Error(`selection checkout button ${button.id} 无法精确绑定 roster。`);
-      }
-      const globalNodeIndex = Number.isSafeInteger(button.nodeIndex) && button.nodeIndex >= 0
-        ? button.nodeIndex
-        : 0;
-      const localNodeIndex = globalNodeIndex % GRID_NODE_COUNT;
-      return {
-        id: button.id,
-        characterId: resolved.character.id,
-        characterName: resolved.character.name,
-        skillType: button.skillType as SkillType,
-        position: { ...button.position },
-        staffIndex: Math.floor(globalNodeIndex / GRID_NODE_COUNT),
-        lineIndex: resolved.index,
-        nodeIndex: localNodeIndex,
-        nodeNumber: calculateNodeNumber(localNodeIndex),
-        isDragging: false,
-        isSelected: false,
-        isFromSandbox: true,
-        runtimeSkillId: button.runtimeSkillId,
-        skillDisplayName: button.skillDisplayName,
-        skillIconUrl: button.skillIconUrl,
-        customHits: button.customHits,
-        element: resolved.character.element,
-      };
-    });
-}
-
-export function buildSelectionWorkbenchSnapshot(
-  selectedCharacters: readonly Character[],
+function buildSelectionWorkbenchSnapshot(
+  selectedCharacters: Character[],
   currentView: ViewType,
-  source: PersistedWorkspaceCheckout,
+  skillButtons: SkillButton[],
 ): MainWorkbenchSnapshot {
   const previousSnapshot = readMainWorkbenchSnapshot();
-  const buffById = new Map(source.payload.allBuffList.map((buff) => [buff.id, buff]));
-  const mirroredButtons: MainWorkbenchSnapshot['skillButtons'] = Object.values(source.payload.skillButtonTable)
-    .sort((left, right) => (left.nodeIndex - right.nodeIndex) || left.id.localeCompare(right.id))
-    .map((button) => {
-      const lineIndex = selectedCharacters.findIndex((character) => (
-        character.id === button.characterId || character.name === button.characterName
-      ));
-      if (lineIndex < 0) throw new Error(`selection snapshot button ${button.id} 不属于正式 roster。`);
-      const localNodeIndex = button.nodeIndex % GRID_NODE_COUNT;
-      return {
+  const selectedKeys = new Set(selectedCharacters.flatMap((character) => [character.id, character.name]));
+  const selectedLineIndex = new Map(selectedCharacters.flatMap((character, index) => [
+    [character.id, index],
+    [character.name, index],
+  ]));
+  const previousButtons = Array.isArray(previousSnapshot?.skillButtons) ? previousSnapshot.skillButtons : [];
+  const sourceButtons = skillButtons.length > 0
+    ? skillButtons.map((button) => ({
         id: button.id,
-        characterId: button.characterId || selectedCharacters[lineIndex]!.id,
+        characterId: button.characterId,
         characterName: button.characterName,
-        skillType: button.skillType as SkillType,
+        skillType: button.skillType,
         runtimeSkillId: button.runtimeSkillId,
         skillDisplayName: button.skillDisplayName,
-        staffIndex: Math.floor(button.nodeIndex / GRID_NODE_COUNT),
+        staffIndex: button.staffIndex,
+        lineIndex: button.lineIndex,
+        persistenceStaffIndex: button.lineIndex,
+        persistenceNodeIndex: button.staffIndex * GRID_NODE_COUNT + (button.nodeIndex ?? 0),
+        nodeIndex: button.nodeIndex,
+        nodeNumber: button.nodeNumber,
+        selectedBuffIds: [],
+      }))
+    : previousButtons;
+  const mirroredButtons = sourceButtons
+    .filter((button) => selectedKeys.has(button.characterId) || selectedKeys.has(button.characterName))
+    .map((button) => {
+      const lineIndex = selectedLineIndex.get(button.characterId) ?? selectedLineIndex.get(button.characterName) ?? button.lineIndex;
+      return {
+        ...button,
         lineIndex,
         persistenceStaffIndex: lineIndex,
-        persistenceNodeIndex: button.nodeIndex,
-        nodeIndex: localNodeIndex,
-        nodeNumber: calculateNodeNumber(localNodeIndex),
-        ...projectMainWorkbenchButtonState({
-          selectedBuffIds: button.selectedBuff,
-          selectedBuffs: button.selectedBuff.map((buffId) => buffById.get(buffId)).filter(Boolean),
-          buffStackCounts: button.buffStackCounts,
-          panelConfig: button.panelConfig,
-          targetResistance: button.resistanceConfig?.targetResistance,
-        }),
+        persistenceNodeIndex: button.staffIndex * GRID_NODE_COUNT + (button.nodeIndex ?? 0),
+        selectedBuffIds: [...(button.selectedBuffIds ?? [])],
       };
     });
-  const skillCatalog: NonNullable<MainWorkbenchSnapshot['skillCatalog']> = selectedCharacters.flatMap((character) => {
-    const template = getRuntimeOperatorTemplateById(character.id);
-    const skills = template
-      ? buildSandboxSkillsFromRuntimeTemplate(template)
-      : character.sandboxSkills ?? [];
-    return skills.map((skill) => ({
-      characterId: character.id,
-      characterName: character.name,
-      skillId: skill.id,
-      skillType: skill.buttonType,
-      skillDisplayName: skill.displayName,
-      source: skill.source,
-    }));
-  });
-  const candidateBuffs = getCandidateBuffList().map((buff) => projectMainWorkbenchCandidateBuff(buff));
-  const operatorConfigs: MainWorkbenchSnapshot['operatorConfigs'] = selectedCharacters.flatMap((character) => {
-    const configSnapshot = source.payload.operatorConfigPageCache[character.id];
-    if (!configSnapshot) return [];
-    return [{
-      characterId: character.id,
-      characterName: character.name,
-      weapon: {
-        id: configSnapshot.weapon.id,
-        name: configSnapshot.weapon.name,
-        level: configSnapshot.weapon.config.level,
-        potential: configSnapshot.weapon.config.potential,
-        skillLevels: configSnapshot.weapon.config.skillLevels,
-        attack: configSnapshot.weapon.attack,
-      },
-      equipment: configSnapshot.equipment.pieces.map((piece) => ({
-        slotKey: piece.slotKey,
-        equipmentId: piece.equipmentId,
-        name: piece.name,
-        part: piece.part,
-        effects: piece.effects.map((effect) => ({
-          effectId: effect.effectId,
-          label: effect.label,
-          typeKey: effect.typeKey,
-          level: effect.level,
-          value: effect.value,
-        })),
-      })),
-      setBuffs: configSnapshot.equipment.setBuffs.map((buff) => ({
-        gearSetId: buff.gearSetId,
-        gearSetName: buff.gearSetName,
-        effectId: buff.effectId,
-        label: buff.label,
-        typeKey: buff.typeKey,
-        value: buff.value,
-        category: buff.category,
-        effectKind: buff.effectKind,
-      })),
-      operatorSkillLevels: configSnapshot.operator.skillConfig,
-    }];
-  });
   const previousDamageReport = previousSnapshot?.damageReport;
-  const canReuseDamageReport = Boolean(
-    previousDamageReport
-    && typeof previousDamageReport.totalDamage === 'number'
-    && Array.isArray(previousDamageReport.characters),
-  ) &&
+  const canReuseDamageReport = Boolean(previousDamageReport) &&
     previousSnapshot?.skillButtons?.length === mirroredButtons.length &&
     previousDamageReport?.buttonCount === mirroredButtons.length;
 
@@ -256,14 +113,6 @@ export function buildSelectionWorkbenchSnapshot(
     schemaVersion: 1,
     updatedAt: Date.now(),
     source: 'app',
-    timelineId: source.document.id,
-    activeTimelineId: source.document.id,
-    checkout: {
-      targetType: source.checkoutRef.targetType,
-      targetId: source.checkoutRef.targetId,
-      contentRevision: source.contentRevision,
-      updatedAt: source.checkoutRef.updatedAt,
-    },
     currentView,
     selectedCharacters: selectedCharacters.map((character) => ({
       id: character.id,
@@ -272,17 +121,19 @@ export function buildSelectionWorkbenchSnapshot(
       profession: character.profession,
       librarySource: character.librarySource,
     })),
-    skillCatalog,
-    candidateBuffs,
     skillButtons: mirroredButtons,
-    damageReportStatus: 'placeholder',
     damageReport: canReuseDamageReport && previousDamageReport
       ? previousDamageReport
-      : undefined,
-    operatorConfigs,
-    nodeReview: source.sourceNode
-      ? buildAiTimelineNodeReviewProjection(source.sourceNode, source.checkoutRef)
-      : emptyAiTimelineNodeReviewProjection(),
+      : {
+          generatedAt: 0,
+          totalExpected: 0,
+          totalNonCrit: 0,
+          buttonCount: mirroredButtons.length,
+          buttons: [],
+        },
+    operatorConfigs: (previousSnapshot?.operatorConfigs ?? []).filter((config) =>
+      selectedKeys.has(config.characterId) || selectedKeys.has(config.characterName)
+    ),
   };
 }
 
@@ -500,15 +351,10 @@ const AppContext = createContext<AppContextType | null>(null);
  */
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(appReducer, initialState);
-  const [agentRouteRevision, bumpAgentRouteRevision] = useReducer((revision: number) => revision + 1, 0);
   const selectedCharactersHydratedRef = useRef(false);
   const canvasLocalRefreshSignatureRef = useRef<string | null>(null);
   const loadedCharactersSignatureRef = useRef<string | null>(null);
   const isProcessingWorkbenchCommandRef = useRef(false);
-  const retryAppWorkbenchCommandRef = useRef(false);
-  const processMainWorkbenchSelectionCommandRef = useRef<(pullRemote?: boolean) => Promise<void>>(async () => undefined);
-  const stateRef = useRef(state);
-  stateRef.current = state;
 
   const refreshSelectedLocalCharacters = useCallback((selectedCharacters: Character[]) => {
     const localDraftMap = loadLocalOperatorDraftMap();
@@ -656,156 +502,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return refreshedCharacters;
   }, [buildRestorableCharacterMap, rebuildSelectedRuntimeTemplateMap, state.selectedCharacters]);
 
-  const buildPreparedSelectionProjection = useCallback((): PreparedSelectionProjectionCallbacks => {
-    const commitProjection = (target: PreparedSelectionProjectionTarget) => {
-      const buttons = buildSelectionRuntimeButtons(target.payload, target.characters);
-      rebuildSelectedRuntimeTemplateMap([...target.characters]);
-      flushSync(() => {
-        dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: [...target.characters] });
-        dispatch({ type: 'SET_SKILL_BUTTONS', buttons });
-        dispatch({ type: 'SET_VIEW', view: target.currentView });
-      });
-    };
-    const verifyProjection = async (target: PreparedSelectionProjectionTarget) => {
-      const current = stateRef.current;
-      const expectedRoster = target.characters.map((character) => `${character.id}\u0000${character.name}`);
-      const observedRoster = current.selectedCharacters.map((character) => `${character.id}\u0000${character.name}`);
-      const expectedButtonIds = Object.keys(target.payload.skillButtonTable).sort();
-      const observedStateButtonIds = current.skillButtons.map((button) => button.id).sort();
-      const visibleButtonIds = [...document.querySelectorAll<HTMLElement>('[data-skill-button-id]')]
-        .map((element) => element.dataset.skillButtonId || '')
-        .filter(Boolean)
-        .sort();
-      const rosterPass = JSON.stringify(observedRoster) === JSON.stringify(expectedRoster);
-      const stateButtonsPass = JSON.stringify(observedStateButtonIds) === JSON.stringify(expectedButtonIds);
-      const viewPass = current.currentView === target.currentView;
-      const visibleViewPass = target.currentView === 'canvas'
-        ? Boolean(document.querySelector('.canvas-board'))
-          && JSON.stringify(visibleButtonIds) === JSON.stringify(expectedButtonIds)
-        : Boolean(document.querySelector('.selection-workbench-layout'));
-      const pass = rosterPass && stateButtonsPass && viewPass && visibleViewPass;
-      return {
-        pass,
-        ...(pass ? {} : { reason: 'selection React roster/button/view 或可见页面后置条件不精确。' }),
-        observed: {
-          roster: current.selectedCharacters.map((character) => ({ id: character.id, name: character.name })),
-          stateButtonIds: observedStateButtonIds,
-          visibleButtonIds,
-          currentView: current.currentView,
-          expectedView: target.currentView,
-        },
-      };
-    };
-    return {
-      apply: commitProjection,
-      verify: verifyProjection,
-      restore: commitProjection,
-    };
-  }, [rebuildSelectedRuntimeTemplateMap]);
-
-  const processMainWorkbenchSelectionCommand = useCallback(async (pullRemote = false) => {
-    if (!selectedCharactersHydratedRef.current) return;
+  const processMainWorkbenchSelectionCommand = useCallback(async () => {
     if (isProcessingWorkbenchCommandRef.current) {
-      retryAppWorkbenchCommandRef.current = true;
       return;
     }
     isProcessingWorkbenchCommandRef.current = true;
     try {
-      if (pullRemote) await pullRemoteMainWorkbenchCommands();
-      const commandEntry = getPendingMainWorkbenchCommands([
-        'queryAgentProductCatalog',
-        'selectCharacters',
-        'openView',
-        'clearTimeline',
-        'openWorkbenchPage',
-        'prepareReviewedWorkNodeProposal',
-        'applyReviewedWorkNodeProposal',
-        'abandonPreparedWorkNodeProposal',
-      ]).find((entry) => {
-        if (entry.command.op === 'prepareReviewedWorkNodeProposal') {
-          return entry.command.intent === 'selection';
-        }
-        if (entry.command.op === 'applyReviewedWorkNodeProposal'
-          || entry.command.op === 'abandonPreparedWorkNodeProposal') {
-          return entry.command.candidate.intent === 'selection';
-        }
-        return true;
-      });
+      await pullRemoteMainWorkbenchCommands();
+      const commandEntry = getPendingMainWorkbenchCommands(['selectCharacters', 'openView', 'clearTimeline', 'openWorkbenchPage'])[0];
       if (!commandEntry) {
         return;
       }
 
       patchMainWorkbenchCommand(commandEntry.id, { status: 'running' });
       const command = commandEntry.command;
-      const settleCommand = (patch: Parameters<typeof patchMainWorkbenchCommand>[1]) => {
-        const settledEntry = patchMainWorkbenchCommand(commandEntry.id, patch);
-        if (settledEntry) void pushMainWorkbenchCommandResult(settledEntry);
-      };
       try {
-        if (command.op === 'queryAgentProductCatalog') {
-          settleCommand({ status: 'done', result: executeAgentProductCatalogCommand(command) });
-          return;
-        }
-
-        if (command.op === 'prepareReviewedWorkNodeProposal') {
-          if (command.intent !== 'selection') {
-            throw new Error('AppContext 只消费 selection prepared proposal。');
-          }
-          const result = await prepareReviewedSelectionProposal({
-            operation: command.operation,
-            scope: command.scope,
-            sourceBinding: command.sourceBinding,
-            currentBinding: browserAgentRuntime.getBinding(),
-            roster: command.roster,
-            availableCharacters: stateRef.current.loadedCharacters,
-          });
-          settleCommand({
-            status: result.ok ? 'done' : 'error',
-            result,
-            ...(result.ok ? {} : { error: result.message }),
-          });
-          return;
-        }
-
-        if (command.op === 'applyReviewedWorkNodeProposal') {
-          const result = await applyReviewedSelectionProposal({
-            operation: command.operation,
-            candidate: command.candidate,
-            currentBinding: browserAgentRuntime.getBinding(),
-            availableCharacters: stateRef.current.loadedCharacters,
-            previousView: stateRef.current.currentView,
-            projection: buildPreparedSelectionProjection(),
-          });
-          if (result.ok) bumpAgentRouteRevision();
-          settleCommand({
-            status: result.ok ? 'done' : 'error',
-            result,
-            ...(result.ok ? {} : { error: result.message }),
-          });
-          return;
-        }
-
-        if (command.op === 'abandonPreparedWorkNodeProposal') {
-          const result = await abandonReviewedSelectionProposal({
-            candidate: command.candidate,
-            currentBinding: browserAgentRuntime.getBinding(),
-            reason: command.reason,
-          });
-          const deleted = result.ok && result.cleanup.status === 'deleted';
-          settleCommand({
-            status: deleted ? 'done' : 'error',
-            result,
-            ...(deleted ? {} : { error: result.cleanup.reason || 'selection candidate 未删除。' }),
-          });
-          return;
-        }
-
         if (command.op === 'openView') {
           dispatch({ type: 'SET_VIEW', view: command.view });
-          settleCommand({
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
             status: 'done',
             result: { view: command.view },
           });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
           return;
         }
 
@@ -814,10 +532,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setSkillButtonTable({});
           setAllBuffList([]);
           dispatch({ type: 'CLEAR_SKILL_BUTTONS' });
-          settleCommand({
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
             status: 'done',
             result: { cleared: true },
           });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
           return;
         }
 
@@ -832,7 +551,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             damageReportPpt: APP_ROUTE_PATHS.damageReportPpt,
           };
           if (command.characterId || command.characterName) {
-            const restorableCharacterMap = buildRestorableCharacterMap(stateRef.current.loadedCharacters);
+            const restorableCharacterMap = buildRestorableCharacterMap(state.loadedCharacters);
             const target = command.characterId
               ? restorableCharacterMap.get(command.characterId)
               : [...restorableCharacterMap.values()].find((character) => character.name === command.characterName);
@@ -848,10 +567,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
             const route = pageRoutes[command.page];
             if (route) navigateToAppPath(route);
           }
-          settleCommand({
+          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
             status: 'done',
             result: { page: command.page },
           });
+          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
           return;
         }
 
@@ -869,8 +589,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           throw new Error('selectCharacters requires characterIds or characterNames');
         }
 
-        const currentState = stateRef.current;
-        const restorableCharacterMap = buildRestorableCharacterMap(currentState.loadedCharacters);
+        const restorableCharacterMap = buildRestorableCharacterMap(state.loadedCharacters);
         const charactersByName = new Map<string, Character>();
         restorableCharacterMap.forEach((character) => {
           charactersByName.set(character.name, character);
@@ -892,7 +611,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const transitionResult = await applySelectionWorkspaceTransition({
           activeTimelineId: timelineSession.activeTimelineId,
           activeTimelineIsTemporary: timelineSession.activeTimelineIsTemporary,
-          previousCharacters: currentState.selectedCharacters,
+          previousCharacters: state.selectedCharacters,
           nextCharacters: selected,
           actor: 'ai',
           nodeTitle: command.nodeTitle,
@@ -902,7 +621,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: selected });
         dispatch({ type: 'SET_VIEW', view: command.openCanvas === false ? 'selection' : 'canvas' });
 
-        settleCommand({
+        const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
           status: 'done',
           result: {
             selectedCharacters: selected.map((character) => ({ id: character.id, name: character.name })),
@@ -912,23 +631,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
             nodeId: transitionResult.nodeId,
           },
         });
+        if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
       } catch (error) {
-        settleCommand({
+        const errorEntry = patchMainWorkbenchCommand(commandEntry.id, {
           status: 'error',
           error: error instanceof Error ? error.message : String(error),
         });
+        if (errorEntry) void pushMainWorkbenchCommandResult(errorEntry);
       }
     } finally {
       isProcessingWorkbenchCommandRef.current = false;
-      if (retryAppWorkbenchCommandRef.current) {
-        retryAppWorkbenchCommandRef.current = false;
-        window.setTimeout(() => {
-          void processMainWorkbenchSelectionCommandRef.current(false);
-        }, 50);
-      }
     }
-  }, [buildPreparedSelectionProjection, buildRestorableCharacterMap]);
-  processMainWorkbenchSelectionCommandRef.current = processMainWorkbenchSelectionCommand;
+  }, [buildRestorableCharacterMap, state.loadedCharacters, state.selectedCharacters]);
 
   // 组件首次挂载时自动加载干员数据
   useEffect(() => {
@@ -951,78 +665,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (!selectedCharactersHydratedRef.current) {
+      return undefined;
+    }
+    void processMainWorkbenchSelectionCommand();
     const handleControlEvent = () => {
-      void processMainWorkbenchSelectionCommandRef.current(false);
+      void processMainWorkbenchSelectionCommand();
     };
     const timer = window.setInterval(() => {
-      void processMainWorkbenchSelectionCommandRef.current(false);
+      void processMainWorkbenchSelectionCommand();
     }, 1200);
     window.addEventListener('def-main-workbench-control', handleControlEvent);
     return () => {
       window.clearInterval(timer);
       window.removeEventListener('def-main-workbench-control', handleControlEvent);
     };
-  }, []);
-
-  useEffect(() => {
-    void processMainWorkbenchSelectionCommandRef.current(false);
-  }, [state.loadedCharacters]);
-
-  useEffect(() => {
-    const handleHashChange = () => bumpAgentRouteRevision();
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
-  }, []);
-
-  useEffect(() => {
-    if (state.currentView === 'canvas') return undefined;
-    if (!browserAgentRuntime.isActive()) {
-      browserAgentRuntime.cancelCommandPull();
-      return undefined;
-    }
-    let stopped = false;
-    let running = false;
-    let retryDelay = 100;
-    let timer: number | null = null;
-    const schedule = (delay: number) => {
-      if (stopped || timer !== null) return;
-      timer = window.setTimeout(() => {
-        timer = null;
-        void runOnce();
-      }, Math.max(25, Math.min(delay, 1000)));
-    };
-    const runOnce = async () => {
-      if (stopped || running || document.visibilityState !== 'visible') {
-        if (!stopped && document.visibilityState !== 'visible') schedule(250);
-        return;
-      }
-      running = true;
-      try {
-        await processMainWorkbenchSelectionCommandRef.current(true);
-        retryDelay = 100;
-        schedule(25);
-      } catch (error) {
-        if (!stopped) {
-          console.warn('[AppContext] selection Agent command pull failed; bounded retry scheduled.', error);
-          schedule(retryDelay);
-          retryDelay = Math.min(retryDelay * 2, 1000);
-        }
-      } finally {
-        running = false;
-      }
-    };
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') void runOnce();
-    };
-    void runOnce();
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      stopped = true;
-      if (timer !== null) window.clearTimeout(timer);
-      browserAgentRuntime.cancelCommandPull();
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [agentRouteRevision, state.currentView]);
+  }, [processMainWorkbenchSelectionCommand, state.loadedCharacters]);
 
   useEffect(() => {
     if (!selectedCharactersHydratedRef.current) {
@@ -1065,45 +723,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!selectedCharactersHydratedRef.current || state.currentView === 'canvas') {
-      return undefined;
+      return;
     }
-    let cancelled = false;
-    void (async () => {
-      try {
-        const source = await ensureSelectionWorkspaceSourceCheckout(stateRef.current.selectedCharacters);
-        const runtimePayload = getCurrentTimelineSnapshotPayload();
-        const sourceIds = source.payload.selectedCharacters;
-        const storedIds = getSelectedCharacterIds();
-        const currentIds = stateRef.current.selectedCharacters.map((character) => character.id);
-        const liveMatchesFormalCheckout = Boolean(
-          runtimePayload
-          && diffPreparedPayloads(source.payload, runtimePayload).changes.length === 0
-          && JSON.stringify(storedIds) === JSON.stringify(sourceIds)
-          && JSON.stringify(currentIds) === JSON.stringify(sourceIds)
-        );
-        if (!liveMatchesFormalCheckout) {
-          throw new Error('selection live draft differs from the formal checkout; writable binding is suspended.');
-        }
-        const resolvedCharacters = exactCharacterRosterFromPayload(
-          sourceIds,
-          stateRef.current.loadedCharacters,
-        );
-        if (cancelled || stateRef.current.currentView === 'canvas') return;
-        rebuildSelectedRuntimeTemplateMap(resolvedCharacters);
-        const snapshot = buildSelectionWorkbenchSnapshot(resolvedCharacters, stateRef.current.currentView, source);
-        writeMainWorkbenchSnapshot(snapshot);
-        await pushMainWorkbenchSnapshot(snapshot);
-      } catch (error) {
-        // Fail closed: without a persisted checkout payload and its target CAS
-        // revision the selection page must not publish a writable binding.
-        await browserAgentRuntime.suspendWritableBinding().catch(() => undefined);
-        console.warn('[AppContext] selection source checkout is not publishable.', error);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [agentRouteRevision, rebuildSelectedRuntimeTemplateMap, state.currentView, state.loadedCharacters, state.selectedCharacters]);
+    const snapshot = buildSelectionWorkbenchSnapshot(state.selectedCharacters, state.currentView, state.skillButtons);
+    writeMainWorkbenchSnapshot(snapshot);
+    void pushMainWorkbenchSnapshot(snapshot);
+  }, [state.currentView, state.selectedCharacters, state.skillButtons]);
 
   const contextValue = useMemo(() => ({
     state,

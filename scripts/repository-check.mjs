@@ -111,6 +111,7 @@ for (const required of [
   '.github/workflows/release.yml',
   'public/web-data-manifest.json',
   'public/web-image-manifest.json',
+  'public/resources/stable.json',
 ]) {
   if (!fs.existsSync(path.join(root, required))) fail(`missing required repository file: ${required}`);
 }
@@ -635,6 +636,39 @@ if (packageJson.scripts?.['electron:smoke:agent-package'] !== 'node scripts/chec
   fail('Packaged OpenCode Agent Host smoke script is missing or invalid');
 }
 
+const resourceChannel = readJson('public/resources/stable.json');
+if (
+  resourceChannel.type !== 'dmg.resource-channel.v1'
+  || resourceChannel.schemaVersion !== 1
+  || resourceChannel.channel !== 'stable'
+  || typeof resourceChannel.releaseVersion !== 'string'
+  || !resourceChannel.releaseManifest
+) {
+  fail('public stable resource channel is invalid');
+}
+const releaseBase = `resources/releases/${resourceChannel.releaseVersion}`;
+const releaseManifestRelativePath = `public/${resourceChannel.releaseManifest?.path || ''}`;
+let resourceDeployment = null;
+if (!fs.existsSync(path.join(root, releaseManifestRelativePath))) {
+  fail(`missing resource deployment manifest: ${releaseManifestRelativePath}`);
+} else {
+  const releaseManifestBytes = fs.readFileSync(path.join(root, releaseManifestRelativePath));
+  if (
+    releaseManifestBytes.byteLength !== resourceChannel.releaseManifest.size
+    || crypto.createHash('sha256').update(releaseManifestBytes).digest('hex')
+      !== resourceChannel.releaseManifest.sha256
+  ) {
+    fail('stable resource deployment descriptor does not match its file');
+  }
+  resourceDeployment = JSON.parse(releaseManifestBytes.toString('utf8'));
+  if (
+    resourceDeployment.type !== 'dmg.resource-deployment.v1'
+    || resourceDeployment.releaseVersion !== resourceChannel.releaseVersion
+  ) {
+    fail('stable resource deployment does not match the channel version');
+  }
+}
+
 const dataManifest = readJson('public/web-data-manifest.json');
 if (
   dataManifest.schemaVersion !== 1
@@ -643,6 +677,13 @@ if (
 ) {
   fail('public web data manifest is invalid');
 } else {
+  const expectedDataFiles = ['data/default-local-data.json'];
+  if (
+    dataManifest.files.length !== expectedDataFiles.length
+    || dataManifest.files.some((entry, index) => entry.path !== expectedDataFiles[index])
+  ) {
+    fail('public web data package must contain only the canonical default archive');
+  }
   let totalBytes = 0;
   for (const entry of dataManifest.files) {
     if (!isPortableRelativePath(entry.path) || !entry.path.startsWith('data/')) {
@@ -650,6 +691,19 @@ if (
       continue;
     }
     const absolutePath = path.join(root, 'public', entry.path);
+    if (
+      !isPortableRelativePath(entry.downloadPath)
+      || !entry.downloadPath.startsWith(`${releaseBase}/data/`)
+    ) {
+      fail(`invalid versioned web data path: ${entry.downloadPath}`);
+    } else {
+      const immutablePath = path.join(root, 'public', entry.downloadPath);
+      if (!fs.existsSync(immutablePath)) {
+        fail(`missing versioned web data file: ${entry.downloadPath}`);
+      } else if (!fs.readFileSync(immutablePath).equals(fs.readFileSync(absolutePath))) {
+        fail(`root and versioned web data differ: ${entry.path}`);
+      }
+    }
     if (!fs.existsSync(absolutePath)) {
       fail(`missing web data file: ${entry.path}`);
       continue;
@@ -667,6 +721,30 @@ if (
     if (sha256(absolutePath) !== entry.sha256) fail(`web data hash mismatch: ${entry.path}`);
   }
   if (totalBytes !== dataManifest.totalBytes) fail('web data totalBytes mismatch');
+
+  const defaultArchive = readJson('public/data/default-local-data.json');
+  const local = defaultArchive.storage?.local;
+  const expectedLibraryKeys = [
+    'def.buff-editor.library.v1',
+    'def.equipment-sheet.library.v1',
+    'def.operator-editor.library.v1',
+    'def.weapon-sheet.library.v1',
+  ];
+  const actualLibraryKeys = local && typeof local === 'object' && !Array.isArray(local)
+    ? Object.keys(local).sort()
+    : [];
+  if (JSON.stringify(actualLibraryKeys) !== JSON.stringify(expectedLibraryKeys)) {
+    fail('default local data must contain only canonical libraries');
+  }
+  const countRecord = (value) => (
+    value && typeof value === 'object' && !Array.isArray(value) ? Object.keys(value).length : 0
+  );
+  if (
+    dataManifest.summary?.operators !== countRecord(local?.['def.operator-editor.library.v1'])
+    || dataManifest.summary?.weapons !== countRecord(local?.['def.weapon-sheet.library.v1'])
+  ) {
+    fail('web data summary does not match canonical library counts');
+  }
 }
 
 const imageManifest = readJson('public/web-image-manifest.json');
@@ -678,6 +756,9 @@ if (
 ) {
   fail('public web image manifest is invalid');
 } else {
+  if (dataManifest.summary?.images !== imageManifest.files.length) {
+    fail('web data summary does not match image package count');
+  }
   let totalBytes = 0;
   const imagePaths = new Set();
   for (const entry of imageManifest.files) {
@@ -693,8 +774,9 @@ if (
   if (totalBytes !== imageManifest.totalBytes) fail('web image totalBytes mismatch');
   if (
     !isPortableRelativePath(imageManifest.archive.path)
-    || !imageManifest.archive.path.startsWith('packages/')
+    || !imageManifest.archive.path.startsWith(`${releaseBase}/images/`)
     || !/^[a-f0-9]{64}$/.test(imageManifest.archive.sha256)
+    || 'sourceUrl' in imageManifest.archive
   ) {
     fail('web image archive descriptor is invalid');
   }
@@ -706,7 +788,7 @@ if (
       for (const part of imageManifest.archive.parts) {
         if (
           !isPortableRelativePath(part.path)
-          || !part.path.startsWith('packages/')
+          || !part.path.startsWith(`${releaseBase}/packages/`)
           || !/^[a-f0-9]{64}$/.test(part.sha256)
           || !Number.isSafeInteger(part.size)
           || part.size <= 0
@@ -734,6 +816,44 @@ if (
     if ('rootDirectory' in entry || 'publicUrl' in entry) {
       fail(`browser image index entry ${index} leaks a desktop path or URL`);
     }
+  }
+}
+
+if (resourceDeployment) {
+  for (const [label, descriptor, rootAlias] of [
+    ['data', resourceDeployment.delivery?.dataManifest, 'public/web-data-manifest.json'],
+    ['image', resourceDeployment.delivery?.imageManifest, 'public/web-image-manifest.json'],
+  ]) {
+    if (!descriptor || !isPortableRelativePath(descriptor.path)) {
+      fail(`resource deployment ${label} manifest descriptor is invalid`);
+      continue;
+    }
+    const absolutePath = path.join(root, 'public', descriptor.path);
+    if (!fs.existsSync(absolutePath)) {
+      fail(`resource deployment ${label} manifest is missing`);
+      continue;
+    }
+    const bytes = fs.readFileSync(absolutePath);
+    if (
+      bytes.byteLength !== descriptor.size
+      || crypto.createHash('sha256').update(bytes).digest('hex') !== descriptor.sha256
+    ) {
+      fail(`resource deployment ${label} manifest hash mismatch`);
+    }
+    if (!bytes.equals(fs.readFileSync(path.join(root, rootAlias)))) {
+      fail(`root ${label} manifest is not the stable release alias`);
+    }
+  }
+}
+
+for (const file of files.filter((candidate) => (
+  candidate === 'worker/index.ts'
+  || candidate === 'public/web-image-manifest.json'
+  || candidate.startsWith('scripts/')
+))) {
+  const content = fs.readFileSync(path.join(root, file), 'utf8');
+  if (/github\.com\/[^\s"']+\/releases\/(?:latest\/download|download\/)/i.test(content)) {
+    fail(`GitHub Release resource fallback returned: ${file}`);
   }
 }
 

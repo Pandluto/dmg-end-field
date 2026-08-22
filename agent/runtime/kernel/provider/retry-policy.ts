@@ -27,12 +27,14 @@ export const DEFAULT_RETRY_POLICY: RetryPolicy = Object.freeze({
   jitterRatio: 0.2,
 });
 
+export type RetryTimerHandle = number | ReturnType<typeof setTimeout>;
+
 export interface RetryTimers {
   readonly setTimeout?: (
     callback: () => void,
     delayMs: number,
-  ) => ReturnType<typeof setTimeout>;
-  readonly clearTimeout?: (handle: ReturnType<typeof setTimeout>) => void;
+  ) => RetryTimerHandle;
+  readonly clearTimeout?: (handle: RetryTimerHandle) => void;
 }
 
 export class RetryAbortedError extends Error {
@@ -109,7 +111,7 @@ export function waitForRetry(
       return;
     }
 
-    let handle: ReturnType<typeof setTimeout> | undefined;
+    let handle: RetryTimerHandle | undefined;
     const onAbort = () => {
       if (handle !== undefined) clear(handle);
       signal?.removeEventListener('abort', onAbort);

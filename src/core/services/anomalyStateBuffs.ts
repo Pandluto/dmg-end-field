@@ -6,7 +6,7 @@ const COMBO_ULTIMATE_BONUS_BY_LEVEL = [0.2, 0.3, 0.4, 0.5];
 const IMBALANCE_FIXED_BONUS = 0.3;
 
 export function buildAnomalyStateDerivedBuffs(
-  cards: Array<Pick<PersistedAnomalyCard, 'id' | 'key' | 'label' | 'primaryText' | 'level'>>,
+  cards: Array<Pick<PersistedAnomalyCard, 'id' | 'key' | 'label' | 'primaryText' | 'level' | 'sourceCharacterId'>>,
   buttonSkillType: SkillType | string
 ): SkillButtonBuff[] {
   return cards.flatMap((card) => {
@@ -22,6 +22,9 @@ export function buildAnomalyStateDerivedBuffs(
         return [];
       }
 
+      const sourceCharacterId = typeof card.sourceCharacterId === 'string' && card.sourceCharacterId.trim()
+        ? card.sourceCharacterId
+        : undefined;
       return [{
         id: `anomaly-state-${card.id}`,
         name: card.key,
@@ -35,6 +38,8 @@ export function buildAnomalyStateDerivedBuffs(
         condition: '状态区入口',
         refCount: 1,
         target: { mode: 'all' },
+        ownerCharacterId: sourceCharacterId,
+        ownerBuffDomain: sourceCharacterId ? 'operator' : undefined,
       }];
     }
 
@@ -73,6 +78,8 @@ export function buildAnomalyStateSnapshotBuffs(
         condition: '异常状态快照',
         refCount: 1,
         target: { mode: 'all' },
+        ownerCharacterId: snapshot.sourceCharacterId,
+        ownerBuffDomain: 'operator',
       }];
     }
 
@@ -90,6 +97,8 @@ export function buildAnomalyStateSnapshotBuffs(
         condition: '异常状态快照',
         refCount: 1,
         target: { mode: 'all' },
+        ownerCharacterId: snapshot.sourceCharacterId,
+        ownerBuffDomain: 'operator',
       }];
     }
 
@@ -107,6 +116,8 @@ export function buildAnomalyStateSnapshotBuffs(
         condition: '异常状态快照',
         refCount: 1,
         target: { mode: 'all' },
+        ownerCharacterId: snapshot.sourceCharacterId,
+        ownerBuffDomain: 'operator',
       }];
     }
 

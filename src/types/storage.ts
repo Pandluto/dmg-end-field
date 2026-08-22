@@ -301,6 +301,8 @@ export interface PersistedAnomalyCard {
   category: 'magic' | 'physical';
   level: number;
   sourceName?: string;
+  /** 施加干员 ID（RDPS 归因用）；缺失时不得按名称猜测。 */
+  sourceCharacterId?: string;
   includeDotInTotal?: boolean;
   burnDamageMode?: 'dotOnly' | 'initialOnly' | 'splitDot';
   durationSeconds?: number;

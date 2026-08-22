@@ -1,5 +1,11 @@
 # Operator Studio Spec 4 - 技能 ID 类型化命名与列表筛选
 
+## Status
+
+已实现。
+
+> **现行状态说明（2026-08-14）：** 本 spec 描述的能力已按代码现状实现并保持有效；下文需求文字保留为历史设计记录。实现现状以代码与相关运行时合同为准，历史文字不得用于重新引入已退役行为。
+
 ## Why
 
 `operator-studio` 当前用 `skills: Record<string, OperatorDraftSkill>` 维护技能集合，技能 key 通常是 `skill-1 / skill-2 / skill-3...`。这个 key 不只是页面内部列表编号，运行时模板会把它派生为 `RuntimeOperatorTemplateSkill.id`，画布按钮也会把它作为 `runtimeSkillId` 保存。

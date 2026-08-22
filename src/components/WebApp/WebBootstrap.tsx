@@ -1,4 +1,6 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import App from '../../App';
+import { AppProvider } from '../../context/AppContext';
 import { readAccessLeaseStatus } from '../../platform/auth/accessLease';
 import {
   requestPersistentBrowserStorage,
@@ -26,16 +28,8 @@ import {
 } from '../../platform/data/localDataPackages';
 import { ensureImageServiceWorkerController } from '../../platform/runtime/serviceWorkerRuntime';
 import { initializeAppTheme } from '../../platform/theme/appTheme';
-import { isDesktopWebHost } from '../../platform/runtime/desktopWebHost';
-import { isDesktopAgentModeRoute } from '../../platform/agent/desktopAgentBridge';
-import {
-  captureDesktopMcpCapability,
-  hasDesktopMcpReviewAuthority,
-} from '../../platform/runtime/desktopMcpBridge';
-import {
-  bootstrapLegacyFillHostGateway,
-  publishLegacyFillHostSnapshot,
-} from '../../legacyFillHost/runtime';
+import { NotificationCenterProvider } from '../../platform/notifications/NotificationCenterProvider';
+import { getAppHostExtension } from '../../platform/host/appHost';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import { AccessGate } from './AccessGate';
 import { RuntimeFailurePage } from './RuntimeFailurePage';
@@ -43,35 +37,13 @@ import { SecondaryTabPage } from './SecondaryTabPage';
 import { WelcomePage } from './WelcomePage';
 import './web-app.css';
 
-const loadDesktopAgentRuntime = () => import('../../platform/agent/browserAgentRuntime');
-const ReadyApp = lazy(async () => ({
-  default: (await import('./ReadyApp')).ReadyApp,
-}));
-
-type BootstrapPhase =
-  | 'checking-access'
-  | 'authorizing-agent'
-  | 'agent-unauthorized'
-  | 'locked'
-  | 'starting'
-  | 'secondary'
-  | 'onboarding'
-  | 'ready'
-  | 'failed';
+type BootstrapPhase = 'checking-access' | 'locked' | 'starting' | 'secondary' | 'onboarding' | 'ready' | 'failed';
 
 export function WebBootstrap() {
-  const desktopWebHost = isDesktopWebHost();
-  const [agentMode] = useState(() => isDesktopAgentModeRoute());
-  const [desktopMcpContext] = useState(() => {
-    const capability = desktopWebHost && captureDesktopMcpCapability();
-    return {
-      capability,
-      reviewLaunch: capability && hasDesktopMcpReviewAuthority(),
-    };
-  });
-  const desktopMcpCapability = desktopMcpContext.capability;
+  const [hostExtension] = useState(() => getAppHostExtension());
+  const hostWorkspace = hostExtension.workspace;
   const [phase, setPhase] = useState<BootstrapPhase>(
-    () => (agentMode ? 'authorizing-agent' : desktopWebHost ? 'starting' : 'checking-access'),
+    () => (hostWorkspace?.skipAccessGate ? 'starting' : 'checking-access'),
   );
   const [failure, setFailure] = useState('');
   const [installedPackage, setInstalledPackage] = useState<InstalledResourcePackage | null>(null);
@@ -81,8 +53,9 @@ export function WebBootstrap() {
     setPhase('starting');
     setFailure('');
     try {
+      await hostWorkspace?.prepare?.();
       let role = await workspaceLease.start();
-      if (role !== 'writer' && (desktopMcpContext.reviewLaunch || agentMode)) {
+      if (role !== 'writer' && hostWorkspace?.requestControlWhenSecondary) {
         role = await workspaceLease.requestControl();
       }
       if (role !== 'writer') {
@@ -90,16 +63,10 @@ export function WebBootstrap() {
         return;
       }
       await webDatabase.initialize();
-      if (agentMode) {
-        const runtime = await loadDesktopAgentRuntime();
-        await runtime.browserAgentRuntime.initializeWorkspace();
-        await runtime.desktopAgentConsumerController.start();
-      }
+      await hostWorkspace?.afterDatabaseReady?.();
       await bootstrapPersistentStorage();
       await bootstrapUserWorkspaceBridge();
-      if (desktopMcpCapability) {
-        await bootstrapLegacyFillHostGateway().catch(() => null);
-      }
+      await hostWorkspace?.afterStorageReady?.();
       await initializeWebImageLibrary();
       await normalizeAppliedLocalDataImagePaths();
       void requestPersistentBrowserStorage();
@@ -108,11 +75,8 @@ export function WebBootstrap() {
         readInstalledImagePackage(),
       ]);
       if (imagePackage && !await ensureImageServiceWorkerController()) {
-        throw new Error(
-          desktopWebHost
-            ? '本地图片资源服务没有接管当前页面；浏览器存档不会受影响。'
-            : '图片缓存服务没有接管当前页面。请保持联网后重新检查；本地存档不会受影响。',
-        );
+        const defaultMessage = '图片缓存服务没有接管当前页面。请保持联网后重新检查；本地存档不会受影响。';
+        throw new Error(hostWorkspace?.serviceWorkerFailureMessage?.(defaultMessage) || defaultMessage);
       }
       if (imagePackage) await initializeAppTheme().catch(() => undefined);
       setInstalledPackage(installed);
@@ -121,9 +85,10 @@ export function WebBootstrap() {
       if (complete && !hasAnyAppliedIndependentLibraries()) {
         await applyDefaultLocalDataPackage({ backup: false });
       }
-      if (complete && desktopMcpCapability) {
-        await publishLegacyFillHostSnapshot().catch(() => null);
-      }
+      await hostWorkspace?.afterResourcesReady?.({
+        resourcePackage: installed,
+        imagePackage,
+      });
       setPhase(complete ? 'ready' : 'onboarding');
       if (complete && (window.location.hash === '' || window.location.hash === '#/')) {
         navigateToAppPath(APP_ROUTE_PATHS.welcome);
@@ -132,7 +97,7 @@ export function WebBootstrap() {
       setFailure(error instanceof Error ? error.message : String(error));
       setPhase('failed');
     }
-  }, [agentMode, desktopMcpCapability, desktopMcpContext.reviewLaunch, desktopWebHost]);
+  }, [hostWorkspace]);
 
   const handleInstalled = useCallback(async (
     resourcePackage: InstalledResourcePackage,
@@ -142,16 +107,14 @@ export function WebBootstrap() {
     setFailure('');
     try {
       if (!await ensureImageServiceWorkerController()) {
-        throw new Error(
-          desktopWebHost
-            ? '本地图片资源服务没有接管当前页面；浏览器存档不会受影响。'
-            : '图片缓存服务没有接管当前页面。请保持联网后重新检查；本地存档不会受影响。',
-        );
+        const defaultMessage = '图片缓存服务没有接管当前页面。请保持联网后重新检查；本地存档不会受影响。';
+        throw new Error(hostWorkspace?.serviceWorkerFailureMessage?.(defaultMessage) || defaultMessage);
       }
       await initializeAppTheme().catch(() => undefined);
-      if (desktopMcpCapability) {
-        await publishLegacyFillHostSnapshot().catch(() => null);
-      }
+      await hostWorkspace?.afterResourcesInstalled?.({
+        resourcePackage,
+        imagePackage,
+      });
       setInstalledPackage(resourcePackage);
       setInstalledImagePackage(imagePackage);
       navigateToAppPath(APP_ROUTE_PATHS.welcome);
@@ -160,41 +123,10 @@ export function WebBootstrap() {
       setFailure(error instanceof Error ? error.message : String(error));
       setPhase('failed');
     }
-  }, [desktopMcpCapability, desktopWebHost]);
+  }, [hostWorkspace]);
 
   useEffect(() => {
-    if (agentMode) {
-      let cancelled = false;
-      void loadDesktopAgentRuntime().then(async ({ desktopAgentBridge }) => {
-        let state = await desktopAgentBridge.initialize();
-        if (state.authorization !== 'authorized' || state.host !== 'ready') {
-          // A browser tab can outlive the Electron Host epoch. Entering or
-          // refreshing the AI route is itself the user gesture that may start
-          // the lazy Host and replace the stale page capability; the Shell UI
-          // does not need to have opened AI mode first.
-          await desktopAgentBridge.retryAuthorization();
-          await desktopAgentBridge.refreshHostState();
-          state = desktopAgentBridge.getState();
-        }
-        return state;
-      }).then((state) => {
-        if (cancelled) return;
-        if (state.authorization !== 'authorized' || state.host !== 'ready') {
-          setFailure(state.error || 'AI 模式授权无效，请从桌面 Shell 重新打开。');
-          setPhase('agent-unauthorized');
-          return;
-        }
-        void initializeWorkspace();
-      }).catch((error: unknown) => {
-        if (cancelled) return;
-        setFailure(error instanceof Error ? error.message : String(error));
-        setPhase('agent-unauthorized');
-      });
-      return () => {
-        cancelled = true;
-      };
-    }
-    if (desktopWebHost) {
+    if (hostWorkspace?.skipAccessGate) {
       void initializeWorkspace();
       return undefined;
     }
@@ -210,11 +142,12 @@ export function WebBootstrap() {
     return () => {
       cancelled = true;
     };
-  }, [agentMode, desktopWebHost, initializeWorkspace]);
+  }, [hostWorkspace, initializeWorkspace]);
 
   useEffect(() => {
     const handleReleaseRequest = async () => {
       try {
+        await hostWorkspace?.beforeRelease?.();
         await Promise.all([flushPersistentStorage(), flushUserWorkspaceState()]);
         await webDatabase.close();
       } finally {
@@ -226,7 +159,7 @@ export function WebBootstrap() {
     return () => {
       window.removeEventListener('dmg-workspace-release-requested', handleReleaseRequest);
     };
-  }, []);
+  }, [hostWorkspace]);
 
   useEffect(() => {
     const flushOnHide = () => {
@@ -236,29 +169,14 @@ export function WebBootstrap() {
     return () => document.removeEventListener('visibilitychange', flushOnHide);
   }, []);
 
-  if (phase === 'checking-access' || phase === 'authorizing-agent' || phase === 'starting') {
+  if (phase === 'checking-access' || phase === 'starting') {
     return (
       <main className="web-entry-screen">
         <div className="boot-indicator">
           <span />
-          <p>
-            {phase === 'checking-access'
-              ? '检查访问状态'
-              : phase === 'authorizing-agent'
-                ? '正在验证 AI 模式授权'
-              : '正在打开浏览器工作区'}
-          </p>
-        </div>
-      </main>
-    );
-  }
-
-  if (phase === 'agent-unauthorized') {
-    return (
-      <main className="web-entry-screen" role="alert">
-        <div className="boot-indicator">
-          <p>请从桌面 Shell 打开 AI 模式</p>
-          <small>{failure || '当前标签页没有有效的一次性授权。'}</small>
+          <p>{phase === 'checking-access'
+            ? '检查访问状态'
+            : hostWorkspace?.startupLabel?.() || '正在打开浏览器工作区'}</p>
         </div>
       </main>
     );
@@ -273,10 +191,13 @@ export function WebBootstrap() {
   }
 
   if (phase === 'failed') {
+    const retry = () => void initializeWorkspace();
+    const customFailure = hostWorkspace?.renderFailure?.(failure, retry);
+    if (customFailure) return customFailure;
     return (
       <RuntimeFailurePage
         error={failure}
-        onRetry={() => initializeWorkspace()}
+        onRetry={retry}
       />
     );
   }
@@ -292,15 +213,10 @@ export function WebBootstrap() {
   }
 
   return (
-    <Suspense fallback={(
-      <main className="web-entry-screen">
-        <div className="boot-indicator">
-          <span />
-          <p>正在打开工作区</p>
-        </div>
-      </main>
-    )}>
-      <ReadyApp cacheKey={`${installedPackage?.version || 'web-lts'}:${installedImagePackage?.version || 'no-images'}`} />
-    </Suspense>
+    <AppProvider>
+      <NotificationCenterProvider>
+        <App key={`${installedPackage?.version || 'web-lts'}:${installedImagePackage?.version || 'no-images'}`} />
+      </NotificationCenterProvider>
+    </AppProvider>
   );
 }

@@ -50,6 +50,22 @@ comboSkillGoldens.forEach((expected, index) => {
 const [imbalanceBuff] = buildAnomalyStateDerivedBuffs([stateCard('imbalance-state', 1)], 'B');
 assertEqual(imbalanceBuff?.type, 'imbalanceDmgBonus', 'imbalance state Buff type');
 assertClose(imbalanceBuff?.value ?? 0, 0.3, 'imbalance state should be a fixed 30%');
+assertEqual(imbalanceBuff?.ownerCharacterId, undefined, 'imbalance Buff must not carry an owner');
+assertEqual(imbalanceBuff?.ownerBuffDomain, undefined, 'imbalance Buff must not carry a domain');
+
+// Combo with a source character id maps to the operator domain (RDPS attribution).
+const comboWithSource = buildAnomalyStateDerivedBuffs([
+  { ...stateCard('combo-state', 2), sourceCharacterId: 'operator-alpha' },
+], 'B')[0];
+assertEqual(comboWithSource?.value, 0.45, 'combo B level 2 value preserved with source');
+assertEqual(comboWithSource?.ownerCharacterId, 'operator-alpha', 'combo Buff carries source character id');
+assertEqual(comboWithSource?.ownerBuffDomain, 'operator', 'combo Buff maps to operator domain');
+
+// Combo without a source keeps working but carries no owner (legacy -> Residual).
+const comboWithoutSource = buildAnomalyStateDerivedBuffs([stateCard('combo-state', 3)], 'B')[0];
+assertClose(comboWithoutSource?.value ?? 0, 0.6, 'combo B level 3 value preserved without source');
+assertEqual(comboWithoutSource?.ownerCharacterId, undefined, 'legacy combo Buff has no owner');
+assertEqual(comboWithoutSource?.ownerBuffDomain, undefined, 'legacy combo Buff has no domain');
 
 const baseSnapshotInput = {
   sourceButtonId: 'state-source-button',
@@ -95,6 +111,10 @@ assertEqual(snapshotBuffs.length, 3, 'all three anomaly snapshots should become 
 assertEqual(snapshotBuffs[0]?.type, 'magicFragile', 'conductive snapshot runtime type');
 assertEqual(snapshotBuffs[1]?.type, 'physicalFragile', 'armor-break snapshot runtime type');
 assertEqual(snapshotBuffs[2]?.type, 'allCorrosion', 'corrosion snapshot runtime type');
+snapshotBuffs.forEach((buff) => {
+  assertEqual(buff.ownerCharacterId, 'state-source-operator', 'anomaly snapshot Buff maps source character id');
+  assertEqual(buff.ownerBuffDomain, 'operator', 'anomaly snapshot Buff maps to operator domain');
+});
 const snapshotTotals = calculateBuffTotals(snapshotBuffs);
 assertClose(snapshotTotals.magicFragile, conductive.effectValue, 'conductive snapshot runtime value');
 assertClose(snapshotTotals.physicalFragile, armorBreak.effectValue, 'armor-break snapshot runtime value');

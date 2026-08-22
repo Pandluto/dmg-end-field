@@ -48,12 +48,6 @@ interface SkillSandboxProps {
   onInspectStart?: () => void;
   /** 结束透视模式 */
   onInspectEnd?: () => void;
-  /** AI 模式是否开启 */
-  isAiMode?: boolean;
-  /** 当前页面是否由桌面 Shell 托管，只有桌面端提供 AI 入口 */
-  showAiMode?: boolean;
-  /** 从主工作台进入或退出 AI 模式 */
-  onToggleAiMode?: () => void;
   /** 打开 work node 节点树 */
   onOpenWorkNodePanel?: () => void | Promise<void>;
 }
@@ -110,9 +104,6 @@ export function SkillSandbox({
   isInspectMode = false,
   onInspectStart,
   onInspectEnd,
-  isAiMode = false,
-  showAiMode = false,
-  onToggleAiMode,
   onOpenWorkNodePanel,
 }: SkillSandboxProps) {
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -248,18 +239,6 @@ export function SkillSandbox({
               <path d="M17.6 8.5c-1.4.1-2.5.4-3.4 1" />
             </svg>
           </button>
-          {showAiMode && (
-            <button
-              type="button"
-              className={`sandbox-reserved-action sandbox-reserved-action--ai${isAiMode ? ' is-active' : ''}`}
-              aria-label="AI 模式"
-              title="AI 模式"
-              aria-pressed={isAiMode}
-              onClick={onToggleAiMode}
-            >
-              <span className="sandbox-reserved-action-text">AI</span>
-            </button>
-          )}
           <button
             type="button"
             className="sandbox-reserved-action sandbox-reserved-action--worknode"

@@ -121,10 +121,13 @@ interface SkillButtonStatePanelProps {
   activeAnomaly: AnomalyOption | null;
   activeAnomalyLevel: number;
   activeAnomalyPreview: PreviewLines | null;
+  activeSourceCharacter: CharacterRef | null;
+  sourceCharacters: CharacterRef[];
   selectedStatusCards: SelectedAnomalyCard[];
   onSelectAnomaly: (option: AnomalyOption) => void;
   onApplyActiveAnomaly: () => void;
   onSetActiveAnomalyLevel: (level: number) => void;
+  onSetActiveAnomalySourceId: (id: string) => void;
   onRemoveAnomalyCard: (kind: AnomalyCardKind, cardId: string) => void;
 }
 
@@ -132,10 +135,13 @@ export function SkillButtonStatePanel({
   activeAnomaly,
   activeAnomalyLevel,
   activeAnomalyPreview,
+  activeSourceCharacter,
+  sourceCharacters,
   selectedStatusCards,
   onSelectAnomaly,
   onApplyActiveAnomaly,
   onSetActiveAnomalyLevel,
+  onSetActiveAnomalySourceId,
   onRemoveAnomalyCard,
 }: SkillButtonStatePanelProps) {
   return (
@@ -183,6 +189,19 @@ export function SkillButtonStatePanel({
                     ))}
                   </div>
                 </div>
+                {activeAnomaly.key === 'combo-state' ? (
+                  <AnomalyDropdownField
+                    dropdownKey="combo-source-character"
+                    label="来源干员"
+                    valueLabel={activeSourceCharacter?.name ?? '请选择来源干员'}
+                    options={sourceCharacters.map((character) => ({
+                      value: character.id,
+                      label: character.name,
+                    }))}
+                    onSelect={onSetActiveAnomalySourceId}
+                    disabled={sourceCharacters.length === 0}
+                  />
+                ) : null}
               </div>
             ) : null}
 

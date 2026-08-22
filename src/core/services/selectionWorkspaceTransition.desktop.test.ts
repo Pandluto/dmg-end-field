@@ -86,7 +86,7 @@ import {
   ]);
 }
 
-const sourcePath = fileURLToPath(new URL('./selectionWorkspaceTransition.ts', import.meta.url));
+const sourcePath = fileURLToPath(new URL('./selectionWorkspaceTransition.desktop.ts', import.meta.url));
 const source = fs.readFileSync(sourcePath, 'utf8');
 const prepareStart = source.indexOf('export async function prepareReviewedSelectionProposal');
 const applyStart = source.indexOf('export async function applyReviewedSelectionProposal');

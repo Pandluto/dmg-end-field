@@ -77,7 +77,7 @@ export function SessionSurface(props: SessionSurfaceProps): JSX.Element {
   const interactedRef = useRef(false);
   const working = isActiveSessionStatus(props.snapshot);
   const latestTurnId = activeSnapshotTurnId(props.snapshot)
-    ?? props.snapshot?.messages.at(-1)?.defTurnId;
+    ?? props.snapshot?.messages[props.snapshot.messages.length - 1]?.defTurnId;
 
   useLayoutEffect(() => {
     const element = scrollRef.current;
@@ -144,7 +144,7 @@ function ConversationTurnBlock(props: {
   readonly retryable: boolean;
 }): JSX.Element {
   const lastTextId = lastAssistantTextPartId(props.turn);
-  const latestMessage = props.turn.messages.at(-1);
+  const latestMessage = props.turn.messages[props.turn.messages.length - 1];
   const latestMessageParts = latestMessage
     ? orderedPartsForMessage(props.turn, latestMessage)
     : [];
