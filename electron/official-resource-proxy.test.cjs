@@ -87,6 +87,38 @@ await handler({
 assert.equal(methodResponse.statusCode, 405);
 assert.equal(methodResponse.headers.get('allow'), 'GET, HEAD');
 
+const headHandler = createOfficialResourceProxyHandler({
+  async fetchImpl() {
+    return new Response(null, {
+      status: 200,
+      headers: { 'content-length': '123', 'content-type': 'application/zip' },
+    });
+  },
+});
+const headResponse = responseRecorder();
+await headHandler({
+  method: 'HEAD',
+  url: `${PROXY_PREFIX}resources/releases/example/images.zip`,
+  headers: {},
+}, headResponse);
+assert.equal(headResponse.statusCode, 200);
+assert.equal(headResponse.headers.get('content-length'), '123');
+assert.equal(headResponse.body.byteLength, 0);
+
+const oversizedHandler = createOfficialResourceProxyHandler({
+  async fetchImpl() {
+    return new Response(Buffer.alloc(65 * 1024));
+  },
+});
+const oversizedResponse = responseRecorder();
+await oversizedHandler({
+  method: 'GET',
+  url: `${PROXY_PREFIX}resources/stable.json`,
+  headers: {},
+}, oversizedResponse);
+assert.equal(oversizedResponse.statusCode, 502);
+assert.match(oversizedResponse.body.toString('utf8'), /too large/i);
+
 console.log('Desktop official resource proxy contract: PASS');
 }
 

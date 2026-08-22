@@ -7,6 +7,7 @@ const MAX_QUERY_BYTES = 512;
 const MAX_REDIRECTS = 2;
 const MAX_RESOURCE_BYTES = 64 * 1024 * 1024;
 const MAX_CHANNEL_BYTES = 64 * 1024;
+const UPSTREAM_TIMEOUT_MS = 15_000;
 const SAFE_RESPONSE_HEADERS = [
   'cache-control',
   'content-type',
@@ -101,6 +102,25 @@ async function fetchWithRestrictedRedirects(fetchImpl, target, options, redirect
   );
 }
 
+async function readResponseBytes(response, limit) {
+  if (!response.body) return Buffer.from(await response.arrayBuffer());
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel().catch(() => undefined);
+      throw new OfficialResourceProxyError(502, 'Official resource response is too large.');
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks, total);
+}
+
 function sendText(response, statusCode, message, extraHeaders = {}) {
   const bytes = Buffer.from(message, 'utf8');
   response.statusCode = statusCode;
@@ -120,6 +140,9 @@ function maxResponseBytes(target) {
 
 function createOfficialResourceProxyHandler(options = {}) {
   const fetchImpl = options.fetchImpl || globalThis.fetch;
+  const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
+    ? options.timeoutMs
+    : UPSTREAM_TIMEOUT_MS;
   if (typeof fetchImpl !== 'function') {
     throw new TypeError('Official resource proxy requires a fetch implementation.');
   }
@@ -138,6 +161,8 @@ function createOfficialResourceProxyHandler(options = {}) {
       return true;
     }
 
+    const abortController = new AbortController();
+    const abortTimer = setTimeout(() => abortController.abort(), timeoutMs);
     try {
       const headers = { 'accept-encoding': 'identity' };
       if (typeof request.headers?.['if-none-match'] === 'string') {
@@ -150,24 +175,29 @@ function createOfficialResourceProxyHandler(options = {}) {
         method: request.method,
         headers,
         cache: 'no-store',
+        signal: abortController.signal,
       });
       const limit = maxResponseBytes(target);
-      const declaredBytes = Number(upstream.headers.get('content-length'));
-      if (Number.isFinite(declaredBytes) && declaredBytes > limit) {
+      const declaredHeader = upstream.headers.get('content-length');
+      const declaredBytes = declaredHeader === null ? null : Number(declaredHeader);
+      if (
+        declaredBytes !== null
+        && (!Number.isSafeInteger(declaredBytes) || declaredBytes < 0 || declaredBytes > limit)
+      ) {
         throw new OfficialResourceProxyError(502, 'Official resource response is too large.');
       }
       const noBody = request.method === 'HEAD' || upstream.status === 204 || upstream.status === 304;
-      const bytes = noBody ? null : Buffer.from(await upstream.arrayBuffer());
-      if (bytes && bytes.byteLength > limit) {
-        throw new OfficialResourceProxyError(502, 'Official resource response is too large.');
-      }
+      const bytes = noBody ? null : await readResponseBytes(upstream, limit);
 
       response.statusCode = upstream.status;
       for (const name of SAFE_RESPONSE_HEADERS) {
         const value = upstream.headers.get(name);
         if (value) response.setHeader(name, value);
       }
-      response.setHeader('Content-Length', bytes?.byteLength || 0);
+      response.setHeader(
+        'Content-Length',
+        request.method === 'HEAD' && declaredBytes !== null ? declaredBytes : bytes?.byteLength || 0,
+      );
       response.setHeader('X-Content-Type-Options', 'nosniff');
       response.end(bytes || undefined);
       return true;
@@ -178,6 +208,8 @@ function createOfficialResourceProxyHandler(options = {}) {
         : 'Official resource server is unavailable.';
       sendText(response, statusCode, message);
       return true;
+    } finally {
+      clearTimeout(abortTimer);
     }
   };
 }
