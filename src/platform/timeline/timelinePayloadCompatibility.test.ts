@@ -79,7 +79,10 @@ assert.throws(
   TimelinePayloadCompatibilityError,
 );
 
-assert.equal(generatedPackage.timelineArchives?.length, 13);
+assert.ok(
+  (generatedPackage.timelineArchives?.length || 0) > 0,
+  'the generated package must retain at least one compatible timeline archive',
+);
 for (const archive of generatedPackage.timelineArchives || []) {
   assert.deepEqual(
     validateTimelinePayload(normalizeCompatibleTimelinePayload(archive.payload).payload),

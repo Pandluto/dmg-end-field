@@ -211,6 +211,67 @@ export function normalizeSnapshotPayload(payload: TimelineSnapshotPayload): Time
   };
 }
 
+const OMIT_UNDEFINED_JSON_PROPERTY = Symbol('omit-undefined-json-property');
+
+function cloneSnapshotJsonValue(
+  value: unknown,
+  path: string,
+  ancestors: WeakSet<object>,
+): unknown | typeof OMIT_UNDEFINED_JSON_PROPERTY {
+  if (value === undefined) return OMIT_UNDEFINED_JSON_PROPERTY;
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new Error(`timeline snapshot contains a non-finite number at ${path}.`);
+    return value;
+  }
+  if (typeof value !== 'object') {
+    throw new Error(`timeline snapshot contains a non-JSON value at ${path}.`);
+  }
+  if (ancestors.has(value)) throw new Error(`timeline snapshot contains a circular value at ${path}.`);
+
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return value.map((entry, index) => {
+        const cloned = cloneSnapshotJsonValue(entry, `${path}/${index}`, ancestors);
+        if (cloned === OMIT_UNDEFINED_JSON_PROPERTY) {
+          throw new Error(`timeline snapshot contains an undefined array item at ${path}/${index}.`);
+        }
+        return cloned;
+      });
+    }
+
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new Error(`timeline snapshot contains a non-plain object at ${path}.`);
+    }
+    const cloned: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      const next = cloneSnapshotJsonValue(entry, `${path}/${key}`, ancestors);
+      if (next !== OMIT_UNDEFINED_JSON_PROPERTY) cloned[key] = next;
+    }
+    return cloned;
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
+/**
+ * Returns the exact JSON shape that can be persisted and compared by the
+ * prepared-work-node safety boundary. Optional object properties with an
+ * undefined value are omitted just as JSON serialization would omit them;
+ * every other non-JSON value fails closed.
+ */
+export function toJsonSafeTimelineSnapshotPayload(
+  payload: TimelineSnapshotPayload,
+): TimelineSnapshotPayload {
+  const cloned = cloneSnapshotJsonValue(normalizeSnapshotPayload(payload), '', new WeakSet());
+  if (cloned === OMIT_UNDEFINED_JSON_PROPERTY || !isValidTimelineSnapshotPayload(cloned)) {
+    throw new Error('timeline snapshot could not be normalized to a valid JSON payload.');
+  }
+  return cloned;
+}
+
 function isLocalMachinePath(value: string): boolean {
   return /^(?:file:\/\/|[a-z]:[\\/]|\\\\)/i.test(value)
     || /[\\/]AppData[\\/]/i.test(value)
@@ -280,7 +341,8 @@ function readCurrentPayload(): TimelineSnapshotPayload | null {
 }
 
 export function getCurrentTimelineSnapshotPayload(): TimelineSnapshotPayload | null {
-  return readCurrentPayload();
+  const payload = readCurrentPayload();
+  return payload ? toJsonSafeTimelineSnapshotPayload(payload) : null;
 }
 
 export function applyTimelineSnapshotPayload(payload: TimelineSnapshotPayload): void {

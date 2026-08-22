@@ -12,6 +12,7 @@ import {
   markWorkNodeRollbackApplied,
   updateWorkNode,
 } from '../../platform/timeline/browserTimelineStore';
+import type { BrowserWorkNodeDeleteExpectation } from '../../platform/timeline/browserTimelineStore';
 import { webDatabase } from '../../platform/database/webDatabase';
 import type {
   AiTimelineApproval,
@@ -110,6 +111,13 @@ export type MarkAiTimelineWorkNodeRollbackAppliedInput = {
   appliedAt?: number;
   appliedBy?: 'ai' | 'user' | 'system';
   rationale?: string;
+  checkout?: {
+    targetType: 'snapshot' | 'work-node';
+    targetId: string;
+    updatedAt: number;
+  };
+  basePayloadDigest?: string;
+  baseRevision?: number;
 };
 
 function toNodeListItem(node: AiTimelineWorkNode): AiTimelineWorkNodeListItem {
@@ -166,8 +174,12 @@ export function createAiTimelineWorkNodeClient(_baseUrl?: string) {
       };
     },
 
-    async delete(id: string): Promise<AiTimelineWorkNodeListResponse> {
-      await deleteWorkNode(id);
+    async delete(
+      id: string,
+      expectedTimelineId?: string,
+      expectation?: BrowserWorkNodeDeleteExpectation,
+    ): Promise<AiTimelineWorkNodeListResponse> {
+      await deleteWorkNode(id, expectedTimelineId, expectation);
       return buildListResponse();
     },
 

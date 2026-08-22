@@ -5,6 +5,7 @@ type StorageScope = 'local' | 'workspace';
 class SqliteBackedStorage {
   private readonly values = new Map<string, string>();
   private readonly pending = new Map<string, string | null>();
+  private readonly listeners = new Set<(keys: readonly string[]) => void>();
   private hydrated = false;
   private flushTimer: number | null = null;
   private flushChain = Promise.resolve();
@@ -43,6 +44,7 @@ class SqliteBackedStorage {
     this.values.set(normalizedKey, normalizedValue);
     this.pending.set(normalizedKey, normalizedValue);
     this.scheduleFlush();
+    this.notify([normalizedKey]);
   }
 
   removeItem(key: string): void {
@@ -50,12 +52,15 @@ class SqliteBackedStorage {
     this.values.delete(normalizedKey);
     this.pending.set(normalizedKey, null);
     this.scheduleFlush();
+    this.notify([normalizedKey]);
   }
 
   clear(): void {
-    for (const key of this.values.keys()) this.pending.set(key, null);
+    const keys = [...this.values.keys()];
+    for (const key of keys) this.pending.set(key, null);
     this.values.clear();
     this.scheduleFlush();
+    this.notify(keys);
   }
 
   entries(): Array<[string, string]> {
@@ -64,6 +69,11 @@ class SqliteBackedStorage {
 
   isHydrated(): boolean {
     return this.hydrated;
+  }
+
+  subscribe(listener: (keys: readonly string[]) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   async flush(): Promise<void> {
@@ -104,6 +114,17 @@ class SqliteBackedStorage {
       });
     }, 60);
   }
+
+  private notify(keys: readonly string[]): void {
+    if (!keys.length) return;
+    for (const listener of this.listeners) {
+      try {
+        listener(keys);
+      } catch {
+        // Storage writes must not fail because an optional observer failed.
+      }
+    }
+  }
 }
 
 export const persistentLocalStorage = new SqliteBackedStorage('local');
@@ -122,4 +143,3 @@ export async function flushPersistentStorage(): Promise<void> {
     persistentWorkspaceStorage.flush(),
   ]);
 }
-

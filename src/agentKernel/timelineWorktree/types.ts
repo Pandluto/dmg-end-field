@@ -98,6 +98,8 @@ export type TimelineButtonDiffItem = {
   staffIndex: number;
   nodeIndex: number;
   selectedBuffIds: string[];
+  buffStackCounts: Record<string, number>;
+  targetResistance: Record<string, number>;
 };
 
 export type TimelineButtonFieldChange = {
@@ -125,6 +127,22 @@ export type TimelineCharacterInputChange = {
   after: unknown;
 };
 
+export type TimelineOperatorConfigSection = 'operator' | 'weapon' | 'equipment';
+
+export type TimelineOperatorConfigFieldChange = {
+  section: TimelineOperatorConfigSection;
+  path: string;
+  before: unknown;
+  after: unknown;
+};
+
+export type TimelineOperatorConfigChange = {
+  characterId: string;
+  characterName: string;
+  change: 'added' | 'removed' | 'changed';
+  changes: TimelineOperatorConfigFieldChange[];
+};
+
 export type TimelinePayloadDiffSummary = {
   addedButtonCount: number;
   removedButtonCount: number;
@@ -136,6 +154,14 @@ export type TimelinePayloadDiffSummary = {
   afterButtonCount: number;
   beforeBuffCount: number;
   afterBuffCount: number;
+  /** Optional for backwards-compatible summaries persisted before config diff support. */
+  addedOperatorConfigCount?: number;
+  /** Optional for backwards-compatible summaries persisted before config diff support. */
+  removedOperatorConfigCount?: number;
+  /** Optional for backwards-compatible summaries persisted before config diff support. */
+  changedOperatorConfigCount?: number;
+  /** Optional for backwards-compatible summaries persisted before config diff support. */
+  changedOperatorConfigFieldCount?: number;
 };
 
 export type TimelinePayloadDiff = {
@@ -149,6 +175,8 @@ export type TimelinePayloadDiff = {
   addedBuffs: TimelineBuffDiffItem[];
   removedBuffs: TimelineBuffDiffItem[];
   changedCharacterInputs: TimelineCharacterInputChange[];
+  /** Deterministic, input-only diff for operatorConfigPageCache entries. */
+  changedOperatorConfigs: TimelineOperatorConfigChange[];
 };
 
 export type AiTimelineCommit = {

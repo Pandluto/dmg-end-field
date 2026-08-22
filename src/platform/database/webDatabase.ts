@@ -3,6 +3,14 @@ export type SqlPrimitive = string | number | bigint | null | Uint8Array | ArrayB
 export type SqlStatement = {
   sql: string;
   bind?: SqlPrimitive[];
+  /** Abort the surrounding batch transaction when SQLite changes no rows. */
+  requireChanges?: boolean;
+};
+
+export type SqlBatchResult = {
+  changes: number;
+  /** Changes reported by SQLite for each statement, in execution order. */
+  statementChanges: number[];
 };
 
 export type WebDatabaseInfo = {
@@ -49,9 +57,9 @@ class WebDatabase {
     return this.request<{ changes: number }>('execute', { statement: { sql, bind } });
   }
 
-  async batch(statements: SqlStatement[]): Promise<{ changes: number }> {
+  async batch(statements: SqlStatement[]): Promise<SqlBatchResult> {
     await this.initialize();
-    return this.request<{ changes: number }>('batch', { statements });
+    return this.request<SqlBatchResult>('batch', { statements });
   }
 
   async exportFile(): Promise<Uint8Array> {
@@ -142,4 +150,3 @@ export async function readBrowserStorageEstimate(): Promise<{
     persisted: Boolean(persisted),
   };
 }
-
