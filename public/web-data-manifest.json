@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "packageId": "dmg-end-field-core-data",
-  "version": "1.8.4",
+  "version": "1.8.6",
   "files": [
     {
       "path": "data/akedb-raw-index/buff-skill-links.json",
@@ -505,5 +505,5 @@
     }
   ],
   "totalBytes": 5594473,
-  "generatedAt": "2026-08-09T03:30:56.050Z"
+  "generatedAt": "2026-08-22T08:34:14.387Z"
 }
