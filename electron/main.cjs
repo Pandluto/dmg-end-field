@@ -115,8 +115,9 @@ const releaseSelections = {
 };
 const generatedReleaseDirectories = new Set();
 
-if (process.env.DMG_DESKTOP_USER_DATA) {
-  app.setPath('userData', path.resolve(process.env.DMG_DESKTOP_USER_DATA));
+const desktopUserDataOverride = String(process.env.DMG_DESKTOP_USER_DATA || '').trim();
+if (desktopUserDataOverride) {
+  app.setPath('userData', path.resolve(desktopUserDataOverride));
 }
 app.setName(APPLICATION_NAME);
 app.setAppUserModelId('com.dmg.def');
@@ -604,11 +605,15 @@ async function startApplication() {
       'def-agent-provider-profiles.json',
     );
   if (!developmentProfileOverride) {
-    const profileMigration = migrateLegacyAgentProviderProfile(agentProviderProfilePath, [
-      path.join(app.getPath('appData'), 'dmg-end-field', 'runtime', 'def-agent', 'config.json'),
-      path.join(APPLICATION_ROOT, '.runtime', 'def-agent', 'config.json'),
-    ]);
+    const legacyProfilePaths = desktopUserDataOverride
+      ? []
+      : [
+          path.join(app.getPath('appData'), 'dmg-end-field', 'runtime', 'def-agent', 'config.json'),
+          path.join(APPLICATION_ROOT, '.runtime', 'def-agent', 'config.json'),
+        ];
+    const profileMigration = migrateLegacyAgentProviderProfile(agentProviderProfilePath, legacyProfilePaths);
     if (profileMigration.migrated) diagnostic(`migrated legacy Agent provider profile from ${profileMigration.sourcePath}`);
+    if (desktopUserDataOverride) diagnostic('skipped global legacy Provider migration for isolated userData');
   } else {
     diagnostic('using development-only Agent provider profile override');
   }
