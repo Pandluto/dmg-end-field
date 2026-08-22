@@ -20,6 +20,7 @@ export type ResourceReleaseContext = {
   deployment: ResourceDeploymentManifest | null;
   dataManifest: unknown;
   imageManifest: unknown;
+  source: 'server' | 'bundled';
   legacy: boolean;
 };
 
@@ -82,6 +83,7 @@ async function fetchLegacyContext(): Promise<ResourceReleaseContext> {
     deployment: null,
     dataManifest: parseJson(dataBytes, '本地数据清单'),
     imageManifest: parseJson(imageBytes, '本地图片清单'),
+    source: 'bundled',
     legacy: true,
   };
 }
@@ -108,7 +110,14 @@ async function loadChannelContext(): Promise<ResourceReleaseContext> {
     fetchVerifiedJson(deployment.delivery.dataManifest, '服务器数据清单'),
     fetchVerifiedJson(deployment.delivery.imageManifest, '服务器图片清单'),
   ]);
-  return { channel, deployment, dataManifest, imageManifest, legacy: false };
+  return {
+    channel,
+    deployment,
+    dataManifest,
+    imageManifest,
+    source: 'server',
+    legacy: false,
+  };
 }
 
 async function loadContext(): Promise<ResourceReleaseContext> {

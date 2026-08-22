@@ -29,6 +29,10 @@ import {
 } from '../../platform/data/localDataPackages';
 import { useNotificationCenter } from '../../platform/notifications/NotificationCenterProvider';
 import { formatNotificationVersionLabel } from '../../platform/notifications/notificationFormat';
+import {
+  fetchCurrentResourceRelease,
+  type ResourceReleaseContext,
+} from '../../platform/resources/resourceChannel';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 
 function formatBytes(value: number): string {
@@ -101,6 +105,7 @@ export function DataWorkspacePage() {
   const [imageProgress, setImageProgress] = useState<ImageInstallProgress | null>(null);
   const [images, setImages] = useState<InstalledImagePackage | null>(null);
   const [availableImages, setAvailableImages] = useState<ImagePackageManifest | null>(null);
+  const [availableSource, setAvailableSource] = useState<ResourceReleaseContext['source'] | null>(null);
   const [packages, setPackages] = useState<LocalDataPackageSummary[]>([]);
   const [packageScope, setPackageScope] = useState<LocalDataScope>('share');
   const [selectedPackageKey, setSelectedPackageKey] = useState('');
@@ -129,11 +134,18 @@ export function DataWorkspacePage() {
   };
 
   useEffect(() => {
+    void fetchCurrentResourceRelease()
+      .then(async (context) => {
+        setAvailableSource(context.source);
+        await Promise.all([
+          fetchResourcePackageManifest().then(setAvailable),
+          fetchImagePackageManifest().then(setAvailableImages),
+        ]);
+      })
+      .catch(() => undefined);
     void Promise.all([
       readInstalledResourcePackage().then(setInstalled),
       readInstalledImagePackage().then(setImages),
-      fetchResourcePackageManifest().then(setAvailable).catch(() => undefined),
-      fetchImagePackageManifest().then(setAvailableImages).catch(() => undefined),
       refreshPackages(),
     ]);
   }, []);
@@ -418,7 +430,14 @@ export function DataWorkspacePage() {
               <img src="./app-icon.png" alt="" />
             </span>
             <div>
-              <p className="dashboard-kicker">Web LTS 资源</p>
+              <p className="dashboard-kicker">
+                Web LTS 资源
+                {availableSource === 'bundled'
+                  ? ' · 内置版本'
+                  : availableSource === 'server'
+                    ? ' · 服务器通道'
+                    : ''}
+              </p>
               <h2>完整数据与图片包</h2>
               <p>
                 下载内容会进入 Share Data；应用后才会替换浏览器中的干员、武器、
