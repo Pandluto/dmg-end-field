@@ -108,7 +108,7 @@ let quitInProgress = false;
 let shellScale = DEFAULT_SCALE;
 const releaseSelections = {
   imageSource: '',
-  dataSource: '',
+  shareDataSource: '',
   output: '',
 };
 const generatedReleaseDirectories = new Set();
@@ -364,9 +364,12 @@ async function pickPath(event, options, selectionKey) {
   return { ok: true, path: selectedPath };
 }
 
-async function importReleaseBuilder(fileName) {
-  const scriptPath = path.join(APPLICATION_ROOT, 'scripts', fileName);
-  return import(pathToFileURL(scriptPath).href);
+async function importResourceReleaseBuilder() {
+  const runtimePath = path.join(APPLICATION_ROOT, 'dist', 'resource-release', 'builder.mjs');
+  if (!fs.statSync(runtimePath, { throwIfNoEntry: false })?.isFile()) {
+    throw new Error('统一资源发包运行时尚未构建，请先运行 npm run resource:desktop-runtime:build。');
+  }
+  return import(pathToFileURL(runtimePath).href);
 }
 
 function registerIpc() {
@@ -377,7 +380,7 @@ function registerIpc() {
     return {
       host: 'desktop-shell',
       browserWorkspace: true,
-      releaseTools: { images: true, data: true },
+      releaseTools: { resources: true },
       agent: {
         available: true,
         framework: true,
@@ -516,42 +519,25 @@ function registerIpc() {
     title: '选择图片资源目录',
     properties: ['openDirectory'],
   }, 'imageSource'));
-  ipcMain.handle('desktop:pick-data-release-source', (event) => pickPath(event, {
-    title: '选择 Slim data 目录或 public 目录',
-    properties: ['openDirectory'],
-  }, 'dataSource'));
+  ipcMain.handle('desktop:pick-share-data-source', (event) => pickPath(event, {
+    title: '选择完整 Share Data JSON',
+    properties: ['openFile'],
+    filters: [{ name: 'Share Data', extensions: ['json'] }],
+  }, 'shareDataSource'));
   ipcMain.handle('desktop:pick-release-output', (event) => pickPath(event, {
     title: '选择发包输出目录',
     properties: ['openDirectory', 'createDirectory'],
   }, 'output'));
-  ipcMain.handle('desktop:build-image-release', async (event, payload) => {
+  ipcMain.handle('desktop:build-resource-release', async (event) => {
     requireTrustedSender(event);
     try {
-      if (!releaseSelections.imageSource || !releaseSelections.output) {
-        throw new Error('请先选择图片源目录和输出目录。');
+      if (!releaseSelections.shareDataSource || !releaseSelections.imageSource || !releaseSelections.output) {
+        throw new Error('请先选择 Share Data、图片目录和输出目录。');
       }
-      const builder = await importReleaseBuilder('build-image-release-manifest.mjs');
-      const result = builder.buildImageReleasePackage({
-        ...(payload || {}),
-        source: releaseSelections.imageSource,
-        output: releaseSelections.output,
-      });
-      generatedReleaseDirectories.add(path.resolve(result.outputDir));
-      return { ok: true, result };
-    } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
-  ipcMain.handle('desktop:build-data-release', async (event, payload) => {
-    requireTrustedSender(event);
-    try {
-      if (!releaseSelections.dataSource || !releaseSelections.output) {
-        throw new Error('请先选择数据源目录和输出目录。');
-      }
-      const builder = await importReleaseBuilder('build-desktop-data-release.mjs');
-      const result = builder.buildDesktopDataRelease({
-        ...(payload || {}),
-        source: releaseSelections.dataSource,
+      const builder = await importResourceReleaseBuilder();
+      const result = await builder.buildResourceReleaseFromPaths({
+        shareData: releaseSelections.shareDataSource,
+        images: releaseSelections.imageSource,
         output: releaseSelections.output,
       });
       generatedReleaseDirectories.add(path.resolve(result.outputDir));

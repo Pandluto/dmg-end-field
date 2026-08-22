@@ -24,8 +24,8 @@ const appShellSource = fs.readFileSync(
   path.join(repositoryRoot, 'src', 'components', 'WebApp', 'AppShell.tsx'),
   'utf8',
 );
-const dataBuilderSource = fs.readFileSync(
-  path.join(repositoryRoot, 'scripts', 'build-desktop-data-release.mjs'),
+const resourceBuilderSource = fs.readFileSync(
+  path.join(repositoryRoot, 'scripts', 'resource-release-file-builder.mjs'),
   'utf8',
 );
 
@@ -48,7 +48,7 @@ for (const relativePath of forbiddenRuntimeFiles) {
 for (const [label, source] of [
   ['electron/main.cjs', mainSource],
   ['electron/preload.cjs', preloadSource],
-  ['scripts/build-desktop-data-release.mjs', dataBuilderSource],
+  ['scripts/resource-release-file-builder.mjs', resourceBuilderSource],
 ]) {
   for (const forbidden of [
     /node:sqlite/,
@@ -85,8 +85,6 @@ for (const required of [
   '!dist/sw.js',
   '!node_modules/**',
   'electron/**',
-  'scripts/build-image-release-manifest.mjs',
-  'scripts/build-desktop-data-release.mjs',
 ]) {
   assert.ok(packagedFiles.includes(required), `打包清单缺少：${required}`);
 }
@@ -95,8 +93,7 @@ const handledChannels = [...mainSource.matchAll(/ipcMain\.handle\('([^']+)'/g)]
   .map((match) => match[1])
   .sort();
 assert.deepEqual(handledChannels, [
-  'desktop:build-data-release',
-  'desktop:build-image-release',
+  'desktop:build-resource-release',
   'desktop:get-agent-profile',
   'desktop:get-agent-state',
   'desktop:get-app-info',
@@ -106,13 +103,14 @@ assert.deepEqual(handledChannels, [
   'desktop:open-agent-mode',
   'desktop:open-browser',
   'desktop:open-mcp-fill',
-  'desktop:pick-data-release-source',
   'desktop:pick-image-release-source',
   'desktop:pick-release-output',
+  'desktop:pick-share-data-source',
   'desktop:quit',
   'desktop:reveal-path',
   'desktop:save-agent-profile',
   'desktop:set-scale',
+  'desktop:test-agent-profile',
 ]);
 assert.match(mainSource, /contextIsolation:\s*true/);
 assert.match(mainSource, /nodeIntegration:\s*false/);
@@ -127,7 +125,8 @@ assert.match(shellDocumentSource, /打开 AI 模式/);
 assert.match(appSource, /APP_ROUTE_PATHS\.mcpFill/);
 assert.doesNotMatch(appShellSource, /mcp-fill|MCP 填表/i, 'normal Web navigation keeps the MCP route hidden');
 assert.doesNotMatch(appShellSource, /agentMode|AI 模式/i, 'normal Web navigation keeps the Agent route hidden');
-assert.match(shellDocumentSource, /GitHub Release 产物/);
+assert.match(shellDocumentSource, /国内统一资源包/);
+assert.match(shellDocumentSource, /不会上传 GitHub Release/);
 assert.match(mainSource, /createLegacyFillRuntime/);
 assert.match(mainSource, /createAgentRuntime/);
 assert.match(mainSource, /utilityProcess\.fork/);
@@ -139,16 +138,16 @@ assert.doesNotMatch(legacyFillRuntimeSource, /def\.(?:operator|buff|weapon|equip
 assert.doesNotMatch(legacyFillRuntimeSource, /17321|17322/);
 assert.doesNotMatch(legacyFillRuntimeSource, /ELECTRON_RUN_AS_NODE|node:child_process/);
 assert.match(legacyFillRuntimeSource, /key\.startsWith\('OPENCODE_'\)/);
-assert.match(mainSource, /source:\s*releaseSelections\.imageSource/);
-assert.match(mainSource, /source:\s*releaseSelections\.dataSource/);
+assert.match(mainSource, /images:\s*releaseSelections\.imageSource/);
+assert.match(mainSource, /shareData:\s*releaseSelections\.shareDataSource/);
 assert.match(mainSource, /generatedReleaseDirectories\.has\(targetPath\)/);
 assert.match(agentRuntimeSource, /dist', 'agent', 'host-entry\.cjs/);
 assert.match(agentRuntimeSource, /DEF_AGENT_NATIVE_UI_ROOT/);
 assert.match(agentRuntimeSource, /\/internal\/health/);
 assert.match(agentRuntimeSource, /x-dmg-agent-host-token/);
 assert.doesNotMatch(agentRuntimeSource, /node:sqlite|better-sqlite3|sqlite3|17321|17322|17323/);
-assert.doesNotMatch(mainSource, /buildImageReleasePackage\(payload/);
-assert.doesNotMatch(mainSource, /buildDesktopDataRelease\(payload/);
+assert.match(mainSource, /dist', 'resource-release', 'builder\.mjs/);
+assert.match(mainSource, /builder\.buildResourceReleaseFromPaths/);
 
 const preloadChannels = [...preloadSource.matchAll(/invoke\('([^']+)'/g)]
   .map((match) => match[1]);

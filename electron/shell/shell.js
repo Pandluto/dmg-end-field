@@ -7,7 +7,7 @@
     appInfo: null,
     settings: null,
     imageSource: '',
-    dataSource: '',
+    shareDataSource: '',
     output: '',
     lastOutput: '',
     busy: false,
@@ -49,10 +49,9 @@
       'test-agent-profile',
       'save-agent-profile',
       'pick-image-source',
-      'pick-data-source',
+      'pick-share-data-source',
       'pick-output',
-      'build-images',
-      'build-data',
+      'build-resource',
     ]) {
       element(id).disabled = value;
     }
@@ -104,40 +103,37 @@
   async function selectPath(kind) {
     const result = kind === 'images'
       ? await host.pickImageReleaseSource()
-      : kind === 'data'
-        ? await host.pickDataReleaseSource()
+      : kind === 'share-data'
+        ? await host.pickShareDataSource()
         : await host.pickReleaseOutput();
     if (!result?.ok || !result.path) return;
     if (kind === 'images') {
       state.imageSource = result.path;
       element('image-source').value = result.path;
-    } else if (kind === 'data') {
-      state.dataSource = result.path;
-      element('data-source').value = result.path;
+    } else if (kind === 'share-data') {
+      state.shareDataSource = result.path;
+      element('share-data-source').value = result.path;
     } else {
       state.output = result.path;
       element('release-output').value = result.path;
     }
   }
 
-  async function buildRelease(kind) {
-    const version = element('release-version').value.trim();
-    const source = kind === 'images' ? state.imageSource : state.dataSource;
-    if (!version || !source || !state.output) {
-      setMessage('请先填写版本，并选择对应源目录和输出目录。', true);
+  async function buildRelease() {
+    if (!state.imageSource || !state.shareDataSource || !state.output) {
+      setMessage('请先选择完整 Share Data、图片目录和输出目录。', true);
       return;
     }
 
     setBusy(true);
-    setMessage(kind === 'images' ? '正在生成图片发布包…' : '正在生成数据发布包…');
+    setMessage('正在校验 Share Data、图片引用并生成统一资源包…');
     try {
-      const result = kind === 'images'
-        ? await host.buildImageRelease({ assetVersion: version, releaseTag: version })
-        : await host.buildDataRelease({ dataVersion: version });
+      const result = await host.buildResourceRelease();
       if (!result?.ok) throw new Error(result?.error || '发包失败。');
       state.lastOutput = result.result?.outputDir || '';
       element('reveal-output').hidden = !state.lastOutput;
-      setMessage(`发布产物已生成：${state.lastOutput || '输出目录'}`);
+      const releaseVersion = result.result?.releaseVersion || '未知版本';
+      setMessage(`统一资源包 ${releaseVersion} 已生成：${state.lastOutput || '输出目录'}`);
     } catch (error) {
       setMessage(errorMessage(error), true);
     } finally {
@@ -170,7 +166,6 @@
       renderAgentState(agentState);
       renderAgentProfile(agentProfile);
       renderMcpState(mcpState);
-      element('release-version').value = appInfo.version;
 
       const scaleSelect = element('shell-scale');
       for (const scale of settings.availableScales) {
@@ -274,14 +269,13 @@
   element('pick-image-source').addEventListener('click', () => {
     void selectPath('images').catch((error) => setMessage(errorMessage(error), true));
   });
-  element('pick-data-source').addEventListener('click', () => {
-    void selectPath('data').catch((error) => setMessage(errorMessage(error), true));
+  element('pick-share-data-source').addEventListener('click', () => {
+    void selectPath('share-data').catch((error) => setMessage(errorMessage(error), true));
   });
   element('pick-output').addEventListener('click', () => {
     void selectPath('output').catch((error) => setMessage(errorMessage(error), true));
   });
-  element('build-images').addEventListener('click', () => void buildRelease('images'));
-  element('build-data').addEventListener('click', () => void buildRelease('data'));
+  element('build-resource').addEventListener('click', () => void buildRelease());
   element('reveal-output').addEventListener('click', () => {
     if (state.lastOutput) void host.revealPath(state.lastOutput);
   });

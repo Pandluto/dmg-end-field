@@ -34,6 +34,7 @@ for (const required of [
   '/dist/agent/engine/opencode/bin/darwin-arm64/opencode-1.17.11',
   '/dist/agent/ui/index.html',
   '/dist/agent/ui/def-opencode-ui.json',
+  '/dist/resource-release/builder.mjs',
   '/electron/agent-runtime.cjs',
   '/electron/main.cjs',
   '/electron/legacy-fill-runtime.cjs',
@@ -42,8 +43,6 @@ for (const required of [
   '/electron/shell/index.html',
   '/electron/shell/shell.css',
   '/electron/shell/shell.js',
-  '/scripts/build-desktop-data-release.mjs',
-  '/scripts/build-image-release-manifest.mjs',
   '/package.json',
 ]) {
   assert.ok(packagedSet.has(required), `桌面包缺少：${required}`);

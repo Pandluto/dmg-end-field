@@ -10,6 +10,9 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { LEGACY_FILL_MCP_TOOL_NAMES } from '../src/legacyFillService/mcp-operations.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const expectedApplicationVersion = String(JSON.parse(
+  fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'),
+).version);
 const distIndex = path.join(projectRoot, 'dist', 'index.html');
 const profileRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dmg-desktop-smoke-'));
 const applicationEntry = path.join(projectRoot, 'electron', 'main.cjs');
@@ -28,9 +31,16 @@ const fillFixture = JSON.parse(fs.readFileSync(
   'utf8',
 ));
 const releaseFixtureRoot = path.join(profileRoot, 'release-fixture');
-const dataFixtureRoot = path.join(releaseFixtureRoot, 'public', 'data');
+const shareDataFixturePath = path.join(releaseFixtureRoot, 'share-data.json');
 const imageFixtureRoot = path.join(releaseFixtureRoot, 'images');
 const releaseOutputRoot = path.join(releaseFixtureRoot, 'output');
+
+function resourceRecords(prefix, count) {
+  return Object.fromEntries(Array.from({ length: count }, (_, index) => [
+    `${prefix}-${index + 1}`,
+    { id: `${prefix}-${index + 1}`, name: `${prefix} ${index + 1}` },
+  ]));
+}
 
 if (!fs.existsSync(distIndex)) {
   throw new Error('缺少 dist/index.html；请先运行 npm run build:local。');
@@ -38,10 +48,26 @@ if (!fs.existsSync(distIndex)) {
 if (packagedExecutable && !fs.existsSync(packagedExecutable)) {
   throw new Error(`桌面可执行文件不存在：${packagedExecutable}`);
 }
-fs.mkdirSync(dataFixtureRoot, { recursive: true });
+fs.mkdirSync(releaseFixtureRoot, { recursive: true });
 fs.mkdirSync(imageFixtureRoot, { recursive: true });
 fs.mkdirSync(releaseOutputRoot, { recursive: true });
-fs.writeFileSync(path.join(dataFixtureRoot, 'sample.json'), '{"desktop":true}\n', 'utf8');
+fs.writeFileSync(shareDataFixturePath, `${JSON.stringify({
+  type: 'def.localdata.archive.v1',
+  schemaVersion: 1,
+  id: 'desktop-shell-smoke',
+  createdAt: '2026-08-20T09:53:24.000Z',
+  exportedAt: '2026-08-20T09:53:24.000Z',
+  storage: {
+    local: {
+      'def.operator-editor.library.v1': resourceRecords('operator', 30),
+      'def.weapon-sheet.library.v1': resourceRecords('weapon', 75),
+      'def.equipment-sheet.library.v1': { equipment: { id: 'equipment' } },
+      'def.buff-editor.library.v1': { buff: { id: 'buff' } },
+    },
+    session: {},
+  },
+  timelineArchives: [],
+})}\n`, 'utf8');
 fs.writeFileSync(
   path.join(imageFixtureRoot, 'sample.svg'),
   '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>\n',
@@ -523,7 +549,7 @@ try {
   assert.equal(shellRuntime.mcpState?.mcpUrl, 'http://127.0.0.1:17323/mcp');
   assert.ok(fs.existsSync(shellRuntime.mcpState?.mcpClientConfigPath || ''));
   assert.equal(shellRuntime.appInfo?.webOrigin, expectedOrigin);
-  assert.equal(shellRuntime.appInfo?.version, '1.8.2');
+  assert.equal(shellRuntime.appInfo?.version, expectedApplicationVersion);
   assert.match(shellRuntime.appInfo?.webUrl || '', /[?&]__desktop_shell=1(?:&|$)/u);
   assert.doesNotMatch(shellRuntime.appInfo?.webUrl || '', /__mcp_fill_(?:publisher|review_grant)/u);
 
@@ -567,48 +593,36 @@ try {
   assert.equal(runningAgent?.health?.engine?.kind, 'opencode');
   assert.equal(runningAgent?.health?.engine?.state, 'unavailable');
 
-  const bypassedSelection = await firstPage.evaluate(async (fixture) => (
-    window.desktopHost?.buildDataRelease({
-      source: fixture.dataSource,
-      output: fixture.output,
-      dataVersion: 'must-be-denied',
-    })
-  ), {
-    dataSource: path.dirname(dataFixtureRoot),
-    output: releaseOutputRoot,
-  });
+  const bypassedSelection = await firstPage.evaluate(async () => (
+    window.desktopHost?.buildResourceRelease()
+  ));
   assert.equal(bypassedSelection?.ok, false);
 
   await firstApplication.evaluate(({ dialog: electronDialog }, fixture) => {
-    const selections = [fixture.dataSource, fixture.imageSource, fixture.output];
+    const selections = [fixture.shareDataSource, fixture.imageSource, fixture.output];
     electronDialog.showOpenDialog = async () => ({
       canceled: false,
       filePaths: [selections.shift()],
     });
   }, {
-    dataSource: path.dirname(dataFixtureRoot),
+    shareDataSource: shareDataFixturePath,
     imageSource: imageFixtureRoot,
     output: releaseOutputRoot,
   });
 
   const releaseResults = await firstPage.evaluate(async () => {
-    const dataSelection = await window.desktopHost?.pickDataReleaseSource();
+    const shareDataSelection = await window.desktopHost?.pickShareDataSource();
     const imageSelection = await window.desktopHost?.pickImageReleaseSource();
     const outputSelection = await window.desktopHost?.pickReleaseOutput();
-    const data = await window.desktopHost?.buildDataRelease({ dataVersion: 'desktop-smoke' });
-    const images = await window.desktopHost?.buildImageRelease({
-      assetVersion: 'desktop-smoke-images',
-      releaseTag: 'desktop-smoke-images',
-    });
-    return { dataSelection, imageSelection, outputSelection, data, images };
+    const resource = await window.desktopHost?.buildResourceRelease();
+    return { shareDataSelection, imageSelection, outputSelection, resource };
   });
-  assert.equal(releaseResults.dataSelection?.ok, true);
+  assert.equal(releaseResults.shareDataSelection?.ok, true);
   assert.equal(releaseResults.imageSelection?.ok, true);
   assert.equal(releaseResults.outputSelection?.ok, true);
-  assert.equal(releaseResults.data?.ok, true, releaseResults.data?.error);
-  assert.equal(releaseResults.images?.ok, true, releaseResults.images?.error);
-  assert.ok(fs.existsSync(releaseResults.data?.result?.manifestPath || ''));
-  assert.ok(fs.existsSync(releaseResults.images?.result?.manifestPath || ''));
+  assert.equal(releaseResults.resource?.ok, true, releaseResults.resource?.error);
+  assert.ok(fs.existsSync(releaseResults.resource?.result?.manifestPath || ''));
+  assert.ok(fs.existsSync(releaseResults.resource?.result?.bundlePath || ''));
 
   await firstPage.getByLabel('Shell 显示比例').selectOption('1.25');
   await firstPage.waitForTimeout(150);
@@ -644,7 +658,7 @@ try {
     mcpProposalRoundTrip: ['buff', 'weapon', 'operator', 'equipment'],
     agentFramework: 'lazy-host-browser-product-gateway',
     mcpReviewDiff: true,
-    releaseTools: true,
+    releaseTools: 'unified-domestic-resource-release',
     packagedExecutable: packagedExecutable || null,
   }, null, 2));
 } catch (error) {

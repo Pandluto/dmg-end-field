@@ -108,23 +108,23 @@
         <div class="panel-heading">
           <div>
             <p class="eyebrow">本地开发工具</p>
-            <h2>GitHub Release 产物</h2>
+            <h2>国内统一资源包</h2>
           </div>
-          <span>不读取业务数据库</span>
+          <span>版本由北京时间与内容哈希自动生成</span>
         </div>
 
+        <p class="description">
+          选择浏览器导出的完整 Share Data 与图片目录，生成 Slim 稳定资源通道可直接验证的单一 ZIP；不会上传 GitHub Release。
+        </p>
+
         <div class="release-fields">
-          <label class="field">
-            <span>发布版本</span>
-            <input id="release-version" autocomplete="off" />
-          </label>
           <label class="field path-field">
             <span>图片源目录</span>
             <span><input id="image-source" readonly /><button id="pick-image-source" type="button">选择</button></span>
           </label>
           <label class="field path-field">
-            <span>Slim data 或 public 目录</span>
-            <span><input id="data-source" readonly /><button id="pick-data-source" type="button">选择</button></span>
+            <span>完整 Share Data JSON</span>
+            <span><input id="share-data-source" readonly /><button id="pick-share-data-source" type="button">选择</button></span>
           </label>
           <label class="field path-field">
             <span>输出目录</span>
@@ -133,8 +133,7 @@
         </div>
 
         <div class="actions">
-          <button class="primary" id="build-images" type="button">生成图片发布包</button>
-          <button id="build-data" type="button">生成数据发布包</button>
+          <button class="primary" id="build-resource" type="button">生成统一资源包</button>
           <button id="reveal-output" type="button" hidden>打开结果目录</button>
         </div>
         <p class="message" id="message" role="status" aria-live="polite">Shell 已就绪。</p>

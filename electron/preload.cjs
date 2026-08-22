@@ -21,9 +21,8 @@ contextBridge.exposeInMainWorld('desktopHost', Object.freeze({
   openAgentMode: () => invoke('desktop:open-agent-mode'),
   quit: () => invoke('desktop:quit'),
   pickImageReleaseSource: () => invoke('desktop:pick-image-release-source'),
-  pickDataReleaseSource: () => invoke('desktop:pick-data-release-source'),
+  pickShareDataSource: () => invoke('desktop:pick-share-data-source'),
   pickReleaseOutput: () => invoke('desktop:pick-release-output'),
-  buildImageRelease: (options) => invoke('desktop:build-image-release', options),
-  buildDataRelease: (options) => invoke('desktop:build-data-release', options),
+  buildResourceRelease: () => invoke('desktop:build-resource-release'),
   revealPath: (targetPath) => invoke('desktop:reveal-path', { path: targetPath }),
 }));
