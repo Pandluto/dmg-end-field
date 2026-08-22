@@ -20,6 +20,7 @@
 ## 数据发包与部署
 
 - Desktop Shell 负责把完整 `def.localdata.archive.v1` Share Data 与图片目录打成统一 `dmg.resource-release.v1` ZIP；员工增量、单一资料库导出或 `operator-library-share.v1` 不能直接作为发布输入。
+- 用户给出完整 Share Data JSON 路径和图片目录路径，并明确说“打包上传、发包、发布资源、更新线上资料”时，即构成完整交接与国内资源发布授权：直接按项目 Skill 完成打包、校验、Slimming 物化、提交推送和 `.cloud` 部署，不再要求用户提供输出目录、版本号或中间 ZIP 路径；若只说“打包、生成、校验”，则停在已校验的本地产物，不推送也不上线。
 - 资源版本固定使用本次实际打包时的北京时间，格式为 `YYYYMMDD.HHmmss.<内容哈希>`；Share Data 的 `exportedAt` 只保留为来源信息。
 - 统一资源 ZIP 只能在 `codex/v1.8-lts-slimming` 中物化到 `public/` 并部署。Desktop 分支不是网站部署源，也不得上传 GitHub Release。
 - 用户提出“部署、上线、重新部署、更新线上站点、发数据包、发资源包”等请求时，必须读取并使用 `.agents/skills/dmg-dual-deploy/SKILL.md`。
