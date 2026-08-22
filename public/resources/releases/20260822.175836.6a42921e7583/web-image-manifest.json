@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "packageId": "dmg-end-field-image-pack",
-  "version": "20260822.170422.372cefb253db",
-  "releaseVersion": "20260822.170422.97d779d3260f",
-  "generatedAt": "2026-08-22T09:04:22.269Z",
-  "releaseTag": "20260822.170422.97d779d3260f",
+  "version": "20260822.175836.372cefb253db",
+  "releaseVersion": "20260822.175836.6a42921e7583",
+  "generatedAt": "2026-08-22T09:58:36.333Z",
+  "releaseTag": "20260822.175836.6a42921e7583",
   "publicBasePath": "assets/images",
   "files": [
     {
@@ -2670,40 +2670,40 @@
   ],
   "totalBytes": 36793629,
   "archive": {
-    "path": "resources/releases/20260822.170422.97d779d3260f/images/assets-20260822.170422.372cefb253db-full.zip",
-    "fileName": "assets-20260822.170422.372cefb253db-full.zip",
-    "sha256": "a4dc377ecf6c7229b2993f1fe7a6d64970307b558e460e84c8c6f19d54cd8bf8",
+    "path": "resources/releases/20260822.175836.6a42921e7583/images/assets-20260822.175836.372cefb253db-full.zip",
+    "fileName": "assets-20260822.175836.372cefb253db-full.zip",
+    "sha256": "b96076339571b218871767bcc7a744c95403725beb8fa968c1eeccc9aa73c86c",
     "size": 19614819,
     "parts": [
       {
-        "path": "resources/releases/20260822.170422.97d779d3260f/packages/assets-20260822.170422.372cefb253db-full.zip.part-001",
-        "sha256": "8594e41b3a1946416e70644ef202d8f4cd80a3a505a99d35415e9362ddd99055",
+        "path": "resources/releases/20260822.175836.6a42921e7583/packages/assets-20260822.175836.372cefb253db-full.zip.part-001",
+        "sha256": "84e06366e3f68eccf12ccb87a879ab2a5b5e92a0b309a4a70ddbbb03f0f1a531",
         "size": 4194304,
-        "fileName": "assets-20260822.170422.372cefb253db-full.zip.part-001"
+        "fileName": "assets-20260822.175836.372cefb253db-full.zip.part-001"
       },
       {
-        "path": "resources/releases/20260822.170422.97d779d3260f/packages/assets-20260822.170422.372cefb253db-full.zip.part-002",
-        "sha256": "4399b2c89f8d08735c11704c37d094700be0c8432baa64119268289219c5f9d4",
+        "path": "resources/releases/20260822.175836.6a42921e7583/packages/assets-20260822.175836.372cefb253db-full.zip.part-002",
+        "sha256": "56ff0f1aa7401f663e6a850004e4a3ae3de58de78f2eab82829009bb738080fb",
         "size": 4194304,
-        "fileName": "assets-20260822.170422.372cefb253db-full.zip.part-002"
+        "fileName": "assets-20260822.175836.372cefb253db-full.zip.part-002"
       },
       {
-        "path": "resources/releases/20260822.170422.97d779d3260f/packages/assets-20260822.170422.372cefb253db-full.zip.part-003",
+        "path": "resources/releases/20260822.175836.6a42921e7583/packages/assets-20260822.175836.372cefb253db-full.zip.part-003",
         "sha256": "bb7fe1322bd5bcbfcff685e96a7f03528c4fd2b64f087e2dfd25c5493b3b2c7a",
         "size": 4194304,
-        "fileName": "assets-20260822.170422.372cefb253db-full.zip.part-003"
+        "fileName": "assets-20260822.175836.372cefb253db-full.zip.part-003"
       },
       {
-        "path": "resources/releases/20260822.170422.97d779d3260f/packages/assets-20260822.170422.372cefb253db-full.zip.part-004",
-        "sha256": "c5f2ab815efcab481a7f830fe7f4a35750e5ae991591d04eee6be588e01fb772",
+        "path": "resources/releases/20260822.175836.6a42921e7583/packages/assets-20260822.175836.372cefb253db-full.zip.part-004",
+        "sha256": "c16403723503d9451a0e0355d0576c145bd9d8ac2cee954f64acc87608ad19ec",
         "size": 4194304,
-        "fileName": "assets-20260822.170422.372cefb253db-full.zip.part-004"
+        "fileName": "assets-20260822.175836.372cefb253db-full.zip.part-004"
       },
       {
-        "path": "resources/releases/20260822.170422.97d779d3260f/packages/assets-20260822.170422.372cefb253db-full.zip.part-005",
-        "sha256": "c2a833baf96df32b50bf3e17fe949075e0d597d7fa3e952a934a7efa5d885520",
+        "path": "resources/releases/20260822.175836.6a42921e7583/packages/assets-20260822.175836.372cefb253db-full.zip.part-005",
+        "sha256": "8d79f6cdd959671a81d275a969eecd18a7d1a10f39d037a73fc0e79187b549b2",
         "size": 2837603,
-        "fileName": "assets-20260822.170422.372cefb253db-full.zip.part-005"
+        "fileName": "assets-20260822.175836.372cefb253db-full.zip.part-005"
       }
     ]
   }

@@ -1,35 +1,35 @@
 {
   "type": "dmg.resource-deployment.v1",
   "schemaVersion": 1,
-  "releaseVersion": "20260822.170422.97d779d3260f",
-  "rootSha256": "97d779d3260fd07649dbec7a9005f6ef568ae7b0bd72ae24f035216915f85b18",
-  "generatedAt": "2026-08-22T09:04:22.269Z",
+  "releaseVersion": "20260822.175836.6a42921e7583",
+  "rootSha256": "6a42921e75830046c48d8416d771fd8e7dfdf1b49054e80721864d2bd7da6e95",
+  "generatedAt": "2026-08-22T09:58:36.333Z",
   "source": {
-    "fileName": "local-20260822090244.json",
-    "archiveId": "local-20260822090244",
-    "exportedAt": "2026-08-22T09:02:44.167Z"
+    "fileName": "local-20260822095436.json",
+    "archiveId": "local-20260822095436",
+    "exportedAt": "2026-08-22T09:54:36.761Z"
   },
   "data": {
-    "version": "20260822.170422.5b9fe5bb",
+    "version": "20260822.175836.3c6628ce",
     "file": {
       "path": "data/default-local-data.json",
-      "sha256": "5b9fe5bb8d538f353df8fb3a375df7e55046d0ae106d68b53b8c4b866fe1fdd0",
-      "size": 3919111
+      "sha256": "3c6628ceda40b63c309fb3d50fa6de0712521e39668f32c6e78b46a8d4d36d6e",
+      "size": 3922094
     },
     "summary": {
-      "operators": 31,
+      "operators": 32,
       "weapons": 76,
       "images": 532
     }
   },
   "images": {
-    "version": "20260822.170422.372cefb253db",
+    "version": "20260822.175836.372cefb253db",
     "totalBytes": 36793629,
     "indexSha256": "372cefb253db8ddf74e1ab5aef3a9c567df7b7ce70a15a9f5c571552e2a857d6",
     "archive": {
-      "path": "images/assets-20260822.170422.372cefb253db-full.zip",
-      "fileName": "assets-20260822.170422.372cefb253db-full.zip",
-      "sha256": "a4dc377ecf6c7229b2993f1fe7a6d64970307b558e460e84c8c6f19d54cd8bf8",
+      "path": "images/assets-20260822.175836.372cefb253db-full.zip",
+      "fileName": "assets-20260822.175836.372cefb253db-full.zip",
+      "sha256": "b96076339571b218871767bcc7a744c95403725beb8fa968c1eeccc9aa73c86c",
       "size": 19614819
     },
     "files": [
@@ -2697,13 +2697,13 @@
   },
   "delivery": {
     "dataManifest": {
-      "path": "resources/releases/20260822.170422.97d779d3260f/web-data-manifest.json",
-      "sha256": "d7009843183f859b0c1ffac30bf289022d027f2c39a30e95ea12b05fa69950ab",
+      "path": "resources/releases/20260822.175836.6a42921e7583/web-data-manifest.json",
+      "sha256": "46b46a90f7eb26f591b800eaa117bd4b02a5de6cbc19749edd54bf72e29421e0",
       "size": 592
     },
     "imageManifest": {
-      "path": "resources/releases/20260822.170422.97d779d3260f/web-image-manifest.json",
-      "sha256": "8ac8caa9d4bdf990e2a94cb354f5d27dc449aa2eb417bc469835b7a5583e2fce",
+      "path": "resources/releases/20260822.175836.6a42921e7583/web-image-manifest.json",
+      "sha256": "921c60744d50ee0d8c47333254b42e9f149cdce5d441cfe157c73a7026cd54ed",
       "size": 104473
     }
   }
