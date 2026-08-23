@@ -28,6 +28,10 @@ function button(overrides: Partial<PersistedSkillButton> = {}): PersistedSkillBu
         empty: {},
       },
       manualDisabledHitKeys: ['hit-a'],
+      singleHitBuffTargetByBuffId: {
+        keep: 'hit-a',
+        remove: 'hit-b',
+      },
     },
     runtimeSnapshot: { atk: 100, critRate: 0.1, critDmg: 0.5 },
     ...overrides,
@@ -52,6 +56,9 @@ assert.deepEqual(detached.panelConfig, {
     'normal-hit-a': { keep: 2 },
   },
   manualDisabledHitKeys: ['hit-a'],
+  singleHitBuffTargetByBuffId: {
+    keep: 'hit-a',
+  },
 });
 assert.equal(detached.runtimeSnapshot, source.runtimeSnapshot);
 
@@ -76,6 +83,7 @@ const staleOnly = button({
     manualDisabledBuffIdsBySegmentKey: { hit: ['remove'] },
     manualBuffStackCountsBySegmentKey: { hit: { remove: 2 } },
     manualDisabledHitKeys: ['hit'],
+    singleHitBuffTargetByBuffId: { remove: null },
   },
 });
 assert.deepEqual(detachBuffFromSkillButton(staleOnly, 'remove').panelConfig, {
@@ -84,6 +92,7 @@ assert.deepEqual(detachBuffFromSkillButton(staleOnly, 'remove').panelConfig, {
   manualDisabledBuffIdsBySegmentKey: {},
   manualBuffStackCountsBySegmentKey: {},
   manualDisabledHitKeys: ['hit'],
+  singleHitBuffTargetByBuffId: {},
 });
 
 console.log('Skill button persisted panel override cleanup contract: PASS');

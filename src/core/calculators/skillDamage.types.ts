@@ -1,7 +1,12 @@
 import type { SkillType, HitSkillType, ElementType } from '../../types';
 import type { ResistanceZoneResult } from './buffCalculator';
 import type { HitBuffZoneResults, ZoneCalculationResult } from './buffZoneCalculator';
-import type { DamageBonusSnapshot, HitResistanceInput, SkillButtonBuff } from '../../types/storage';
+import type {
+  DamageBonusSnapshot,
+  HitResistanceInput,
+  SingleHitBuffTargetByBuffId,
+  SkillButtonBuff,
+} from '../../types/storage';
 
 export interface ResolvedHitTemplate {
   key: string;
@@ -60,6 +65,7 @@ export interface SkillDamageCalcInputV2 {
   panel: SkillDamagePanel;
   panelBase?: SkillDamagePanelBase;
   disabledBuffIdsByHitKey?: Record<string, string[]>;
+  singleHitBuffTargetByBuffId?: SingleHitBuffTargetByBuffId;
   disabledHitKeys?: string[];
   damageBonus: DamageBonusSnapshot;
   targetResistance?: HitResistanceInput;

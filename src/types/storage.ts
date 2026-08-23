@@ -276,12 +276,16 @@ export interface SkillButtonBuff {
 
 export type SkillButtonBuffMap = Record<string, SkillButtonBuff[]>;
 
+export type SingleHitBuffTargetByBuffId = Record<string, string | null>;
+
 export interface SkillButtonPanelConfig {
   selectedBuff: string[];
   globallyDisabledBuffIds?: string[];
   manualDisabledBuffIdsBySegmentKey?: Record<string, string[]>;
   manualBuffStackCountsBySegmentKey?: Record<string, Record<string, number>>;
   manualDisabledHitKeys?: string[];
+  /** 倍率加算 Buff 的唯一作用段；缺省时落在最后一个原始 Hit，null 表示全部停用。 */
+  singleHitBuffTargetByBuffId?: SingleHitBuffTargetByBuffId;
 }
 
 export type SkillButtonBuffStackCounts = Record<string, number>;

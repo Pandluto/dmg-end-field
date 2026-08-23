@@ -437,6 +437,12 @@ function remapBuffRuntimeOverrides(
     if (Object.keys(disabledBySegment).length > 0) {
       nextPanel.manualDisabledBuffIdsBySegmentKey = disabledBySegment;
     }
+    if (Object.prototype.hasOwnProperty.call(sourcePanel?.singleHitBuffTargetByBuffId ?? {}, oldBuffId)) {
+      nextPanel.singleHitBuffTargetByBuffId = {
+        ...(nextPanel.singleHitBuffTargetByBuffId ?? {}),
+        [newBuff.id]: sourcePanel?.singleHitBuffTargetByBuffId?.[oldBuffId] ?? null,
+      };
+    }
   }
 
   const nextStackCounts = { ...(detached.buffStackCounts ?? {}) };

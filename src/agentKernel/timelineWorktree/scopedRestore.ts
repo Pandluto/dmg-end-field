@@ -71,6 +71,7 @@ const PANEL_BUFF_STATE_KEYS = [
   'globallyDisabledBuffIds',
   'manualDisabledBuffIdsBySegmentKey',
   'manualBuffStackCountsBySegmentKey',
+  'singleHitBuffTargetByBuffId',
 ] as const;
 
 function isRecord(value: unknown): value is AnyRecord {
@@ -179,6 +180,19 @@ function pruneStackCountMap(value: unknown, selectedBuff: Set<string>): Record<s
   return result;
 }
 
+function pruneSingleHitBuffTargetMap(
+  value: unknown,
+  selectedBuff: Set<string>,
+): Record<string, string | null> {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, string | null] => (
+      selectedBuff.has(entry[0])
+      && (entry[1] === null || typeof entry[1] === 'string')
+    )),
+  );
+}
+
 function normalizePanelConfig(
   panelConfig: unknown,
   selectedBuff: string[],
@@ -205,6 +219,12 @@ function normalizePanelConfig(
   if (hasOwn(panelConfig, 'manualBuffStackCountsBySegmentKey')) {
     next.manualBuffStackCountsBySegmentKey = pruneStackCountMap(
       panelConfig.manualBuffStackCountsBySegmentKey,
+      selectedBuffSet,
+    );
+  }
+  if (hasOwn(panelConfig, 'singleHitBuffTargetByBuffId')) {
+    next.singleHitBuffTargetByBuffId = pruneSingleHitBuffTargetMap(
+      panelConfig.singleHitBuffTargetByBuffId,
       selectedBuffSet,
     );
   }
@@ -589,6 +609,16 @@ function remapBuffCountMap(value: unknown, idRemap: ReadonlyMap<string, string>)
   );
 }
 
+function remapBuffIdKeyMap(value: unknown, idRemap: ReadonlyMap<string, string>): unknown {
+  if (!isRecord(value)) return deepClone(value);
+  return Object.fromEntries(
+    Object.entries(value).map(([buffId, target]) => [
+      idRemap.get(buffId) ?? buffId,
+      deepClone(target),
+    ]),
+  );
+}
+
 function remapBuffIdArrayMap(value: unknown, idRemap: ReadonlyMap<string, string>): unknown {
   if (!isRecord(value)) return deepClone(value);
   return Object.fromEntries(
@@ -620,6 +650,12 @@ function remapBuffPanelReferences(panelConfig: unknown, idRemap: ReadonlyMap<str
         ]),
       )
       : deepClone(panelConfig.manualBuffStackCountsBySegmentKey);
+  }
+  if (hasOwn(panelConfig, 'singleHitBuffTargetByBuffId')) {
+    next.singleHitBuffTargetByBuffId = remapBuffIdKeyMap(
+      panelConfig.singleHitBuffTargetByBuffId,
+      idRemap,
+    );
   }
   return next;
 }

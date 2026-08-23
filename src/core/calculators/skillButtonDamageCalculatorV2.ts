@@ -7,6 +7,12 @@ import {
   calculateSkillDmgBonus,
 } from './buffCalculator';
 import { calculateHitBuffZones } from './buffZoneCalculator';
+import {
+  doesBuffApplyToResolvedHit,
+  isSingleHitMultiplierBonusBuff,
+  resolveSingleHitMultiplierBonusTargets,
+  type SingleHitBuffTargetByBuffId,
+} from '../services/singleHitMultiplierBonus';
 import type {
   DamageBreakdown,
   DamageZones,
@@ -17,26 +23,8 @@ import type {
   SkillDamagePanel,
 } from './skillDamage.types';
 
-function doesBuffApplyToHit(buff: SkillButtonBuff, hit: ResolvedHitTemplate): boolean {
-  const target = buff.target;
-  if (!target || target.mode === 'all') {
-    return true;
-  }
-
-  switch (target.mode) {
-    case 'damageKey':
-      return hit.key === target.key;
-    case 'skillType':
-      return hit.skillType === target.skillType;
-    case 'element':
-      return hit.element === target.element;
-    default:
-      return true;
-  }
-}
-
 function filterBuffsForHit(hit: ResolvedHitTemplate, buffs: SkillButtonBuff[]): SkillButtonBuff[] {
-  return buffs.filter((buff) => doesBuffApplyToHit(buff, hit));
+  return buffs.filter((buff) => doesBuffApplyToResolvedHit(buff, hit));
 }
 
 function buildPanelForHit(
@@ -136,11 +124,16 @@ function calculateHitZones(
 function calculateSingleHit(
   hit: ResolvedHitTemplate,
   buffs: SkillButtonBuff[],
-  input: SkillDamageCalcInputV2
+  input: SkillDamageCalcInputV2,
+  singleHitBuffTargets: SingleHitBuffTargetByBuffId,
 ): HitCalcResult {
   const isDisabled = input.disabledHitKeys?.includes(hit.key) ?? false;
   const disabledBuffIds = new Set(input.disabledBuffIdsByHitKey?.[hit.key] ?? []);
-  const appliedBuffs = filterBuffsForHit(hit, buffs).filter((buff) => !disabledBuffIds.has(buff.id));
+  const appliedBuffs = filterBuffsForHit(hit, buffs).filter((buff) => (
+    isSingleHitMultiplierBonusBuff(buff)
+      ? singleHitBuffTargets[buff.id] === hit.key
+      : !disabledBuffIds.has(buff.id)
+  ));
   const effectiveBuffs = isDisabled ? [] : appliedBuffs;
   const hitStackCounts = {
     ...(input.buffStackCounts ?? {}),
@@ -240,7 +233,15 @@ function createZeroDamageBreakdown(): DamageBreakdown {
 export function calculateSkillButtonDamageV2(
   input: SkillDamageCalcInputV2
 ): SkillDamageCalcResultV2 {
-  const hits = input.template.hits.map((hit) => calculateSingleHit(hit, input.buffs, input));
+  const singleHitBuffTargets = resolveSingleHitMultiplierBonusTargets(
+    input.buffs,
+    input.template.hits,
+    input.disabledBuffIdsByHitKey,
+    input.singleHitBuffTargetByBuffId,
+  );
+  const hits = input.template.hits.map((hit) => (
+    calculateSingleHit(hit, input.buffs, input, singleHitBuffTargets)
+  ));
 
   return {
     hits,

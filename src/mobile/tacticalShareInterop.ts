@@ -181,6 +181,9 @@ function actionFromTimelineButton(
     disabledBuffIdsByHitKey: toMobileSegmentMap(
       persisted.panelConfig?.manualDisabledBuffIdsBySegmentKey,
     ),
+    singleHitBuffTargetByBuffId: {
+      ...(persisted.panelConfig?.singleHitBuffTargetByBuffId ?? {}),
+    },
     disabledHitKeys: [...(persisted.panelConfig?.manualDisabledHitKeys ?? [])],
     targetResistance: { ...(persisted.resistanceConfig?.targetResistance ?? {}) },
     anomalyStatuses: [...(persisted.anomalyConfig?.selectedStatuses ?? [])],
@@ -326,6 +329,9 @@ export function mobileDraftToTimelinePayload(
           action.disabledBuffIdsByHitKey,
           normalHitKeys,
         ),
+        singleHitBuffTargetByBuffId: {
+          ...(action.singleHitBuffTargetByBuffId ?? {}),
+        },
         manualBuffStackCountsBySegmentKey: toDesktopSegmentMap(
           action.buffStackCountsByHitKey,
           normalHitKeys,

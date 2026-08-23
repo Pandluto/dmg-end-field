@@ -11,6 +11,10 @@ import {
   resolveExtraHitBaseScaling,
   resolveSpecialDamageLevelCoefficient,
 } from '../../core/services/buffExtraHit';
+import {
+  isSingleHitMultiplierBonusBuff,
+  type SingleHitBuffTargetByBuffId,
+} from '../../core/services/singleHitMultiplierBonus';
 import type { AppliedBuffTagViewModel, SkillDamagePanel, SkillDamagePanelBase } from '../../core/calculators/skillDamage.types';
 import type { ElementType, HitSkillType } from '../../types';
 import type { DamageBonusSnapshot, HitResistanceInput, SkillButtonBuff } from '../../types/storage';
@@ -41,6 +45,7 @@ interface BuildAnomalyDamageSegmentsParams {
   buffStackCounts?: Record<string, number>;
   buffStackCountsBySegmentKey?: Record<string, Record<string, number>>;
   manuallyDisabledBuffIdsBySegmentKey: Record<string, string[]>;
+  singleHitBuffTargetByBuffId?: SingleHitBuffTargetByBuffId;
   disabledHitKeys?: string[];
   getEffectiveCharacterSourceSkillBoost: (characterId: string | null, buffs?: SkillButtonBuff[]) => number;
 }
@@ -308,6 +313,7 @@ export function buildAnomalyDamageSegments({
   buffStackCounts = {},
   buffStackCountsBySegmentKey = {},
   manuallyDisabledBuffIdsBySegmentKey,
+  singleHitBuffTargetByBuffId = {},
   disabledHitKeys = [],
   getEffectiveCharacterSourceSkillBoost,
 }: BuildAnomalyDamageSegmentsParams): AnomalyDamageSegmentView[] {
@@ -330,7 +336,11 @@ export function buildAnomalyDamageSegments({
     const baseAppliedBuffs = card.selectedBuffIds.length === 0
       ? [...fullCombinedModifierBuffList]
       : [...fullCombinedModifierBuffList.filter((buff) => card.selectedBuffIds.includes(buff.id) || buff.source === 'anomaly_state')];
-    const appliedBuffs = baseAppliedBuffs.filter((buff) => !disabledBuffIds.has(buff.id));
+    const appliedBuffs = baseAppliedBuffs.filter((buff) => (
+      isSingleHitMultiplierBonusBuff(buff)
+        ? singleHitBuffTargetByBuffId[buff.id] === card.id
+        : !disabledBuffIds.has(buff.id)
+    ));
     const appliedBuffTags = buildAppliedBuffTags(appliedBuffs, segmentStackCounts);
     const segmentPanel = buildPanelFromBase(panelBase, panelData, appliedBuffs, segmentStackCounts);
     if (!segmentPanel) {
@@ -545,7 +555,11 @@ export function buildAnomalyDamageSegments({
         ...(manuallyDisabledBuffIdsBySegmentKey[baseSegmentKey] ?? []),
         ...(manuallyDisabledBuffIdsBySegmentKey[segmentKey] ?? []),
       ]);
-      const combinedAppliedBuffs = fullCombinedModifierBuffList.filter((item) => !disabledBuffIds.has(item.id));
+      const combinedAppliedBuffs = fullCombinedModifierBuffList.filter((item) => (
+        isSingleHitMultiplierBonusBuff(item)
+          ? singleHitBuffTargetByBuffId[item.id] === segmentKey
+          : !disabledBuffIds.has(item.id)
+      ));
       const appliedBuffTags = buildAppliedBuffTags(combinedAppliedBuffs, segmentStackCounts);
       const segmentPanel = buildPanelFromBase(panelBase, panelData, combinedAppliedBuffs, segmentStackCounts);
       if (!segmentPanel) {

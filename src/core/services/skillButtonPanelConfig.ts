@@ -60,6 +60,12 @@ function detachPanelConfig(
       buffId,
     );
   }
+  if (source?.singleHitBuffTargetByBuffId !== undefined) {
+    next.singleHitBuffTargetByBuffId = Object.fromEntries(
+      Object.entries(source.singleHitBuffTargetByBuffId)
+        .filter(([id]) => id !== buffId),
+    );
+  }
 
   return next;
 }

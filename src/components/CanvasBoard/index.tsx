@@ -356,6 +356,9 @@ function clonePersistedSkillButtonConfig(button: PersistedSkillButton): Pick<
             ])
           ),
           manualDisabledHitKeys: [...(button.panelConfig.manualDisabledHitKeys ?? [])],
+          singleHitBuffTargetByBuffId: {
+            ...(button.panelConfig.singleHitBuffTargetByBuffId ?? {}),
+          },
         }
       : undefined,
     runtimeSnapshot: button.runtimeSnapshot

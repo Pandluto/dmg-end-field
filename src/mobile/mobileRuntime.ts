@@ -29,6 +29,7 @@ import {
   type RdpsResolutionContext,
 } from '../core/services/rdpsSourceResolutionContext';
 import type { RdpsSourceSidecar } from '../core/services/rdpsSourceResolution.types';
+import { resolveSingleHitMultiplierBonusTargets } from '../core/services/singleHitMultiplierBonus';
 import { buildAnomalyDamageSegments } from '../components/CanvasBoard/skillButtonAnomalyDamage';
 import type { Character, Skill, SkillType } from '../types';
 import type { DamageBonusSnapshot, PersistedSkillButton, SkillButtonBuff } from '../types/storage';
@@ -340,6 +341,12 @@ function calculateMobileSlot(
     sourceSidecar,
   );
   const combinedModifierBuffs = [...modifierBuffs, ...stateDerivedBuffs, ...anomalyStateBuffs];
+  const resolvedSingleHitBuffTargets = resolveSingleHitMultiplierBonusTargets(
+    combinedModifierBuffs,
+    template.hits,
+    action.disabledBuffIdsByHitKey,
+    action.singleHitBuffTargetByBuffId,
+  );
   const effectiveDamageBonus = resolveMobileRuntimeDamageBonus(
     snapshot,
     sourceFilter?.imbalanceEnabled !== false,
@@ -359,6 +366,7 @@ function calculateMobileSlot(
     },
     panelBase: buildPanelBase(snapshot),
     disabledBuffIdsByHitKey: action.disabledBuffIdsByHitKey,
+    singleHitBuffTargetByBuffId: resolvedSingleHitBuffTargets,
     disabledHitKeys: action.disabledHitKeys,
     damageBonus: effectiveDamageBonus,
     targetResistance: action.targetResistance,
@@ -384,6 +392,7 @@ function calculateMobileSlot(
     buffStackCounts: action.buffStackCounts,
     buffStackCountsBySegmentKey: action.buffStackCountsByHitKey,
     manuallyDisabledBuffIdsBySegmentKey: action.disabledBuffIdsByHitKey,
+    singleHitBuffTargetByBuffId: resolvedSingleHitBuffTargets,
     disabledHitKeys: action.disabledHitKeys,
     getEffectiveCharacterSourceSkillBoost: (characterId, buffs = []) => (
       (characterId ? operatorSnapshots[characterId]?.panel.display.sourceSkill ?? 0 : 0)
