@@ -1470,6 +1470,34 @@
   margin: 0;
 }
 
+.mobile-report-export-team-panel {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.mobile-report-export-team-panel > .mobile-report-ppt-team-slide {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex: 0 0 auto;
+}
+
+.mobile-report-export-balance-tail {
+  display: none;
+  width: 100%;
+  padding: 16px 24px 24px;
+  box-sizing: border-box;
+  background: var(--report-paper);
+}
+
+.mobile-report-export-balance-tail:not(:empty) {
+  display: block;
+}
+
+.mobile-report-export-balance-tail > .mobile-report-chart-card {
+  width: 100%;
+}
+
 .mobile-report-export-panel-stack {
   display: flex;
   width: 100%;
