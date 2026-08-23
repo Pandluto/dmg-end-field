@@ -597,6 +597,7 @@ export function createOperatorFillDraftSchema(): Readonly<Record<string, unknown
         shape: '{ coefficient: number }',
         supportedTypes: OPERATOR_MULTIPLIER_SUPPORTED_BUFF_TYPES,
         rules: 'modifier only; category is always condition; coefficient must be positive; incompatible with category=countable; coefficient is a direct multiplier and must not be written to value',
+        corrosionRule: '腐蚀持续时间变化不计算；“降低的最大抗性提升至原本的1.1倍”使用 type=allCorrosion + multiplier.coefficient=1.1，“额外提升原本的20%”使用 coefficient=1.2。',
         canonicalSkillMultiplierType: 'multiplierBonus',
         legacyAcceptedInput: 'type=multiplierMultiplier with positive value is accepted only for compatibility and normalized to type=multiplierBonus with multiplier.coefficient=value',
       },
