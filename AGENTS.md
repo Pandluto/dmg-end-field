@@ -8,9 +8,10 @@
 
 ## 1.8 LTS 开发路由
 
-- `codex/v1.8-lts-slimming` 是 Web 与共通产品代码的默认起始分支。除桌面专属能力外，Buff、伤害计算、SQLite/存档、导出 schema、通用交互以及会影响网站或移动端的修复，必须先在 Slimming 实现、验证并提交，再按需向 Desktop Shell 单向移植。
+- `codex/v1.8-lts-slimming` 是 Web 与共通产品代码的默认起始分支。除桌面专属能力外，Buff、伤害计算、SQLite/存档、导出 schema、通用交互以及会影响网站或移动端的修复，必须先在 Slimming 实现、验证并提交，再按需向 Desktop Overlay 单向同步。
 - 不得因为主工作区当前停留在 Desktop Shell，就先在 Desktop 编写共通或 Web 补丁；应直接进入 Slimming worktree 开始工作。
-- `codex/v1.8-lts-desktop-shell` 只作为 Electron、MCP、DEF Agent、桌面打包宿主等专属能力的起始分支，并接收从 Slimming 选择性重放的共通补丁。
+- `codex/v1.8-lts-desktop-overlay` 是当前桌面分支，只拥有 Electron、MCP、DEF Agent、桌面打包宿主等叠加能力，并接收从 Slimming 单向同步的共享基线。
+- `codex/v1.8-lts-desktop-shell` 已被 Overlay 取代，只保留远端旧历史和迁移前归档，不是开发、推送或发布目标。
 - 两个分支禁止整分支合并；同步时按目标分支结构 cherry-pick 或手工重放最小行为，保留各自专属实现。
 
 - 网站部署路由：用户提出“部署、上线、重新部署、更新线上站点”等请求时，必须读取并使用 `.agents/skills/dmg-dual-deploy/SKILL.md`。`dmgendfield.cloud` 是唯一维护中的应用，默认只部署国内服务器；海外 Sites 已退役，只保留同路径跳转、PWA 迁移端点和历史分享 API，只有用户明确要求修复或更新海外退役兼容层时才部署 Sites。
