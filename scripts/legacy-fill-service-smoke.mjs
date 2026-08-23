@@ -100,6 +100,9 @@ try {
   assert.equal(fs.existsSync('dist/legacy-fill/service.mjs'), true);
   assert.equal(fs.existsSync('dist/legacy-fill/domain-runtime.mjs'), true);
   assert.equal(fs.existsSync('dist/legacy-fill/resources/strategy-v1.json'), true);
+  assert.equal(fs.existsSync('dist/legacy-fill/resources/strategy-v2.json'), true);
+  assert.equal(fs.existsSync('dist/legacy-fill/resources/golden-v1.json'), true);
+  assert.equal(fs.existsSync('dist/legacy-fill/resources/golden-v2.json'), true);
   assert.equal(packageJson.build.files.some((entry) => String(entry).includes('agent填表数据工具')), false);
   const supervisorSource = fs.readFileSync('electron/legacy-fill-runtime.cjs', 'utf8');
   assert.match(supervisorSource, /key\.startsWith\('DEF_'\)/);

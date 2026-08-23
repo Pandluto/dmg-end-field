@@ -143,7 +143,9 @@ const allowedLegacyFillFiles = new Set([
   'src/legacyFillService/mcp-server.mjs',
   'src/legacyFillService/proposal-repository.mjs',
   'src/legacyFillService/resources/golden-v1.json',
+  'src/legacyFillService/resources/golden-v2.json',
   'src/legacyFillService/resources/strategy-v1.json',
+  'src/legacyFillService/resources/strategy-v2.json',
   'src/legacyFillService/server.mjs',
 ]);
 const allowedAgentFiles = new Set([

@@ -1,0 +1,455 @@
+{
+  "version": "v2",
+  "kind": "validated-curated-fixtures",
+  "domains": {
+    "buff": {
+      "schemaVersion": 1,
+      "fixtures": [
+        {
+          "id": "buff-advanced-semantics-v2",
+          "sourceCase": "curated distinction between Zhuang Fangyi-style additive/direct multipliers, corrosion coefficients and source-skill extra hits",
+          "strategyTags": ["multiplier-additive", "multiplier-direct", "corrosion", "extra-hit-source-skill"],
+          "draft": {
+            "id": "fixture-golden-advanced-buffs",
+            "name": "Curated Advanced Buff Examples",
+            "sourceName": "Curated published-data patterns",
+            "source": "curated-fixture",
+            "description": "Sanitized examples for advanced Buff semantics.",
+            "items": [
+              {
+                "name": "Advanced Buff semantics",
+                "sourceName": "Curated published-data patterns",
+                "description": "Direct multiplier, additive multiplier, corrosion multiplier and source-skill extra hit.",
+                "effects": [
+                  {
+                    "displayName": "Skill multiplier to 1.15x",
+                    "name": "direct-multiplier",
+                    "level": "M3",
+                    "source": "curated-fixture",
+                    "sourceName": "Zhuang Fangyi pattern",
+                    "description": "战技伤害倍率提升至原本的1.15倍。",
+                    "condition": "战技命中",
+                    "effectKind": "modifier",
+                    "type": "multiplierBonus",
+                    "value": 0,
+                    "category": "condition",
+                    "multiplier": { "coefficient": 1.15 },
+                    "evidenceText": "战技伤害倍率提升至原本的1.15倍。",
+                    "confidence": 1
+                  },
+                  {
+                    "displayName": "Conductive additive multiplier per stack",
+                    "name": "countable-additive-multiplier",
+                    "level": "M3",
+                    "source": "curated-fixture",
+                    "sourceName": "Zhuang Fangyi pattern",
+                    "description": "每级导电额外伤害倍率+9%，最多4级。",
+                    "condition": "消耗导电",
+                    "effectKind": "modifier",
+                    "type": "multiplierBonus",
+                    "value": 0.09,
+                    "category": "countable",
+                    "maxStacks": 4,
+                    "evidenceText": "每级导电额外伤害倍率+9%，最多4级。",
+                    "confidence": 1
+                  },
+                  {
+                    "displayName": "Corrosion maximum resistance reduction to 1.2x",
+                    "name": "corrosion-direct-multiplier",
+                    "level": "潜能",
+                    "source": "curated-fixture",
+                    "sourceName": "Corrosion pattern",
+                    "description": "降低的最大抗性额外提升原本的20%。",
+                    "condition": "自身施加腐蚀",
+                    "effectKind": "modifier",
+                    "type": "allCorrosion",
+                    "value": 0,
+                    "category": "condition",
+                    "multiplier": { "coefficient": 1.2 },
+                    "evidenceText": "自身施加的腐蚀降低的最大抗性额外提升原本的20%。",
+                    "confidence": 1
+                  },
+                  {
+                    "displayName": "Arts-burst source-skill extra hit",
+                    "name": "source-skill-extra-hit",
+                    "level": "M3",
+                    "source": "curated-fixture",
+                    "sourceName": "Source-skill extra-hit pattern",
+                    "description": "额外造成一次受源石技艺强度提升的法术爆发伤害。",
+                    "condition": "法术爆发触发",
+                    "effectKind": "extraHit",
+                    "type": "",
+                    "value": 0,
+                    "category": "condition",
+                    "evidenceText": "额外造成一次伤害，且受源石技艺强度提升，属于法术爆发伤害。",
+                    "confidence": 1,
+                    "extraHitConfig": {
+                      "key": "source-skill-extra-hit",
+                      "damageType": "nature",
+                      "skillType": "B",
+                      "baseMultiplier": 1.04,
+                      "imbalanceValue": 0,
+                      "cooldownSeconds": 0,
+                      "trigger": "physicalAbnormal",
+                      "formulaMode": "sourceSkill",
+                      "levelCurve": "artsBurst"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "weapon": {
+      "schemaVersion": 1,
+      "fixtures": [
+        {
+          "id": "weapon-guzhou-style-advanced-v2",
+          "sourceCase": "sanitized Gu Zhou-style level-specific weapon with advanced field preservation",
+          "strategyTags": ["level-specific-values", "multiplier-direct", "derived-value", "extra-hit-source-skill"],
+          "draft": {
+            "id": "fixture-golden-guzhou-style",
+            "name": "Curated Gu Zhou Pattern",
+            "rarity": 6,
+            "type": "法术单元",
+            "description": "Sanitized published-data pattern with contract-only advanced effects.",
+            "imgUrl": "",
+            "attackGrowth": { "1": 52, "90": 510 },
+            "sourceName": "Curated Gu Zhou pattern",
+            "source": "curated-fixture",
+            "skills": {
+              "skill1": {
+                "name": "意志提升·大",
+                "statType": "意志提升",
+                "effects": {},
+                "levels": {
+                  "1": { "value": 20, "description": "意志+20" },
+                  "9": { "value": 156, "description": "意志+156" }
+                }
+              },
+              "skill2": {
+                "name": "攻击提升·大",
+                "statType": "攻击提升",
+                "effects": {},
+                "levels": {
+                  "1": { "value": 0.05, "description": "攻击力+5%" },
+                  "9": { "value": 0.39, "description": "攻击力+39%" }
+                }
+              },
+              "skill3": {
+                "name": "Advanced contract examples",
+                "statType": "special",
+                "effects": {
+                  "electric-passive": {
+                    "schemaVersion": 2,
+                    "effectId": "electric-passive",
+                    "name": "电磁伤害提升",
+                    "type": "electricDmgBonus",
+                    "category": "passive",
+                    "levels": { "1": 0.16, "9": 0.448 },
+                    "valueMode": "fixed",
+                    "unit": "percent",
+                    "description": "保留各精炼等级数值。",
+                    "raw": "电磁伤害提升。",
+                    "effectKind": "modifier"
+                  },
+                  "direct-multiplier": {
+                    "schemaVersion": 2,
+                    "effectId": "direct-multiplier",
+                    "name": "战技倍率提升至原本倍数",
+                    "type": "multiplierBonus",
+                    "category": "condition",
+                    "levels": { "1": 1.05, "9": 1.15 },
+                    "valueMode": "fixed",
+                    "unit": "multiplier",
+                    "description": "每个精炼等级存直接系数。",
+                    "raw": "战技伤害倍率提升至原本的对应倍数。",
+                    "multiplier": { "coefficient": 1.15 },
+                    "effectKind": "modifier"
+                  },
+                  "derived-source-skill": {
+                    "schemaVersion": 2,
+                    "effectId": "derived-source-skill",
+                    "name": "每点源石技艺强度提升电磁伤害",
+                    "type": "electricDmgBonus",
+                    "category": "condition",
+                    "levels": { "1": 0.0004, "9": 0.0008 },
+                    "valueMode": "derived",
+                    "derivedValue": { "source": "sourceSkill", "perPointValue": 0.0008 },
+                    "unit": "percent",
+                    "description": "每点+0.08%使用0.0008。",
+                    "raw": "每点源石技艺强度使电磁伤害提高0.08%。",
+                    "effectKind": "modifier"
+                  },
+                  "source-skill-extra-hit": {
+                    "schemaVersion": 2,
+                    "effectId": "source-skill-extra-hit",
+                    "name": "法术爆发额外伤害段",
+                    "type": "",
+                    "category": "condition",
+                    "levels": { "1": 0.8, "9": 1.04 },
+                    "valueMode": "fixed",
+                    "unit": "percent",
+                    "description": "额外段受源石技艺强度与法术爆发等级线影响。",
+                    "raw": "额外造成一段受源石技艺强度提升的法术爆发伤害。",
+                    "effectKind": "extraHit",
+                    "extraHitConfig": {
+                      "key": "source-skill-extra-hit",
+                      "damageType": "electric",
+                      "skillType": "B",
+                      "baseMultiplier": 1.04,
+                      "imbalanceValue": 0,
+                      "cooldownSeconds": 0,
+                      "trigger": "physicalAbnormal",
+                      "formulaMode": "sourceSkill",
+                      "levelCurve": "artsBurst"
+                    }
+                  }
+                },
+                "levels": {}
+              }
+            }
+          }
+        }
+      ]
+    },
+    "operator": {
+      "schemaVersion": 1,
+      "fixtures": [
+        {
+          "id": "operator-zhuangfangyi-semantics-v2",
+          "sourceCase": "sanitized published Zhuang Fangyi Buff classification pattern",
+          "strategyTags": ["countable-amplify", "multiplier-direct", "multiplier-additive"],
+          "draft": {
+            "id": "fixture-golden-zhuangfangyi-pattern",
+            "name": "Curated Zhuang Fangyi Pattern",
+            "avatarUrl": "",
+            "rarity": 6,
+            "profession": "突击",
+            "weapon": "法术单元",
+            "element": "electric",
+            "mainStat": "意志",
+            "subStat": "智识",
+            "level": 90,
+            "attributes": {},
+            "skills": {
+              "skill-B-1": {
+                "displayName": "惊霆诀范式",
+                "buttonType": "B",
+                "iconUrl": "",
+                "hitCount": 1,
+                "hitMeta": {
+                  "hit1": {
+                    "displayName": "最后一击",
+                    "element": "electric",
+                    "skillType": "B",
+                    "levels": { "L1": 1.2, "M3": 2.7 }
+                  }
+                }
+              }
+            },
+            "buffs": {
+              "talent": {
+                "effects": {
+                  "electric-amplify-stack": {
+                    "schemaVersion": 2,
+                    "effectId": "electric-amplify-stack",
+                    "name": "电磁增幅每层2%",
+                    "type": "electricAmplify",
+                    "category": "countable",
+                    "value": 0.02,
+                    "maxStacks": 9,
+                    "unit": "percent",
+                    "valueMode": "fixed",
+                    "description": "命中时每层增加2%，最多9层。",
+                    "raw": "雷击命中时使电磁增幅效果+2%。",
+                    "effectKind": "modifier"
+                  }
+                }
+              },
+              "potential": {
+                "effects": {
+                  "direct-multiplier": {
+                    "schemaVersion": 2,
+                    "effectId": "direct-multiplier",
+                    "name": "战技倍率×1.15",
+                    "type": "multiplierBonus",
+                    "category": "condition",
+                    "unit": "multiplier",
+                    "valueMode": "fixed",
+                    "description": "战技伤害倍率提升至原本的1.15倍。",
+                    "raw": "战技伤害倍率提升至原本的1.15倍。",
+                    "effectKind": "modifier",
+                    "multiplier": { "coefficient": 1.15 }
+                  }
+                }
+              },
+              "skill": {
+                "effects": {
+                  "conductive-additive": {
+                    "schemaVersion": 2,
+                    "effectId": "conductive-additive",
+                    "name": "每级导电额外伤害倍率+9%",
+                    "type": "multiplierBonus",
+                    "category": "countable",
+                    "value": 0.09,
+                    "maxStacks": 4,
+                    "unit": "percent",
+                    "valueMode": "fixed",
+                    "description": "每级导电额外伤害倍率+9%，最多4级。",
+                    "raw": "消耗每级导电额外伤害倍率9%。",
+                    "effectKind": "modifier"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "equipment": {
+      "schemaVersion": 1,
+      "fixtures": [
+        {
+          "id": "equipment-rangliu-style-advanced-v2",
+          "sourceCase": "sanitized Rang Liu-style three-piece set plus advanced-field preservation",
+          "strategyTags": ["three-piece", "condition-layers", "multiplier", "derived-value", "extra-hit-source-skill"],
+          "draft": {
+            "schemaVersion": 2,
+            "updatedAt": "2026-08-23T00:00:00.000Z",
+            "gearSets": {
+              "gear-set-curated-rang-liu": {
+                "schemaVersion": 2,
+                "gearSetId": "gear-set-curated-rang-liu",
+                "name": "Curated Rang Liu Pattern",
+                "buffId": "",
+                "imgUrl": "",
+                "threePieceBuffs": {
+                  "buff1": {
+                    "schemaVersion": 2,
+                    "effectId": "buff1",
+                    "name": "攻击力+10%",
+                    "category": "passive",
+                    "typeKey": "atkPercentBoost",
+                    "value": 0.1,
+                    "unit": "percent",
+                    "valueMode": "fixed",
+                    "description": "三件套常驻攻击力提升。",
+                    "raw": "攻击力+10%。",
+                    "effectKind": "modifier"
+                  },
+                  "buff2": {
+                    "schemaVersion": 2,
+                    "effectId": "buff2",
+                    "name": "1层自然伤害+15%",
+                    "category": "condition",
+                    "typeKey": "natureDmgBonus",
+                    "value": 0.15,
+                    "unit": "percent",
+                    "valueMode": "fixed",
+                    "description": "条件层级使用独立效果表达。",
+                    "raw": "1层时自然伤害+15%。",
+                    "effectKind": "modifier"
+                  },
+                  "buff3": {
+                    "schemaVersion": 2,
+                    "effectId": "buff3",
+                    "name": "腐蚀最大降抗提升至1.2倍",
+                    "category": "condition",
+                    "typeKey": "allCorrosion",
+                    "value": 0,
+                    "unit": "percent",
+                    "valueMode": "fixed",
+                    "description": "额外提升原本的20%写作1.2。",
+                    "raw": "降低的最大抗性额外提升原本的20%。",
+                    "multiplier": { "coefficient": 1.2 },
+                    "effectKind": "modifier"
+                  },
+                  "buff4": {
+                    "schemaVersion": 2,
+                    "effectId": "buff4",
+                    "name": "每点源石技艺强度提升自然伤害",
+                    "category": "condition",
+                    "typeKey": "natureDmgBonus",
+                    "value": 0,
+                    "unit": "percent",
+                    "valueMode": "derived",
+                    "derivedValue": { "source": "sourceSkill", "perPointValue": 0.0008 },
+                    "description": "每点+0.08%。",
+                    "raw": "每点源石技艺强度使自然伤害提高0.08%。",
+                    "effectKind": "modifier"
+                  },
+                  "buff5": {
+                    "schemaVersion": 2,
+                    "effectId": "buff5",
+                    "name": "法术爆发额外伤害段",
+                    "category": "condition",
+                    "typeKey": "",
+                    "value": 0,
+                    "unit": "percent",
+                    "valueMode": "fixed",
+                    "description": "受源石技艺强度影响的额外伤害段。",
+                    "raw": "额外造成一段受源石技艺强度提升的法术爆发伤害。",
+                    "effectKind": "extraHit",
+                    "extraHitConfig": {
+                      "key": "equipment-source-skill-extra-hit",
+                      "damageType": "nature",
+                      "skillType": "B",
+                      "baseMultiplier": 1.04,
+                      "imbalanceValue": 0,
+                      "cooldownSeconds": 0,
+                      "trigger": "physicalAbnormal",
+                      "formulaMode": "sourceSkill",
+                      "levelCurve": "artsBurst"
+                    }
+                  }
+                },
+                "equipments": {
+                  "equipment-curated-armor": {
+                    "equipmentId": "equipment-curated-armor",
+                    "name": "Curated Armor",
+                    "part": "护甲",
+                    "imgUrl": "",
+                    "fixedStat": { "label": "防御力", "typeKey": "defense", "value": 56, "unit": "flat", "raw": "防御力+56" },
+                    "effects": {
+                      "effect1": { "effectId": "effect1", "label": "意志", "typeKey": "willBoost", "category": "ability", "levels": { "0": 87, "3": 113 }, "unit": "flat", "raw": "意志+87/+113" }
+                    }
+                  },
+                  "equipment-curated-glove": {
+                    "equipmentId": "equipment-curated-glove",
+                    "name": "Curated Glove",
+                    "part": "护手",
+                    "imgUrl": "",
+                    "fixedStat": { "label": "防御力", "typeKey": "defense", "value": 42, "unit": "flat", "raw": "防御力+42" },
+                    "effects": {
+                      "effect1": { "effectId": "effect1", "label": "意志", "typeKey": "willBoost", "category": "ability", "levels": { "0": 65, "3": 84 }, "unit": "flat", "raw": "意志+65/+84" }
+                    }
+                  },
+                  "equipment-curated-accessory": {
+                    "equipmentId": "equipment-curated-accessory",
+                    "name": "Curated Accessory",
+                    "part": "配件",
+                    "imgUrl": "",
+                    "fixedStat": { "label": "防御力", "typeKey": "defense", "value": 21, "unit": "flat", "raw": "防御力+21" },
+                    "effects": {
+                      "effect1": { "effectId": "effect1", "label": "意志", "typeKey": "willBoost", "category": "ability", "levels": { "0": 32, "3": 41 }, "unit": "flat", "raw": "意志+32/+41" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "excluded": [
+    "personal library dumps",
+    "request/response captures",
+    "absolute paths",
+    "loopback image URLs",
+    "tokens and session identifiers"
+  ]
+}

@@ -181,8 +181,8 @@ function createLegacyFillRuntime(options) {
       LEGACY_FILL_DATABASE_PATH: path.join(runtimeRoot, 'legacy-fill.sqlite3'),
       LEGACY_FILL_REGISTRY_PATH: path.join(runtimeRoot, 'registry.json'),
       LEGACY_FILL_DOMAIN_RUNTIME_PATH: path.join(applicationRoot, 'dist', 'legacy-fill', 'domain-runtime.mjs'),
-      LEGACY_FILL_STRATEGY_PATH: path.join(applicationRoot, 'dist', 'legacy-fill', 'resources', 'strategy-v1.json'),
-      LEGACY_FILL_GOLDEN_PATH: path.join(applicationRoot, 'dist', 'legacy-fill', 'resources', 'golden-v1.json'),
+      LEGACY_FILL_STRATEGY_PATH: path.join(applicationRoot, 'dist', 'legacy-fill', 'resources', 'strategy-v2.json'),
+      LEGACY_FILL_GOLDEN_PATH: path.join(applicationRoot, 'dist', 'legacy-fill', 'resources', 'golden-v2.json'),
     };
     for (const key of Object.keys(environment)) {
       if (key.startsWith('DEF_') || key.startsWith('OPENCODE_')) delete environment[key];

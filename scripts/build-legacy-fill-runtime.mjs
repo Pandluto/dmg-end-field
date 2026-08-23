@@ -33,9 +33,13 @@ await Promise.all([
 
 const resourceOutput = path.join(outputDirectory, 'resources');
 fs.mkdirSync(resourceOutput, { recursive: true });
-for (const fileName of ['strategy-v1.json', 'golden-v1.json']) {
+const resourceSource = path.resolve('src', 'legacyFillService', 'resources');
+const resourceFiles = fs.readdirSync(resourceSource)
+  .filter((fileName) => /^(?:strategy|golden)-v\d+\.json$/u.test(fileName))
+  .sort();
+for (const fileName of resourceFiles) {
   fs.copyFileSync(
-    path.resolve('src', 'legacyFillService', 'resources', fileName),
+    path.join(resourceSource, fileName),
     path.join(resourceOutput, fileName),
   );
 }

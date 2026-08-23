@@ -164,8 +164,18 @@ function baseTarget(domain, snapshotValue, normalized, targetId) {
   };
 }
 
-export function createLegacyFillMcpOperations({ repository, domainRuntime, guide, examples }) {
+export function createLegacyFillMcpOperations({ repository, domainRuntime, guide, examples, guideHistory = [], exampleHistory = [] }) {
   if (!repository || !domainRuntime) throw new TypeError('repository and domainRuntime are required');
+  const guidesByVersion = new Map(
+    [...guideHistory, guide]
+      .filter((entry) => entry && typeof entry.version === 'string')
+      .map((entry) => [entry.version, entry]),
+  );
+  const examplesByVersion = new Map(
+    [...exampleHistory, examples]
+      .filter((entry) => entry && typeof entry.version === 'string')
+      .map((entry) => [entry.version, entry]),
+  );
 
   function snapshot(domain, snapshotId) {
     assertDomain(domain);
@@ -211,6 +221,10 @@ export function createLegacyFillMcpOperations({ repository, domainRuntime, guide
       format: template.format,
       schema: template.schema,
       template: template.data || { tool: `${domain}.fill`, schema: template.schema },
+      guidance: {
+        strategyUri: `legacy-fill://guides/strategy/${guide.version}`,
+        examplesUri: examples.domains?.[domain] ? `legacy-fill://examples/${examples.version}/${domain}` : null,
+      },
       separation: { schemaSource: 'legacy-fill-core', strategyIsProtocol: false },
     };
   }
@@ -350,12 +364,15 @@ export function createLegacyFillMcpOperations({ repository, domainRuntime, guide
     }
     if (value.hostname === 'schema' && segments.length === 2) return getTemplate({ schemaVersion: Number(segments[0]), domain: segments[1] }).schema;
     if (value.hostname === 'template' && segments.length === 2) return getTemplate({ schemaVersion: Number(segments[0]), domain: segments[1] });
-    if (value.hostname === 'guides' && segments[0] === 'strategy' && segments[1] === guide.version) return guide;
-    if (value.hostname === 'examples' && segments.length === 2 && segments[0] === examples.version) {
+    if (value.hostname === 'guides' && segments[0] === 'strategy' && guidesByVersion.has(segments[1])) {
+      return guidesByVersion.get(segments[1]);
+    }
+    if (value.hostname === 'examples' && segments.length === 2 && examplesByVersion.has(segments[0])) {
       assertDomain(segments[1]);
-      const example = examples.domains[segments[1]];
+      const versionedExamples = examplesByVersion.get(segments[0]);
+      const example = versionedExamples.domains[segments[1]];
       if (!example) fail('resource-not-found', 'Golden fixture not found');
-      return { fixtureVersion: examples.version, schemaVersion: example.schemaVersion, domain: segments[1], fixtures: example.fixtures || [] };
+      return { fixtureVersion: versionedExamples.version, schemaVersion: example.schemaVersion, domain: segments[1], fixtures: example.fixtures || [] };
     }
     if (value.hostname === 'proposals' && segments.length === 3 && ['review', 'status'].includes(segments[2])) {
       const [ownerNamespace, proposalId, kind] = segments;
@@ -376,9 +393,13 @@ export function createLegacyFillMcpOperations({ repository, domainRuntime, guide
         resources.push(`legacy-fill://schema/${latest.schemaVersion}/${domain}`);
         resources.push(`legacy-fill://template/${latest.schemaVersion}/${domain}`);
       }
-      if (examples.domains[domain]) resources.push(`legacy-fill://examples/${examples.version}/${domain}`);
+      for (const versionedExamples of examplesByVersion.values()) {
+        if (versionedExamples.domains?.[domain]) resources.push(`legacy-fill://examples/${versionedExamples.version}/${domain}`);
+      }
     }
-    resources.push(`legacy-fill://guides/strategy/${guide.version}`);
+    for (const versionedGuide of guidesByVersion.values()) {
+      resources.push(`legacy-fill://guides/strategy/${versionedGuide.version}`);
+    }
     for (const proposal of repository.listProposals(ownerNamespace, { limit: 500 })) {
       const base = `legacy-fill://proposals/${encodeURIComponent(ownerNamespace)}/${proposal.proposalId}`;
       resources.push(`${base}/review`, `${base}/status`);

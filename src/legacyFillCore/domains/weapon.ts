@@ -1,4 +1,5 @@
-import type { BuffEffectKind, BuffExtraHitConfig } from '../../core/domain/buff';
+import type { BuffEffectKind, BuffExtraHitConfig, BuffMultiplier } from '../../core/domain/buff';
+import { normalizeBuffMultiplier, validateBuffMultiplierDefinition } from '../../core/domain/buffMultiplier';
 import {
   normalizeExtraHitCategory,
   normalizeExtraHitConfig,
@@ -13,13 +14,32 @@ export const ALL_WEAPON_STORAGE_KEYS = [WEAPON_DRAFT_STORAGE_KEY, WEAPON_LIBRARY
 
 export type WeaponSkillKey = 'skill1' | 'skill2' | 'skill3';
 export type WeaponEffectBucket = 'value' | 'effect';
+export const WEAPON_EFFECT_VALUE_MODES = ['fixed', 'derived'] as const;
+export const WEAPON_EFFECT_DERIVED_SOURCES = ['hp', 'atk', 'strength', 'agility', 'intelligence', 'will', 'sourceSkill'] as const;
+
+type WeaponEffectValueMode = (typeof WEAPON_EFFECT_VALUE_MODES)[number];
+type WeaponEffectDerivedSource = (typeof WEAPON_EFFECT_DERIVED_SOURCES)[number];
+
+interface WeaponEffectDerivedValue {
+  source: WeaponEffectDerivedSource;
+  perPointValue: number;
+}
 
 export interface WeaponEffectData {
+  schemaVersion?: 2;
+  effectId?: string;
   name: string;
   type: string;
   category: string;
   levels: Record<string, number>;
+  valueMode?: WeaponEffectValueMode;
+  derivedValue?: WeaponEffectDerivedValue;
   maxStacks?: number;
+  unit?: string;
+  condition?: string;
+  description?: string;
+  raw?: string;
+  multiplier?: BuffMultiplier;
   effectKind?: BuffEffectKind;
   extraHitConfig?: BuffExtraHitConfig;
 }
@@ -61,11 +81,20 @@ export interface WeaponFillAiDraft {
     name: string;
     statType: string;
     effects: Record<string, {
+      schemaVersion?: 2;
+      effectId?: string;
       name: string;
       type: string;
       category: string;
       levels: Record<string, number>;
+      valueMode?: WeaponEffectValueMode;
+      derivedValue?: WeaponEffectDerivedValue;
       maxStacks?: number;
+      unit?: string;
+      condition?: string;
+      description?: string;
+      raw?: string;
+      multiplier?: BuffMultiplier;
       effectKind?: BuffEffectKind;
       extraHitConfig?: BuffExtraHitConfig;
     }>;
@@ -139,8 +168,17 @@ export const SUPPORTED_EFFECT_TYPES: string[] = [
   'multiplierBonus',
   'multiplierMultiplier',
   'sourceSkillBoost',
+  'atk',
+  'mainStat',
+  'subStat',
+  'hpPercent',
+  'imbalanceDmgBonus',
   'hp',
   'healingBonus',
+  'receivedHealingBonus',
+  'chainCooldownReduction',
+  'imbalanceEfficiency',
+  'damageReduction',
   'ultimateChargeEfficiency',
 ];
 const EFFECT_TYPE_ALIASES: Record<string, string> = {
@@ -148,9 +186,10 @@ const EFFECT_TYPE_ALIASES: Record<string, string> = {
   critRate: 'critRateBoost',
   critDmg: 'critDmgBonusBoost',
   elementalDmgBonus: 'allDmgBonus',
+  multiplierMultiplier: 'multiplierBonus',
 };
 
-export const WEAPON_FILL_CONTRACT_VERSION = 'weapon-fill-20260822-extra-hit-v5';
+export const WEAPON_FILL_CONTRACT_VERSION = 'weapon-fill-20260823-advanced-buff-v6';
 
 export const WEAPON_FILL_AI_DRAFT_SCHEMA = {
   id: 'string',
@@ -168,7 +207,10 @@ export const WEAPON_FILL_AI_DRAFT_SCHEMA = {
     skill3: 'WeaponFillSkill optional',
   },
   effect: {
-    fields: ['name', 'effectKind?', 'type', 'category', 'levels', 'maxStacks?', 'extraHitConfig?'],
+    fields: ['schemaVersion?', 'effectId?', 'name', 'effectKind?', 'type', 'category', 'levels', 'valueMode?', 'derivedValue?', 'maxStacks?', 'unit?', 'condition?', 'description?', 'raw?', 'multiplier?', 'extraHitConfig?'],
+    multiplier: 'modifier only; category=condition; incompatible with countable/derived/extraHit. “提升至原本的1.15倍” uses type=multiplierBonus + multiplier.coefficient=1.15, while each weapon level stores its direct coefficient in levels',
+    additiveMultiplier: '“额外伤害倍率+9%” remains type=multiplierBonus without multiplier; condition/countable values use decimal levels such as 0.09',
+    derivedValue: `{ source: ${WEAPON_EFFECT_DERIVED_SOURCES.join('|')}, perPointValue: number }; valueMode=derived only; each weapon level stores its per-point value in levels`,
     extraHitCategory: 'condition/countable only; never passive. countable defaults maxStacks to 1; 1 is a normal single segment and values greater than 1 create multiple independent segments',
     extraHitConfig: '{ key, damageType, skillType, baseMultiplier, imbalanceValue, cooldownSeconds, trigger, formulaMode?, levelCurve? }; formulaMode defaults inherited. Use sourceSkill only with explicit source-skill-strength evidence; physical abnormal damage uses levelCurve=physicalAnomaly, shatter/Arts burst uses artsBurst',
   },
@@ -183,6 +225,9 @@ export function getWeaponFillAdapterDiagnostics() {
     extraHitCategories: ['condition', 'countable'],
     extraHitFormulaModes: ['inherited', 'sourceSkill'],
     extraHitLevelCurves: ['physicalAnomaly', 'artsBurst'],
+    valueModes: [...WEAPON_EFFECT_VALUE_MODES],
+    derivedSources: [...WEAPON_EFFECT_DERIVED_SOURCES],
+    preservesMultiplier: true,
     rejectsLegacyUrl: true,
     preservedEffectSkill: 'skill3',
   };
@@ -207,6 +252,99 @@ function normalizeNumericRecord(value: unknown) {
   return Object.fromEntries(
     Object.entries(value).filter(([, entryValue]) => typeof entryValue === 'number' && Number.isFinite(entryValue)),
   ) as Record<string, number>;
+}
+
+function normalizeDerivedValue(value: unknown): WeaponEffectDerivedValue | undefined {
+  if (!isRecord(value)) return undefined;
+  const source = WEAPON_EFFECT_DERIVED_SOURCES.includes(value.source as WeaponEffectDerivedSource)
+    ? value.source as WeaponEffectDerivedSource
+    : undefined;
+  const perPointValue = value.perPointValue ?? value.scale;
+  return source && typeof perPointValue === 'number' && Number.isFinite(perPointValue)
+    ? { source, perPointValue }
+    : undefined;
+}
+
+function firstPositiveLevel(levels: unknown): number | undefined {
+  if (!isRecord(levels)) return undefined;
+  return Object.values(levels).find((value): value is number => (
+    typeof value === 'number' && Number.isFinite(value) && value > 0
+  ));
+}
+
+function validateWeaponEffect(rawEffect: Record<string, unknown>, path: string, errors: string[]) {
+  const effectKind: BuffEffectKind = rawEffect.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
+  const isLegacySkillMultiplier = rawEffect.type === 'multiplierMultiplier';
+  const normalizedType = effectKind === 'extraHit' ? '' : normalizeEffectType(String(rawEffect.type || ''));
+  const rawCategory = typeof rawEffect.category === 'string' && VALID_EFFECT_CATEGORIES.includes(rawEffect.category)
+    ? rawEffect.category
+    : undefined;
+
+  if (typeof rawEffect.name !== 'string') errors.push(`${path}.name must be string`);
+  if (effectKind === 'modifier' && (!normalizedType || !SUPPORTED_EFFECT_TYPES.includes(normalizedType))) {
+    errors.push(`${path}.type unsupported`);
+  }
+  if (!rawCategory) errors.push(`${path}.category must be condition/passive/countable`);
+  if (rawEffect.effectKind !== undefined && rawEffect.effectKind !== 'modifier' && rawEffect.effectKind !== 'extraHit') {
+    errors.push(`${path}.effectKind must be modifier or extraHit`);
+  }
+
+  if (!isRecord(rawEffect.levels)) {
+    errors.push(`${path}.levels must be object`);
+  } else {
+    for (const [levelKey, levelValue] of Object.entries(rawEffect.levels)) {
+      if (typeof levelValue !== 'number' || !Number.isFinite(levelValue)) {
+        errors.push(`${path}.levels.${levelKey} must be number`);
+      }
+    }
+  }
+
+  if (effectKind === 'extraHit') {
+    if (rawCategory !== 'condition' && rawCategory !== 'countable') {
+      errors.push(`${path}.category must be condition or countable for extraHit`);
+    }
+    validateExtraHitConfig(rawEffect.extraHitConfig, `${path}.extraHitConfig`, errors);
+    if (rawEffect.multiplier !== undefined) errors.push(`${path}.multiplier is not allowed for extraHit`);
+    if (rawEffect.valueMode === 'derived' || rawEffect.derivedValue !== undefined) {
+      errors.push(`${path} extraHit does not support derivedValue`);
+    }
+  }
+
+  const countableMaxStacks = effectKind === 'extraHit' ? Number(rawEffect.maxStacks ?? 1) : rawEffect.maxStacks;
+  if (rawCategory === 'countable' && (typeof countableMaxStacks !== 'number' || !Number.isFinite(countableMaxStacks) || countableMaxStacks <= 0)) {
+    errors.push(`${path}.maxStacks must be positive number for countable`);
+  }
+
+  const valueMode = rawEffect.valueMode === undefined ? 'fixed' : rawEffect.valueMode;
+  if (!WEAPON_EFFECT_VALUE_MODES.includes(valueMode as WeaponEffectValueMode)) {
+    errors.push(`${path}.valueMode must be fixed or derived`);
+  }
+  if (valueMode === 'derived') {
+    if (rawCategory === 'countable') errors.push(`${path} countable does not support derivedValue`);
+    if (!normalizeDerivedValue(rawEffect.derivedValue)) {
+      errors.push(`${path}.derivedValue requires a supported source and finite perPointValue`);
+    }
+  } else if (rawEffect.derivedValue !== undefined) {
+    errors.push(`${path}.derivedValue requires valueMode=derived`);
+  }
+
+  const multiplier = normalizeBuffMultiplier(rawEffect.multiplier)
+    ?? (isLegacySkillMultiplier ? { coefficient: firstPositiveLevel(rawEffect.levels) ?? 1 } : undefined);
+  if (rawEffect.multiplier !== undefined && !normalizeBuffMultiplier(rawEffect.multiplier)) {
+    errors.push(`${path}.multiplier.coefficient must be a positive number`);
+  }
+  if (multiplier) {
+    validateBuffMultiplierDefinition({
+      type: normalizedType,
+      category: rawCategory as 'condition' | 'passive' | 'countable' | undefined,
+      effectKind,
+      multiplier,
+    }).forEach((message) => errors.push(`${path}: ${message}`));
+    if (valueMode === 'derived') errors.push(`${path}.multiplier is incompatible with derivedValue`);
+    if (isRecord(rawEffect.levels) && Object.values(rawEffect.levels).some((value) => typeof value === 'number' && value <= 0)) {
+      errors.push(`${path}.levels must contain positive direct coefficients for multiplier`);
+    }
+  }
 }
 
 export function validateWeaponProposalPayload(payload: unknown): LegacyFillValidationResult<WeaponDraft> {
@@ -244,25 +382,7 @@ export function validateWeaponProposalPayload(payload: unknown): LegacyFillValid
             errors.push(`skills.${skillKey}.effects.${effectKey} must be object`);
             continue;
           }
-          const effectKind = rawEffect.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
-          if (typeof rawEffect.name !== 'string') errors.push(`skills.${skillKey}.effects.${effectKey}.name must be string`);
-          if (effectKind === 'modifier' && (typeof rawEffect.type !== 'string' || !SUPPORTED_EFFECT_TYPES.includes(normalizeEffectType(rawEffect.type)))) {
-            errors.push(`skills.${skillKey}.effects.${effectKey}.type unsupported`);
-          }
-          if (typeof rawEffect.category !== 'string' || !VALID_EFFECT_CATEGORIES.includes(rawEffect.category)) {
-            errors.push(`skills.${skillKey}.effects.${effectKey}.category must be condition/passive/countable`);
-          }
-          if (effectKind === 'extraHit') {
-            if (rawEffect.category !== 'condition' && rawEffect.category !== 'countable') {
-              errors.push(`skills.${skillKey}.effects.${effectKey}.category must be condition or countable for extraHit`);
-            }
-            validateExtraHitConfig(rawEffect.extraHitConfig, `skills.${skillKey}.effects.${effectKey}.extraHitConfig`, errors);
-          }
-          const countableMaxStacks = effectKind === 'extraHit' ? Number(rawEffect.maxStacks ?? 1) : rawEffect.maxStacks;
-          if (rawEffect.category === 'countable' && (typeof countableMaxStacks !== 'number' || !Number.isFinite(countableMaxStacks) || countableMaxStacks <= 0)) {
-            errors.push(`skills.${skillKey}.effects.${effectKey}.maxStacks must be positive number for countable`);
-          }
-          if (!isRecord(rawEffect.levels)) errors.push(`skills.${skillKey}.effects.${effectKey}.levels must be object`);
+          validateWeaponEffect(rawEffect, `skills.${skillKey}.effects.${effectKey}`, errors);
         }
       }
       if (!isRecord(skill.levels)) errors.push(`skills.${skillKey}.levels must be object`);
@@ -367,37 +487,7 @@ export function validateWeaponFillAiDraft(candidate: unknown): LegacyFillValidat
           errors.push(`skills.${skillKey}.effects.${effectKey} 必须是对象`);
           continue;
         }
-        const effect = effectValue as Record<string, unknown>;
-        const effectKind = effect.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
-        if (typeof effect.name !== 'string') {
-          errors.push(`skills.${skillKey}.effects.${effectKey}.name 必须是字符串`);
-        }
-        if (effectKind === 'modifier' && typeof effect.type !== 'string') {
-          errors.push(`skills.${skillKey}.effects.${effectKey}.type 必须是字符串`);
-        } else if (effectKind === 'modifier' && !SUPPORTED_EFFECT_TYPES.includes(normalizeEffectType(effect.type as string))) {
-          errors.push(`skills.${skillKey}.effects.${effectKey}.type "${effect.type}" 不在支持的类型列表中: ${SUPPORTED_EFFECT_TYPES.join('/')}`);
-        }
-        if (typeof effect.category !== 'string' || !VALID_EFFECT_CATEGORIES.includes(effect.category)) {
-          errors.push(`skills.${skillKey}.effects.${effectKey}.category 必须是 condition、passive 或 countable`);
-        }
-        if (effectKind === 'extraHit') {
-          if (effect.category !== 'condition' && effect.category !== 'countable') {
-            errors.push(`skills.${skillKey}.effects.${effectKey}.category 在 extraHit 时必须是 condition 或 countable`);
-          }
-          validateExtraHitConfig(effect.extraHitConfig, `skills.${skillKey}.effects.${effectKey}.extraHitConfig`, errors);
-        }
-        const countableMaxStacks = effectKind === 'extraHit' ? Number(effect.maxStacks ?? 1) : effect.maxStacks;
-        if (effect.category === 'countable' && (typeof countableMaxStacks !== 'number' || !Number.isFinite(countableMaxStacks) || countableMaxStacks <= 0)) {
-          errors.push(`skills.${skillKey}.effects.${effectKey}.maxStacks 在 countable 时必须是正数`);
-        }
-        const levels = effect.levels;
-        if (levels && typeof levels === 'object') {
-          for (const [levelKey, levelValue] of Object.entries(levels)) {
-            if (typeof levelValue !== 'number' || Number.isNaN(levelValue)) {
-              errors.push(`skills.${skillKey}.effects.${effectKey}.levels.${levelKey} 必须是 number，不接受字符串数字`);
-            }
-          }
-        }
+        validateWeaponEffect(effectValue as Record<string, unknown>, `skills.${skillKey}.effects.${effectKey}`, errors);
       }
     }
 
@@ -441,17 +531,37 @@ function convertWeaponFillAiDraftToWeaponDraft(candidate: WeaponFillAiDraft): We
         continue;
       }
       const effectKind: BuffEffectKind = effect.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
+      const isLegacySkillMultiplier = effect.type === 'multiplierMultiplier';
+      const normalizedMultiplier = effectKind === 'extraHit'
+        ? undefined
+        : normalizeBuffMultiplier(effect.multiplier)
+          ?? (isLegacySkillMultiplier ? { coefficient: firstPositiveLevel(effect.levels) ?? 1 } : undefined);
       const category = effectKind === 'extraHit'
         ? normalizeExtraHitCategory(effect.category)
-        : normalizeEffectCategory(effect.category || '');
+        : normalizedMultiplier
+          ? 'condition'
+          : normalizeEffectCategory(effect.category || '');
+      const valueMode: WeaponEffectValueMode = effectKind === 'extraHit' || category === 'countable' || normalizedMultiplier
+        ? 'fixed'
+        : effect.valueMode === 'derived' ? 'derived' : 'fixed';
+      const derivedValue = valueMode === 'derived' ? normalizeDerivedValue(effect.derivedValue) : undefined;
       skillData.effects[effectKey] = {
+        schemaVersion: 2,
+        effectId: typeof effect.effectId === 'string' && effect.effectId.trim() ? effect.effectId.trim() : effectKey,
         name: effect.name || effectKey,
         type: effectKind === 'extraHit' ? '' : normalizeEffectType(effect.type || ''),
         category,
         levels: normalizeNumericRecord(effect.levels),
+        valueMode,
+        ...(derivedValue ? { derivedValue } : {}),
         ...(category === 'countable'
           ? { maxStacks: Math.max(1, Math.floor(Number(effect.maxStacks ?? 1))) }
           : {}),
+        unit: typeof effect.unit === 'string' ? effect.unit : '',
+        condition: typeof effect.condition === 'string' ? effect.condition : '',
+        description: typeof effect.description === 'string' ? effect.description : '',
+        raw: typeof effect.raw === 'string' ? effect.raw : '',
+        ...(normalizedMultiplier ? { multiplier: normalizedMultiplier } : {}),
         effectKind,
         ...(effectKind === 'extraHit'
           ? { extraHitConfig: normalizeExtraHitConfig(effect.extraHitConfig, `${effectKey}-extra-hit`) }

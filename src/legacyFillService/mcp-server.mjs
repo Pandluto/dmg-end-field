@@ -77,7 +77,7 @@ export function createLegacyFillMcpServer({ operations, ownerNamespace: authenti
     version: '1.0.0',
   }, {
     capabilities: {},
-    instructions: 'Read Host-published fill snapshots, validate drafts, and create/review proposals. Approval and product storage writes are Host-only and are not MCP capabilities.',
+    instructions: 'Before drafting, read the Host snapshot, call fill_get_template, then read the returned latest strategyUri and examplesUri. Distinguish additive multiplierBonus from direct multiplier coefficients and preserve every supported advanced Buff field. Run fill_validate before proposal_create. Approval and product storage writes are Host-only and are not MCP capabilities.',
   });
 
   server.registerTool('fill_get_current', {
@@ -105,7 +105,7 @@ export function createLegacyFillMcpServer({ operations, ownerNamespace: authenti
 
   server.registerTool('fill_get_template', {
     title: 'Get fill schema and template',
-    description: 'Return the core-generated schema/template; strategy remains separately versioned.',
+    description: 'Return the core-generated schema/template plus latest versioned strategy and domain-example URIs. Read all three before drafting.',
     inputSchema: { domain, schemaVersion: z.number().int().min(1).optional() },
     outputSchema,
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
@@ -113,7 +113,7 @@ export function createLegacyFillMcpServer({ operations, ownerNamespace: authenti
 
   server.registerTool('fill_validate', {
     title: 'Validate a fill draft',
-    description: 'Normalize and validate a draft without creating a proposal or writing product storage.',
+    description: 'Normalize and validate a draft without creating a proposal or writing product storage. Inspect normalized output for field preservation before proposal_create.',
     inputSchema: {
       domain,
       draft: z.unknown(),

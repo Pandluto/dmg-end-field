@@ -39,6 +39,20 @@ async function readJson(request) {
   }
 }
 
+function loadVersionedResource(primaryPath, filePattern) {
+  const resolvedPrimaryPath = path.resolve(primaryPath);
+  const primary = JSON.parse(fs.readFileSync(resolvedPrimaryPath, 'utf8'));
+  const directory = path.dirname(resolvedPrimaryPath);
+  const history = fs.readdirSync(directory)
+    .filter((fileName) => filePattern.test(fileName))
+    .sort((left, right) => left.localeCompare(right, 'en'))
+    .map((fileName) => path.join(directory, fileName))
+    .filter((candidatePath) => path.resolve(candidatePath) !== resolvedPrimaryPath)
+    .map((candidatePath) => JSON.parse(fs.readFileSync(candidatePath, 'utf8')))
+    .filter((entry) => entry && typeof entry.version === 'string' && entry.version !== primary.version);
+  return { primary, history };
+}
+
 export function createLegacyFillService(options = {}) {
   const host = options.host || '127.0.0.1';
   const port = Number(options.port || 17323);
@@ -375,11 +389,18 @@ export function createLegacyFillService(options = {}) {
   async function listen() {
     try {
       domainRuntime = await import(`${pathToFileURL(domainRuntimePath).href}?v=${fs.statSync(domainRuntimePath).mtimeMs}`);
-      const strategyPath = path.resolve(options.strategyPath || path.resolve('src', 'legacyFillService', 'resources', 'strategy-v1.json'));
-      const goldenPath = path.resolve(options.goldenPath || path.resolve('src', 'legacyFillService', 'resources', 'golden-v1.json'));
-      const guide = JSON.parse(fs.readFileSync(strategyPath, 'utf8'));
-      const examples = JSON.parse(fs.readFileSync(goldenPath, 'utf8'));
-      mcpOperations = createLegacyFillMcpOperations({ repository, domainRuntime, guide, examples });
+      const strategyPath = path.resolve(options.strategyPath || path.resolve('src', 'legacyFillService', 'resources', 'strategy-v2.json'));
+      const goldenPath = path.resolve(options.goldenPath || path.resolve('src', 'legacyFillService', 'resources', 'golden-v2.json'));
+      const guides = loadVersionedResource(strategyPath, /^strategy-v\d+\.json$/u);
+      const exampleSets = loadVersionedResource(goldenPath, /^golden-v\d+\.json$/u);
+      mcpOperations = createLegacyFillMcpOperations({
+        repository,
+        domainRuntime,
+        guide: guides.primary,
+        examples: exampleSets.primary,
+        guideHistory: guides.history,
+        exampleHistory: exampleSets.history,
+      });
     } catch (error) {
       domainRuntimeError = error instanceof Error ? error.message : String(error);
     }

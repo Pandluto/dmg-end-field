@@ -26,7 +26,7 @@ let draft;
 if (draftPath) {
   draft = JSON.parse(fs.readFileSync(path.resolve(draftPath), 'utf8'));
 } else {
-  const curated = JSON.parse(fs.readFileSync(path.resolve('src', 'legacyFillService', 'resources', 'golden-v1.json'), 'utf8'));
+  const curated = JSON.parse(fs.readFileSync(path.resolve('src', 'legacyFillService', 'resources', 'golden-v2.json'), 'utf8'));
   const fixture = curated.domains?.[domain]?.fixtures?.find((candidate) => candidate.id === fixtureId);
   if (!fixture) throw new Error(`Curated fixture not found for ${domain}: ${fixtureId}`);
   draft = fixture.draft;

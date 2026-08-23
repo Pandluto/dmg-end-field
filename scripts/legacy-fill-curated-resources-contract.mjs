@@ -4,34 +4,42 @@ import path from 'node:path';
 
 const root = path.resolve(import.meta.dirname, '..');
 const resourceRoot = path.join(root, 'src', 'legacyFillService', 'resources');
-const strategyPath = path.join(resourceRoot, 'strategy-v1.json');
-const goldenPath = path.join(resourceRoot, 'golden-v1.json');
 const runtimePath = path.join(root, 'dist', 'legacy-fill', 'domain-runtime.mjs');
 const bundledResourceRoot = path.join(root, 'dist', 'legacy-fill', 'resources');
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-const strategy = JSON.parse(fs.readFileSync(strategyPath, 'utf8'));
-const golden = JSON.parse(fs.readFileSync(goldenPath, 'utf8'));
 const runtime = await import(runtimePath);
+const readResource = (fileName) => JSON.parse(fs.readFileSync(path.join(resourceRoot, fileName), 'utf8'));
+const strategies = ['strategy-v1.json', 'strategy-v2.json'].map(readResource);
+const goldenSets = ['golden-v1.json', 'golden-v2.json'].map(readResource);
 
-assert.equal(strategy.version, 'v1');
-assert.equal(strategy.kind, 'strategy-not-protocol');
-assert.equal(strategy.separation.strategyIsProtocol, false);
-assert.equal(golden.version, 'v1');
-assert.equal(golden.kind, 'validated-curated-fixtures');
+for (const [index, strategy] of strategies.entries()) {
+  assert.equal(strategy.version, `v${index + 1}`);
+  assert.equal(strategy.kind, 'strategy-not-protocol');
+  assert.equal(strategy.separation.strategyIsProtocol, false);
+}
+assert.match(strategies[1].rules.join('\n'), /庄方宜|Zhuang Fangyi/u);
+assert.match(strategies[1].rules.join('\n'), /multiplier\.coefficient=1\.15/u);
+assert.match(strategies[1].rules.join('\n'), /sourceSkill/u);
+assert.match(strategies[1].rules.join('\n'), /corrosion/u);
 
 let fixtureCount = 0;
-for (const [domain, group] of Object.entries(golden.domains)) {
-  assert.equal(group.schemaVersion, 1, `${domain} fixtures bind schema version 1`);
-  assert.ok(Array.isArray(group.fixtures) && group.fixtures.length > 0, `${domain} has fixtures`);
-  for (const fixture of group.fixtures) {
-    const validation = runtime.validateLegacyFillDraft(domain, fixture.draft);
-    assert.equal(validation.valid, true, `${domain}/${fixture.id}: ${(validation.errors || []).join('; ')}`);
-    fixtureCount += 1;
+for (const [index, golden] of goldenSets.entries()) {
+  assert.equal(golden.version, `v${index + 1}`);
+  assert.equal(golden.kind, 'validated-curated-fixtures');
+  for (const [domain, group] of Object.entries(golden.domains)) {
+    assert.equal(group.schemaVersion, 1, `${golden.version}/${domain} fixtures bind schema version 1`);
+    assert.ok(Array.isArray(group.fixtures) && group.fixtures.length > 0, `${golden.version}/${domain} has fixtures`);
+    for (const fixture of group.fixtures) {
+      const validation = runtime.validateLegacyFillDraft(domain, fixture.draft);
+      assert.equal(validation.valid, true, `${golden.version}/${domain}/${fixture.id}: ${(validation.errors || []).join('; ')}`);
+      fixtureCount += 1;
+    }
   }
 }
+assert.deepEqual(Object.keys(goldenSets[1].domains).sort(), ['buff', 'equipment', 'operator', 'weapon']);
 
 const resourceFiles = fs.readdirSync(resourceRoot).filter((name) => name.endsWith('.json')).sort();
-assert.deepEqual(resourceFiles, ['golden-v1.json', 'strategy-v1.json']);
+assert.deepEqual(resourceFiles, ['golden-v1.json', 'golden-v2.json', 'strategy-v1.json', 'strategy-v2.json']);
 const resourceText = resourceFiles.map((name) => fs.readFileSync(path.join(resourceRoot, name), 'utf8')).join('\n');
 const forbiddenResourcePatterns = [
   ['/Users absolute path', /\/Users\//],

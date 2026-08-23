@@ -1,0 +1,42 @@
+{
+  "version": "v2",
+  "kind": "strategy-not-protocol",
+  "source": "curated-from-published-local-data-and-legacy-notes",
+  "rules": [
+    "Read the Host-published current or library snapshot before drafting, then call fill_get_template and read its latest strategyUri and examplesUri.",
+    "The core-generated schema/template is authoritative. Strategy and examples explain business meaning but never expand the field whitelist.",
+    "Preserve every supported field already present on the target, including schemaVersion, effectId, valueMode, derivedValue, multiplier, effectKind, extraHitConfig, descriptions, raw evidence and asset URLs.",
+    "Separate additive multiplierBonus from a direct multiplier. Text such as '额外伤害倍率+9%' uses type=multiplierBonus with value or level value 0.09 and no multiplier object; it may be countable. Text such as '伤害倍率提升至原本的1.15倍' uses category=condition and multiplier.coefficient=1.15; never write 0.15 and never combine direct multiplier with countable.",
+    "The published Zhuang Fangyi pattern is the canonical distinction: the potential's 1.15x wording is a direct multiplier, while each Conductive stack's +9% wording is countable additive multiplierBonus.",
+    "For effectKind=extraHit, use category=condition unless the source explicitly describes countable independent segments; never use passive. countable defaults maxStacks to 1, where 1 is one ordinary independent segment.",
+    "For extraHitConfig, keep formulaMode=inherited unless the source explicitly says the independent hit scales with Originium Arts/source-skill strength. In sourceSkill mode use levelCurve=physicalAnomaly for physical abnormal damage and artsBurst for shatter or Arts burst.",
+    "Do not convert ordinary multiplier addition into extraHit merely because the description contains '额外伤害倍率'. Use extraHit only when the evidence explicitly describes an independent hit, attack or damage segment.",
+    "For corrosion multipliers, ignore duration changes. '降低的最大抗性提升至原本的1.1倍' uses an appropriate corrosion type with multiplier.coefficient=1.1; '额外提升原本的20%' uses coefficient=1.2.",
+    "valueMode=derived stores a source and perPointValue. Percent-like per-point values use decimals, for example every point +0.08% is perPointValue=0.0008. derivedValue is incompatible with countable, direct multiplier and extraHit.",
+    "Preserve level-specific weapon values instead of repeating a maximum-level value. For direct multiplier weapon effects, each levels entry is the direct coefficient; for derived weapon effects, each levels entry is the per-point value; for extraHit weapon effects, each levels entry is the base multiplier.",
+    "Run fill_validate before proposal_create, compare the normalized output with the draft, and attach concise source evidence. Do not create a proposal if an advanced field disappeared.",
+    "After a real user saves in the Electron Host, reread the next Host snapshot instead of assuming the write succeeded."
+  ],
+  "decisionExamples": [
+    {
+      "text": "每级导电额外伤害倍率+9%，最多4级",
+      "result": "modifier type=multiplierBonus category=countable value=0.09 maxStacks=4; no multiplier"
+    },
+    {
+      "text": "战技伤害倍率提升至原本的1.15倍",
+      "result": "modifier type=multiplierBonus category=condition multiplier.coefficient=1.15; no countable"
+    },
+    {
+      "text": "额外造成一段受源石技艺强度提升的法术爆发伤害",
+      "result": "extraHit category=condition formulaMode=sourceSkill levelCurve=artsBurst"
+    },
+    {
+      "text": "降低的最大抗性额外提升原本的20%",
+      "result": "corrosion modifier category=condition multiplier.coefficient=1.2"
+    }
+  ],
+  "separation": {
+    "protocolSource": "legacy-fill-core and MCP tool schemas",
+    "strategyIsProtocol": false
+  }
+}

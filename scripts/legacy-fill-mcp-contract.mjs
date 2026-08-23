@@ -140,6 +140,14 @@ try {
   const resources = await httpA1.client.listResources();
   assert.equal(resources.resources.some((item) => item.uri.startsWith('file:')), false);
   assert.equal(resources.resources.some((item) => /\/Users\/|DEF_|ses_/i.test(item.uri)), false);
+  const listedResourceUris = new Set(resources.resources.map((item) => item.uri));
+  assert.equal(listedResourceUris.has('legacy-fill://guides/strategy/v1'), true);
+  assert.equal(listedResourceUris.has('legacy-fill://guides/strategy/v2'), true);
+  for (const domain of ['buff', 'weapon', 'operator', 'equipment']) {
+    assert.equal(listedResourceUris.has(`legacy-fill://examples/v2/${domain}`), true);
+  }
+  assert.equal(listedResourceUris.has('legacy-fill://examples/v1/weapon'), true);
+  assert.equal(listedResourceUris.has('legacy-fill://examples/v1/operator'), true);
 
   for (const domain of ['buff', 'weapon', 'operator', 'equipment']) {
     const current = structured(await httpA1.client.callTool({ name: 'fill_get_current', arguments: { domain } }));
@@ -148,6 +156,8 @@ try {
     const template = structured(await httpA1.client.callTool({ name: 'fill_get_template', arguments: { domain, schemaVersion: 1 } }));
     assert.equal(template.ok, true);
     assert.equal(template.data.separation.strategyIsProtocol, false);
+    assert.equal(template.data.guidance.strategyUri, 'legacy-fill://guides/strategy/v2');
+    assert.equal(template.data.guidance.examplesUri, `legacy-fill://examples/v2/${domain}`);
     const validation = structured(await httpA1.client.callTool({ name: 'fill_validate', arguments: { domain, schemaVersion: 1, draft: fixture.domains[domain].draft } }));
     assert.equal(validation.ok, true);
     assert.equal(validation.data.valid, true, `${domain} validates`);
@@ -280,6 +290,102 @@ try {
   const passiveEquipmentExtraHitDraft = structuredClone(equipmentExtraHitDraft);
   passiveEquipmentExtraHitDraft.gearSets['fixture-set'].threePieceBuff.category = 'passive';
   assert.equal((await validateDraft('equipment', passiveEquipmentExtraHitDraft)).data.valid, false);
+
+  const weaponAdvancedDraft = structuredClone(fixture.domains.weapon.draft);
+  weaponAdvancedDraft.skills.skill3.effects.direct = {
+    schemaVersion: 2,
+    effectId: 'direct',
+    name: 'Direct multiplier to original coefficient',
+    type: 'multiplierBonus',
+    category: 'condition',
+    levels: { 1: 1.05, 9: 1.15 },
+    valueMode: 'fixed',
+    unit: 'multiplier',
+    condition: 'skill hit',
+    description: '伤害倍率提升至原本的1.15倍。',
+    raw: 'curated direct multiplier evidence',
+    multiplier: { coefficient: 1.15 },
+    effectKind: 'modifier',
+  };
+  weaponAdvancedDraft.skills.skill3.effects.derived = {
+    schemaVersion: 2,
+    effectId: 'derived',
+    name: 'Source-skill derived damage',
+    type: 'natureDmgBonus',
+    category: 'condition',
+    levels: { 1: 0.0004, 9: 0.0008 },
+    valueMode: 'derived',
+    derivedValue: { source: 'sourceSkill', perPointValue: 0.0008 },
+    unit: 'percent',
+    condition: 'after trigger',
+    description: '每点源石技艺强度使自然伤害提高0.08%。',
+    raw: 'curated derived-value evidence',
+    effectKind: 'modifier',
+  };
+  const normalizedWeaponAdvanced = await validateDraft('weapon', weaponAdvancedDraft);
+  assert.equal(normalizedWeaponAdvanced.data.valid, true, normalizedWeaponAdvanced.data.errors?.join('; '));
+  const normalizedWeaponEffects = normalizedWeaponAdvanced.data.normalized.skills.skill3.effects;
+  assert.deepEqual(normalizedWeaponEffects.direct.multiplier, { coefficient: 1.15 });
+  assert.deepEqual(normalizedWeaponEffects.direct.levels, { 1: 1.05, 9: 1.15 });
+  assert.equal(normalizedWeaponEffects.direct.description, '伤害倍率提升至原本的1.15倍。');
+  assert.equal(normalizedWeaponEffects.direct.raw, 'curated direct multiplier evidence');
+  assert.equal(normalizedWeaponEffects.derived.valueMode, 'derived');
+  assert.deepEqual(normalizedWeaponEffects.derived.derivedValue, { source: 'sourceSkill', perPointValue: 0.0008 });
+  assert.deepEqual(normalizedWeaponEffects.derived.levels, { 1: 0.0004, 9: 0.0008 });
+  const invalidCountableWeaponMultiplier = structuredClone(weaponAdvancedDraft);
+  invalidCountableWeaponMultiplier.skills.skill3.effects.direct.category = 'countable';
+  invalidCountableWeaponMultiplier.skills.skill3.effects.direct.maxStacks = 4;
+  assert.equal((await validateDraft('weapon', invalidCountableWeaponMultiplier)).data.valid, false);
+  const invalidDerivedWeaponMultiplier = structuredClone(weaponAdvancedDraft);
+  invalidDerivedWeaponMultiplier.skills.skill3.effects.direct.valueMode = 'derived';
+  invalidDerivedWeaponMultiplier.skills.skill3.effects.direct.derivedValue = { source: 'sourceSkill', perPointValue: 0.001 };
+  assert.equal((await validateDraft('weapon', invalidDerivedWeaponMultiplier)).data.valid, false);
+
+  const equipmentAdvancedDraft = structuredClone(fixture.domains.equipment.draft);
+  equipmentAdvancedDraft.gearSets['fixture-set'].threePieceBuffs = {
+    direct: {
+      schemaVersion: 2,
+      effectId: 'direct',
+      name: 'Corrosion maximum resistance reduction to 1.2x',
+      typeKey: 'allCorrosion',
+      category: 'condition',
+      value: 0,
+      unit: 'percent',
+      valueMode: 'fixed',
+      condition: 'self-applied corrosion',
+      description: '降低的最大抗性额外提升原本的20%。',
+      raw: 'curated corrosion multiplier evidence',
+      multiplier: { coefficient: 1.2 },
+      effectKind: 'modifier',
+    },
+    derived: {
+      schemaVersion: 2,
+      effectId: 'derived',
+      name: 'Source-skill derived damage',
+      typeKey: 'natureDmgBonus',
+      category: 'condition',
+      value: 0,
+      unit: 'percent',
+      valueMode: 'derived',
+      derivedValue: { source: 'sourceSkill', perPointValue: 0.0008 },
+      condition: 'after trigger',
+      description: '每点源石技艺强度使自然伤害提高0.08%。',
+      raw: 'curated equipment derived-value evidence',
+      effectKind: 'modifier',
+    },
+  };
+  const normalizedEquipmentAdvanced = await validateDraft('equipment', equipmentAdvancedDraft);
+  assert.equal(normalizedEquipmentAdvanced.data.valid, true, normalizedEquipmentAdvanced.data.errors?.join('; '));
+  const normalizedEquipmentBuffs = normalizedEquipmentAdvanced.data.normalized.gearSets['fixture-set'].threePieceBuffs;
+  assert.deepEqual(normalizedEquipmentBuffs.direct.multiplier, { coefficient: 1.2 });
+  assert.equal(normalizedEquipmentBuffs.direct.description, '降低的最大抗性额外提升原本的20%。');
+  assert.equal(normalizedEquipmentBuffs.direct.raw, 'curated corrosion multiplier evidence');
+  assert.equal(normalizedEquipmentBuffs.derived.valueMode, 'derived');
+  assert.deepEqual(normalizedEquipmentBuffs.derived.derivedValue, { source: 'sourceSkill', perPointValue: 0.0008 });
+  const invalidCountableEquipmentMultiplier = structuredClone(equipmentAdvancedDraft);
+  invalidCountableEquipmentMultiplier.gearSets['fixture-set'].threePieceBuffs.direct.category = 'countable';
+  invalidCountableEquipmentMultiplier.gearSets['fixture-set'].threePieceBuffs.direct.maxStacks = 3;
+  assert.equal((await validateDraft('equipment', invalidCountableEquipmentMultiplier)).data.valid, false);
 
   const baseSnapshot = structured(await httpA1.client.callTool({ name: 'fill_get_current', arguments: { domain: 'weapon' } }));
   const createArguments = {
