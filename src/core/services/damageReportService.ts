@@ -186,6 +186,9 @@ function formatBuffEffect(buff: SkillButtonBuff): string {
   if (buff.description?.trim()) {
     return buff.description.trim();
   }
+  if (buff.multiplier) {
+    return `${buff.type || 'multiplier'}: ×${buff.multiplier.coefficient}`;
+  }
   if (buff.type && typeof buff.value === 'number') {
     return `${buff.type}: ${buff.value}`;
   }
@@ -319,6 +322,11 @@ function toBuffRows(
         effectiveValue: contribution.effectiveValue,
         multiplierCoefficient: contribution.multiplierCoefficient,
         multiplier: contribution.multiplier,
+      } : buff.multiplier ? {
+        type: buff.type,
+        effectiveValue: buff.multiplier.coefficient,
+        multiplierCoefficient: buff.multiplier.coefficient,
+        multiplier: true,
       } : {};
     })(),
     id: buff.id,

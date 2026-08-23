@@ -132,17 +132,23 @@ function buildAppliedBuffTags(
 ): AppliedBuffTagViewModel[] {
   return result.map((buff) => {
     const contribution = findBuffContribution(buff.id, contributions);
-    if (contribution?.multiplier) {
-      const coefficient = contribution.multiplierCoefficient ?? contribution.effectiveValue;
+    const storedMultiplierCoefficient = buff.multiplier?.coefficient;
+    const multiplierCoefficient = contribution?.multiplier
+      ? contribution.multiplierCoefficient ?? contribution.effectiveValue
+      : typeof storedMultiplierCoefficient === 'number' && Number.isFinite(storedMultiplierCoefficient) && storedMultiplierCoefficient > 0
+        ? storedMultiplierCoefficient
+        : undefined;
+    if (multiplierCoefficient !== undefined) {
+      const type = contribution?.type ?? buff.type ?? '';
       return {
         id: buff.id,
         label: buff.displayName,
-        displayLabel: `${buff.displayName} · ${contribution.type} × ${coefficient.toFixed(3)}`,
+        displayLabel: `${buff.displayName} · ${type} × ${multiplierCoefficient.toFixed(3)}`,
         sourceName: buff.sourceName,
-        type: contribution.type,
-        effectiveValue: coefficient,
+        type,
+        effectiveValue: multiplierCoefficient,
         runtimeCoefficient: 1,
-        multiplierCoefficient: coefficient,
+        multiplierCoefficient,
         isMultiplier: true,
         isCountable: false,
       };
