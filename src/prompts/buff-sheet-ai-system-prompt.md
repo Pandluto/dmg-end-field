@@ -62,9 +62,10 @@ effect 抽取规则：
 2. `extraHit` 下 `type` 必须为空字符串，`value` 必须为 0，且必须带合法 `extraHitConfig`。
 3. `category=countable` 必须带 `maxStacks`；`extraHit` 只支持 `category=condition/countable`，未明确标记为 countable 时必须回退为 condition，禁止回退为 passive。`countable + maxStacks=1` 表示普通单段额外伤害，大于 1 表示按当前段数生成多个独立额外伤害段。
 4. `multiplier` 只允许用于 `modifier`，且必须 `category=condition`，不能和 `countable` 或 `extraHit` 同时使用。
-5. 缺失字符串字段可补空字符串；缺失但必填的 number 可补 0。
-6. 上述补空只适用于已经决定保留的合法 effect，不适用于应舍弃的 effect。
-7. effect 必须使用扁平字段，不要输出嵌套包装结构。禁止输出 `modifier: { type: ... }` 这种对象。
+5. `type=multiplierBonus` 表示“倍率加算”的普通 `modifier`，可以与 `category=countable + maxStacks` 组合；它不是上一条的 `multiplier` 乘算字段，不得混淆。
+6. 缺失字符串字段可补空字符串；缺失但必填的 number 可补 0。
+7. 上述补空只适用于已经决定保留的合法 effect，不适用于应舍弃的 effect。
+8. effect 必须使用扁平字段，不要输出嵌套包装结构。禁止输出 `modifier: { type: ... }` 这种对象。
 
 effect 必须严格使用这个扁平结构：
 ```json

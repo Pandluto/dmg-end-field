@@ -19,7 +19,6 @@ import {
 } from '../../hooks/useSkillButtonBuffs';
 import { AnomalyStateSnapshot, HitResistanceInput, SkillButtonBuff, SkillLevelMode } from '../../types/storage';
 import { getCharacterConfig } from '../../utils/storage';
-import { formatExtraHitFormulaLabel } from '../../core/services/buffExtraHit';
 import {
   getCharacterComputedCache,
   getOperatorConfigPageCache,
@@ -56,6 +55,7 @@ import {
   type BuffSourceSearchMode,
   BUFF_SOURCE_SEARCH_MODE_OPTIONS,
   filterBuffSearchEntriesBySourceMode,
+  formatBuffCardSummary,
   getBuffSourceSearchModeLabel,
   readCandidateBuffSearchEntries,
   readLocalBuffSearchEntries,
@@ -137,12 +137,6 @@ function formatAnomalyStateSnapshotName(snapshot: AnomalyStateSnapshot): string 
     ? `+${snapshot.durationSeconds.toFixed(0)}s`
     : '';
   return `${snapshot.label} Lv${snapshot.level}${secondsText} ${formatAnomalyStateSnapshotValue(snapshot)} (${formatAnomalyStateSnapshotField(snapshot)})`;
-}
-
-function getBuffCategoryText(category: SkillButtonBuff['category']): string {
-  if (category === 'countable') return '计层 countable';
-  if (category === 'condition') return '条件 condition';
-  return '常驻 passive';
 }
 
 const CHINESE_POTENTIAL_NUMBERS: Record<string, number> = {
@@ -1812,7 +1806,7 @@ export function SkillButtonComponent({
                                   <p className="local-buff-search-item-source">
                                     {entry.groupName}{entry.itemName ? ` / ${entry.itemName}` : ''}
                                   </p>
-                                  <p>{getBuffCategoryText(entry.category)} / {entry.type || '暂无'}{entry.value !== undefined ? ` · ${entry.value}` : ''}</p>
+                                  <p>{formatBuffCardSummary(entry)}</p>
                                 </button>
                               ))
                             ) : (
@@ -1835,9 +1829,7 @@ export function SkillButtonComponent({
                                 <p className="local-buff-search-item-source">
                                   {entry.groupName}{entry.itemName ? ` / ${entry.itemName}` : ''}
                                 </p>
-                                <p>{entry.effectKind === 'extraHit'
-                                  ? `${entry.extraHitConfig ? formatExtraHitFormulaLabel(entry.extraHitConfig) : '普通继承段'} / 倍率: ${((entry.extraHitConfig?.baseMultiplier ?? 0) * 100).toFixed(1)}% / ${entry.extraHitConfig?.damageType || 'physical'} / ${entry.extraHitConfig?.skillType || '空'} / CD ${entry.extraHitConfig?.cooldownSeconds ?? 0}s${entry.category === 'countable' ? ` / 最大段数 ${entry.maxStacks ?? 1}` : ' / 条件单段'}`
-                                  : `数值: ${entry.value ?? '-'}${entry.condition ? ` / ${entry.condition}` : ''}`}</p>
+                                <p>{formatBuffCardSummary(entry)}</p>
                               </button>
                             ))
                           ) : (
@@ -1872,7 +1864,7 @@ export function SkillButtonComponent({
                                     <span className="buff-card-source">/ {buff.sourceName || buff.source || '未知来源'}</span>
                                   </span>
                                   <span>
-                                    {getBuffCategoryText(buff.category)} / {buff.type || '暂无'}{buff.value !== undefined ? ` · ${buff.value}` : ''}
+                                    {formatBuffCardSummary(buff)}
                                   </span>
                                 </button>
                               ))
@@ -1915,7 +1907,7 @@ export function SkillButtonComponent({
                                     <span className="buff-card-source">/ {buff.sourceName || buff.source || '未知来源'}</span>
                                   </span>
                                   <span>
-                                    {getBuffCategoryText(buff.category)} / {buff.type || '暂无'}{buff.value !== undefined ? ` · ${buff.value}` : ''}
+                                    {formatBuffCardSummary(buff)}
                                   </span>
                                 </div>
                               ))
