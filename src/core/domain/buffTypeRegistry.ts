@@ -23,6 +23,18 @@ export interface BuffTypeRegistryEntry {
   valueStyle: BuffTypeValueStyle;
 }
 
+export const CORROSION_MULTIPLIER_BUFF_TYPES = [
+  'allCorrosion',
+  'physicalCorrosion',
+  'magicCorrosion',
+  'fireCorrosion',
+  'electricCorrosion',
+  'iceCorrosion',
+  'natureCorrosion',
+] as const;
+
+export type CorrosionMultiplierBuffType = (typeof CORROSION_MULTIPLIER_BUFF_TYPES)[number];
+
 const entries: BuffTypeRegistryEntry[] = [
   { type: 'physicalDmgBonus', zone: 'damageBonus', match: { kind: 'physical' }, allowMultiplier: true, valueStyle: 'ratio' },
   { type: 'magicDmgBonus', zone: 'damageBonus', match: { kind: 'magic' }, allowMultiplier: true, valueStyle: 'ratio' },
@@ -73,6 +85,8 @@ const abilityMultiplierTypes = new Set([
   'willBoost',
 ]);
 
+const corrosionMultiplierTypes = new Set<string>(CORROSION_MULTIPLIER_BUFF_TYPES);
+
 export const BUFF_TYPE_REGISTRY: ReadonlyMap<string, BuffTypeRegistryEntry> = new Map(
   entries.map((entry) => [entry.type, Object.freeze(entry)])
 );
@@ -83,6 +97,7 @@ export function getBuffTypeRegistryEntry(type: string | undefined): BuffTypeRegi
 
 export function isMultiplierSupportedBuffType(type: string | undefined): boolean {
   return Boolean(type && abilityMultiplierTypes.has(type))
+    || Boolean(type && corrosionMultiplierTypes.has(type))
     || getBuffTypeRegistryEntry(type)?.allowMultiplier === true;
 }
 
@@ -92,5 +107,6 @@ export function getMultiplierSupportedBuffTypes(): string[] {
       .filter((entry) => entry.allowMultiplier)
       .map((entry) => entry.type),
     ...abilityMultiplierTypes,
+    ...corrosionMultiplierTypes,
   ];
 }

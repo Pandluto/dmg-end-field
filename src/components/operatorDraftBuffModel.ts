@@ -4,7 +4,12 @@ import {
   getBuffTypeDisplayLabel as getCanonicalBuffTypeDisplayLabel,
   getBuffTypeLabel as getCanonicalBuffTypeLabel,
 } from '../core/domain/buffTypeMetadata';
-import { getBuffTypeRegistryEntry, getMultiplierSupportedBuffTypes, isMultiplierSupportedBuffType } from '../core/domain/buffTypeRegistry';
+import {
+  CORROSION_MULTIPLIER_BUFF_TYPES,
+  getBuffTypeRegistryEntry,
+  getMultiplierSupportedBuffTypes,
+  isMultiplierSupportedBuffType,
+} from '../core/domain/buffTypeRegistry';
 import { formatExtraHitFormulaLabel, normalizeExtraHitConfig } from '../core/services/buffExtraHit';
 
 export const OPERATOR_BUFF_GROUPS = [
@@ -224,6 +229,7 @@ const OPERATOR_MULTIPLIER_BUFF_TYPES = new Set([
   'agilityBoost',
   'intelligenceBoost',
   'willBoost',
+  ...CORROSION_MULTIPLIER_BUFF_TYPES,
 ]);
 
 export function isOperatorRuntimeCoefficientBuffType(buffType: string | undefined): boolean {

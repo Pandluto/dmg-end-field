@@ -5,6 +5,7 @@
  */
 
 import { HitResistanceInput, SkillButtonBuff } from '../../types/storage';
+import { normalizeBuffMultiplier } from '../domain/buffMultiplier';
 
 /**
  * Buff 汇总计算结果
@@ -76,6 +77,13 @@ export interface BuffCalculationResult {
   electricCorrosion: number;
   iceCorrosion: number;
   natureCorrosion: number;
+  allCorrosionMultiplier: number;
+  physicalCorrosionMultiplier: number;
+  magicCorrosionMultiplier: number;
+  fireCorrosionMultiplier: number;
+  electricCorrosionMultiplier: number;
+  iceCorrosionMultiplier: number;
+  natureCorrosionMultiplier: number;
   allResistanceIgnore: number;
   physicalResistanceIgnore: number;
   magicResistanceIgnore: number;
@@ -195,6 +203,13 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[], stackCounts: Recor
     electricCorrosion: 0,
     iceCorrosion: 0,
     natureCorrosion: 0,
+    allCorrosionMultiplier: 1,
+    physicalCorrosionMultiplier: 1,
+    magicCorrosionMultiplier: 1,
+    fireCorrosionMultiplier: 1,
+    electricCorrosionMultiplier: 1,
+    iceCorrosionMultiplier: 1,
+    natureCorrosionMultiplier: 1,
     allResistanceIgnore: 0,
     physicalResistanceIgnore: 0,
     magicResistanceIgnore: 0,
@@ -212,7 +227,21 @@ export function calculateBuffTotals(buffs: SkillButtonBuff[], stackCounts: Recor
   };
 
   buffs.forEach(buff => {
-    if (buff.multiplier) return;
+    if (buff.multiplier) {
+      const multiplier = normalizeBuffMultiplier(buff.multiplier);
+      if (multiplier) {
+        switch (buff.type) {
+          case 'allCorrosion': result.allCorrosionMultiplier *= multiplier.coefficient; break;
+          case 'physicalCorrosion': result.physicalCorrosionMultiplier *= multiplier.coefficient; break;
+          case 'magicCorrosion': result.magicCorrosionMultiplier *= multiplier.coefficient; break;
+          case 'fireCorrosion': result.fireCorrosionMultiplier *= multiplier.coefficient; break;
+          case 'electricCorrosion': result.electricCorrosionMultiplier *= multiplier.coefficient; break;
+          case 'iceCorrosion': result.iceCorrosionMultiplier *= multiplier.coefficient; break;
+          case 'natureCorrosion': result.natureCorrosionMultiplier *= multiplier.coefficient; break;
+        }
+      }
+      return;
+    }
     if (buff.type && buff.value !== undefined) {
       const v = getBuffEffectiveValue(buff, stackCounts);
       switch (buff.type) {
@@ -522,6 +551,11 @@ function readBuffTotal(buffTotals: BuffCalculationResult, key: keyof BuffCalcula
   return (buffTotals[key] || 0) as number;
 }
 
+function readBuffMultiplier(buffTotals: BuffCalculationResult, key: keyof BuffCalculationResult): number {
+  const value = buffTotals[key];
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 1;
+}
+
 /**
  * 根据命中元素计算抗性区。
  * 抗性、降抗、无视抗性内部单位均为“点”，每点对应 1%。
@@ -537,13 +571,15 @@ export function calculateResistanceZone(
   let resistanceIgnore = 0;
 
   const addCorrosion = (prefix: 'physical' | 'magic' | 'fire' | 'electric' | 'ice' | 'nature') => {
-    corrosion += readBuffTotal(buffTotals, `${prefix}Corrosion` as keyof BuffCalculationResult);
+    corrosion += readBuffTotal(buffTotals, `${prefix}Corrosion` as keyof BuffCalculationResult)
+      * readBuffMultiplier(buffTotals, `${prefix}CorrosionMultiplier` as keyof BuffCalculationResult);
   };
   const addIgnore = (prefix: 'physical' | 'magic' | 'fire' | 'electric' | 'ice' | 'nature') => {
     resistanceIgnore += readBuffTotal(buffTotals, `${prefix}ResistanceIgnore` as keyof BuffCalculationResult);
   };
 
-  corrosion += readBuffTotal(buffTotals, 'allCorrosion');
+  corrosion += readBuffTotal(buffTotals, 'allCorrosion')
+    * readBuffMultiplier(buffTotals, 'allCorrosionMultiplier');
   resistanceIgnore += readBuffTotal(buffTotals, 'allResistanceIgnore');
   if (element === 'physical') {
     baseResistance = readResistanceValue(resistanceInput, 'physicalResistance');
