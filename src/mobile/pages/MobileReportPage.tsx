@@ -118,10 +118,10 @@ const REPORT_SKILL_TYPE_LABELS: Record<SkillType, string> = {
   Dot: '持续',
 };
 const SERIES_COLORS = ['#1f6f8b', '#d17742', '#688a55', '#8d6b9e', '#bf5d62', '#be9852'];
-// Export on an intrinsic final-size HTML canvas. The output must not depend on
-// the host display's DPR or enlarge a compressed mobile layout after rendering.
-const REPORT_EXPORT_PANEL_WIDTH = 1600;
-const REPORT_EXPORT_PIXEL_RATIO = 1;
+// Keep the authored narrow composition stable across devices. The fixed 2x
+// sampling improves raster fidelity without consulting the host display's DPR.
+const REPORT_EXPORT_PANEL_WIDTH = 640;
+const REPORT_EXPORT_PIXEL_RATIO = 2;
 const REPORT_CHART_COLORS = {
   accent: '#1f6f8b',
   ink: '#172d32',
@@ -757,28 +757,26 @@ function ChartReportSlide({
         <span><small>非暴击</small><strong>{formatDamage(report.totalNonCrit)}</strong></span>
         <span><small>暴击</small><strong>{formatDamage(report.totalCrit)}</strong></span>
       </div>
-      <div className="mobile-report-chart-grid">
-        <article className="mobile-report-chart-card">
-          <h3><span>图 1</span>干员伤害占比</h3>
-          <OperatorShareChart rows={operatorRows} />
-        </article>
-        <article className="mobile-report-chart-card">
-          <h3><span>图 2</span>伤害过程时序</h3>
-          <CumulativeDamageChart entries={entries} />
-        </article>
-        <article className="mobile-report-chart-card">
-          <h3><span>图 3</span>总 RD 归因</h3>
-          <MobileRdpsOverview summary={report.rdps} />
-        </article>
-        <article className="mobile-report-chart-card">
-          <h3><span>图 4</span>干员来源域 RD</h3>
-          <MobileRdpsDomains summary={report.rdps} />
-        </article>
-        <article className="mobile-report-chart-card">
-          <h3><span>明细</span>技能伤害</h3>
-          <SkillDamageBars rows={skillRows} />
-        </article>
-      </div>
+      <article className="mobile-report-chart-card">
+        <h3><span>图 1</span>干员伤害占比</h3>
+        <OperatorShareChart rows={operatorRows} />
+      </article>
+      <article className="mobile-report-chart-card">
+        <h3><span>图 2</span>伤害过程时序</h3>
+        <CumulativeDamageChart entries={entries} />
+      </article>
+      <article className="mobile-report-chart-card">
+        <h3><span>图 3</span>总 RD 归因</h3>
+        <MobileRdpsOverview summary={report.rdps} />
+      </article>
+      <article className="mobile-report-chart-card">
+        <h3><span>图 4</span>干员来源域 RD</h3>
+        <MobileRdpsDomains summary={report.rdps} />
+      </article>
+      <article className="mobile-report-chart-card">
+        <h3><span>明细</span>技能伤害</h3>
+        <SkillDamageBars rows={skillRows} />
+      </article>
     </section>
   );
 }
@@ -1228,7 +1226,7 @@ export function MobileReportPage({
         <span>
           <small>EXPORT COMPOSITE</small>
           <strong>导出三联战术报告</strong>
-          <p>01 / 02 / 03 各按 1600px 原生 HTML 模板排版，固定 4800px 横向拼接</p>
+          <p>01 / 02 / 03 保持 640px 窄版 HTML 布局，原生字号提升一档</p>
         </span>
         <div className="mobile-report-export-actions">
           <button type="button" onClick={handleExport} disabled={isExporting}>
