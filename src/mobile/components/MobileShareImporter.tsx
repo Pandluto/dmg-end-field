@@ -158,7 +158,7 @@ export function MobileShareImporter({
           <header>
             <span>
               <small>IMPORT TACTICAL SHARE</small>
-              <strong id="mobile-share-import-title">导入战术分享</strong>
+              <strong id="mobile-share-import-title">是否导入这份战术分享？</strong>
             </span>
             <button type="button" onClick={onClose} aria-label="关闭分享导入">×</button>
           </header>
@@ -226,7 +226,7 @@ export function MobileShareImporter({
             {state.status === 'ready' ? (
               <>
                 <button type="button" onClick={() => inputRef.current?.click()}>换一张图片</button>
-                <button type="button" className="is-primary" onClick={saveShare}>加入本机存档</button>
+                <button type="button" className="is-primary" onClick={saveShare}>确认加入本机存档</button>
               </>
             ) : (
               <button type="button" onClick={onClose}>取消</button>

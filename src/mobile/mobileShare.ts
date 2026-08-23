@@ -149,22 +149,9 @@ export function isMobileShareEnabled(): boolean {
   return __DEF_MOBILE_SHARE_ENABLED__;
 }
 
-function publicShareOrigin(): string {
-  const origin = currentOrigin();
-  if (!origin) return TACTICAL_SHARE_NODE_ORIGINS[0];
-  const url = new URL(origin);
-  if (
-    url.hostname === 'dmgendfield.cloud'
-    || url.hostname === '150.158.133.176'
-    || url.hostname === '127.0.0.1'
-    || url.hostname === 'localhost'
-  ) return origin;
-  return TACTICAL_SHARE_NODE_ORIGINS[0];
-}
-
 export function buildMobileShareUrl(shareId: string): string {
   if (!SHARE_ID_PATTERN.test(shareId)) throw new Error('分享编号无效。');
-  const url = new URL(`${TACTICAL_SHARE_ROUTE_PREFIX}/${shareId}`, publicShareOrigin());
+  const url = new URL(`${TACTICAL_SHARE_ROUTE_PREFIX}/${shareId}`, TACTICAL_SHARE_NODE_ORIGINS[0]);
   return url.toString();
 }
 
@@ -221,7 +208,7 @@ export async function createDesktopShare(
 }
 
 async function createShare(payload: MobileSharePayload): Promise<MobileShareRecord> {
-  const response = await fetch(apiUrl(), {
+  const response = await fetch(apiUrl('', TACTICAL_SHARE_NODE_ORIGINS[0]), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(payload),
