@@ -677,7 +677,7 @@
   justify-content: center;
   border: 1px solid rgba(0, 0, 0, 0.72);
   border-radius: 50%;
-  background: #e0d6c8;
+  background: var(--skill-button-element-color, #e0d6c8);
   overflow: hidden;
   z-index: 2;
   font-size: 12px;

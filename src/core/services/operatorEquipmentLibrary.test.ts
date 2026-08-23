@@ -5,7 +5,9 @@ import { persistentLocalStorage } from '../../platform/storage/persistentStorage
 import { applyOperatorEquipmentSelectionsToSnapshot } from './operatorConfigSnapshotRefreshService';
 import {
   buildOperatorEquipmentSetBuffs,
+  getOperatorEquipmentEffectLevelOptions,
   getOperatorEquipmentEffectLevelValue,
+  getOperatorEquipmentEffectMaxLevel,
   normalizeOperatorEquipmentLibrary,
   type EquipmentItem,
 } from './operatorEquipmentLibrary';
@@ -90,6 +92,9 @@ assert.equal(armor.effects.effect3?.typeKey, 'subStatBoost');
 assert.equal(armor.effects.effect3?.unit, 'percent');
 assert.equal(getOperatorEquipmentEffectLevelValue(armor.effects.effect1, 3), 18);
 assert.equal(getOperatorEquipmentEffectLevelValue(armor.effects.effect3, 3), 0.25);
+assert.deepEqual(getOperatorEquipmentEffectLevelOptions(armor.effects.effect1), [3]);
+assert.equal(getOperatorEquipmentEffectMaxLevel(armor.effects.effect1), 3);
+assert.equal(getOperatorEquipmentEffectMaxLevel(undefined), 0);
 
 const selectedEquipmentIds = ['equipment-armor', 'equipment-glove', 'equipment-accessory'];
 const setBuffs = buildOperatorEquipmentSetBuffs(selectedEquipmentIds, library);

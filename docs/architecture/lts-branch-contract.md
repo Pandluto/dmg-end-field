@@ -8,7 +8,7 @@
 codex/v1.8-lts-slimming
   └─ Web/PWA、移动端、SQLite、资源、领域与普通工作台
                          ↓ 只允许向下同步
-codex/v1.8-lts-desktop-shell
+codex/v1.8-lts-desktop-overlay
   └─ Electron + MCP + Desktop Host Adapter + 保留的 Agent/发包实现
 ```
 

@@ -25,6 +25,7 @@ import { DEFAULT_WEAPON_SKILL_LEVELS } from '../core/services/operatorConfigSnap
 import {
   buildOperatorEquipmentSetBuffs,
   findOperatorEquipmentItem,
+  getOperatorEquipmentEffectMaxLevel,
   getOperatorEquipmentEffectLevelValue,
   normalizeOperatorEquipmentLibrary,
   type EquipmentEffect,
@@ -536,7 +537,7 @@ function createEquipmentPieceFromItem(item: EquipmentItem): OperatorConfigPageEq
     .filter((effect): effect is EquipmentEffect => Boolean(effect))
     .map((effect) => ({
       id: effect.effectId,
-      config: { level: 0 },
+      config: { level: getOperatorEquipmentEffectMaxLevel(effect) },
       data: effect as unknown as Record<string, unknown>,
     }));
 

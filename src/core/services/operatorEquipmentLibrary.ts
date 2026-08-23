@@ -201,6 +201,23 @@ export function getOperatorEquipmentEffectLevelValue(
   return typeof value === 'number' ? value : 0;
 }
 
+export function getOperatorEquipmentEffectLevelOptions(
+  effect: Partial<EquipmentEffect> | undefined,
+): number[] {
+  const levels = Object.keys(effect?.levels ?? {})
+    .map((level) => Number(level))
+    .filter((level) => Number.isFinite(level))
+    .sort((left, right) => left - right);
+  return levels.length > 0 ? levels : [0];
+}
+
+export function getOperatorEquipmentEffectMaxLevel(
+  effect: Partial<EquipmentEffect> | undefined,
+): number {
+  const levels = getOperatorEquipmentEffectLevelOptions(effect);
+  return levels[levels.length - 1] ?? 0;
+}
+
 export function buildOperatorEquipmentSetBuffs(
   selectedEquipmentIds: string[],
   equipmentLibrary: EquipmentLibrary,

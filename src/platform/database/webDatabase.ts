@@ -27,6 +27,14 @@ type DatabaseResponse = {
   error?: { message?: string; stack?: string };
 };
 
+const OPFS_ACCESS_HANDLE_RETRY_DELAYS_MS = [100, 250, 500, 1_000] as const;
+
+function isRetryableOpfsAccessHandleConflict(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('createSyncAccessHandle')
+    && message.includes('another open Access Handle');
+}
+
 class WebDatabase {
   private worker: Worker | null = null;
   private sequence = 0;
@@ -38,9 +46,18 @@ class WebDatabase {
 
   async initialize(): Promise<WebDatabaseInfo> {
     if (this.info) return this.info;
-    this.ensureWorker();
-    this.info = await this.request<WebDatabaseInfo>('initialize');
-    return this.info;
+    for (let attempt = 0; ; attempt += 1) {
+      this.ensureWorker();
+      try {
+        this.info = await this.request<WebDatabaseInfo>('initialize');
+        return this.info;
+      } catch (error) {
+        const retryDelay = OPFS_ACCESS_HANDLE_RETRY_DELAYS_MS[attempt];
+        if (!isRetryableOpfsAccessHandleConflict(error) || retryDelay === undefined) throw error;
+        this.stopWorker(new Error('Retrying after a transient OPFS access-handle conflict.'));
+        await new Promise((resolve) => window.setTimeout(resolve, retryDelay));
+      }
+    }
   }
 
   getInfo(): WebDatabaseInfo | null {
@@ -72,14 +89,20 @@ class WebDatabase {
     try {
       await this.request('close');
     } finally {
-      this.worker.terminate();
-      this.worker = null;
-      this.info = null;
-      for (const pending of this.pending.values()) {
-        pending.reject(new Error('Web database worker was closed.'));
-      }
-      this.pending.clear();
+      this.stopWorker(new Error('Web database worker was closed.'));
     }
+  }
+
+  private stopWorker(error: Error): void {
+    if (this.worker) {
+      this.worker.removeEventListener('message', this.handleMessage);
+      this.worker.removeEventListener('error', this.handleWorkerError);
+      this.worker.terminate();
+    }
+    this.worker = null;
+    this.info = null;
+    for (const pending of this.pending.values()) pending.reject(error);
+    this.pending.clear();
   }
 
   private ensureWorker(): Worker {

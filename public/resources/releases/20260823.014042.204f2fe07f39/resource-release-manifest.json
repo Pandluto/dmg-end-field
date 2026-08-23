@@ -1,36 +1,36 @@
 {
   "type": "dmg.resource-deployment.v1",
   "schemaVersion": 1,
-  "releaseVersion": "20260822.175836.6a42921e7583",
-  "rootSha256": "6a42921e75830046c48d8416d771fd8e7dfdf1b49054e80721864d2bd7da6e95",
-  "generatedAt": "2026-08-22T09:58:36.333Z",
+  "releaseVersion": "20260823.014042.204f2fe07f39",
+  "rootSha256": "204f2fe07f392c8cfcf9db4e7207730cff21f0c15f7b4aeeae78d6fd8503c989",
+  "generatedAt": "2026-08-22T17:40:42.123Z",
   "source": {
-    "fileName": "local-20260822095436.json",
-    "archiveId": "local-20260822095436",
-    "exportedAt": "2026-08-22T09:54:36.761Z"
+    "fileName": "local-20260822173847.json",
+    "archiveId": "local-20260822173847",
+    "exportedAt": "2026-08-22T17:38:47.131Z"
   },
   "data": {
-    "version": "20260822.175836.3c6628ce",
+    "version": "20260823.014042.c45e0329",
     "file": {
       "path": "data/default-local-data.json",
-      "sha256": "3c6628ceda40b63c309fb3d50fa6de0712521e39668f32c6e78b46a8d4d36d6e",
-      "size": 3922094
+      "sha256": "c45e032967e4a9fb08eeb9ef6c26c16bc191b001d659b669ce017f464c30f962",
+      "size": 6326226
     },
     "summary": {
       "operators": 32,
-      "weapons": 76,
-      "images": 532
+      "weapons": 77,
+      "images": 535
     }
   },
   "images": {
-    "version": "20260822.175836.372cefb253db",
-    "totalBytes": 36793629,
-    "indexSha256": "372cefb253db8ddf74e1ab5aef3a9c567df7b7ce70a15a9f5c571552e2a857d6",
+    "version": "20260823.014042.4c099898d5b6",
+    "totalBytes": 36863052,
+    "indexSha256": "4c099898d5b6676866a31a8e8546a35d8e3fc7ca964239a4ad64109de7504b7d",
     "archive": {
-      "path": "images/assets-20260822.175836.372cefb253db-full.zip",
-      "fileName": "assets-20260822.175836.372cefb253db-full.zip",
-      "sha256": "b96076339571b218871767bcc7a744c95403725beb8fa968c1eeccc9aa73c86c",
-      "size": 19614819
+      "path": "images/assets-20260823.014042.4c099898d5b6-full.zip",
+      "fileName": "assets-20260823.014042.4c099898d5b6-full.zip",
+      "sha256": "fcebd36aebf84592452a60fb4f8cb6de7a93ed75b7cc52d8c64e360c02bb967a",
+      "size": 19684748
     },
     "files": [
       {
@@ -2039,6 +2039,21 @@
         "size": 121669
       },
       {
+        "path": "assets/images/img-operator/提丰/险关护手.png",
+        "sha256": "41c5b4a9ef4f8d3107e6cb148dabdac358182ff8c77e2994ee9414a1a1571519",
+        "size": 22774
+      },
+      {
+        "path": "assets/images/img-operator/提丰/险关护甲.png",
+        "sha256": "22e3aeac7766d4e4bc090bf35d4d21abd85795bf2650e90d6f0491f2b06b6351",
+        "size": 27810
+      },
+      {
+        "path": "assets/images/img-operator/提丰/险关配件.png",
+        "sha256": "cebbf0dbd045e76c6c760cc745ddf7e3d33875ca541fe008e609909d8201f251",
+        "size": 18839
+      },
+      {
         "path": "assets/images/img-operator/昼雪.png",
         "sha256": "b4cda4124192dc046c02ae01ebb78d825436fa490e613be05496adffa487c5f3",
         "size": 99376
@@ -2697,14 +2712,14 @@
   },
   "delivery": {
     "dataManifest": {
-      "path": "resources/releases/20260822.175836.6a42921e7583/web-data-manifest.json",
-      "sha256": "46b46a90f7eb26f591b800eaa117bd4b02a5de6cbc19749edd54bf72e29421e0",
+      "path": "resources/releases/20260823.014042.204f2fe07f39/web-data-manifest.json",
+      "sha256": "5b5bfce157f933c7cecc040fb744266b9d28a7f081b88870902e78978e38d2fb",
       "size": 592
     },
     "imageManifest": {
-      "path": "resources/releases/20260822.175836.6a42921e7583/web-image-manifest.json",
-      "sha256": "921c60744d50ee0d8c47333254b42e9f149cdce5d441cfe157c73a7026cd54ed",
-      "size": 104473
+      "path": "resources/releases/20260823.014042.204f2fe07f39/web-image-manifest.json",
+      "sha256": "3d3454d9484797309f172759754ea45d828b36f1f880a3d2aa394d931f0bc98f",
+      "size": 105028
     }
   }
 }

@@ -542,13 +542,20 @@
     );
 }
 
-:root[data-theme="lieflat-mono"] :is(
-  .report-ppt-axis-button-body,
-  .report-ppt-axis-button-orb
-) {
+:root[data-theme="lieflat-mono"] .report-ppt-axis-button-body {
   color: var(--ink-charcoal);
   border-color: var(--ink-skill-outline);
   background: var(--ink-paper-hi);
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-axis-button-orb {
+  color: var(--ink-charcoal);
+  border-color: var(--ink-skill-outline);
+  background: color-mix(
+    in srgb,
+    var(--skill-button-element-color, var(--ink-paper-deep)) 28%,
+    var(--ink-paper-hi)
+  );
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-chart-card {

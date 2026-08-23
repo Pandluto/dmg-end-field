@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "packageId": "dmg-end-field-image-pack",
-  "version": "20260822.175836.372cefb253db",
-  "releaseVersion": "20260822.175836.6a42921e7583",
-  "generatedAt": "2026-08-22T09:58:36.333Z",
-  "releaseTag": "20260822.175836.6a42921e7583",
+  "version": "20260823.014042.4c099898d5b6",
+  "releaseVersion": "20260823.014042.204f2fe07f39",
+  "generatedAt": "2026-08-22T17:40:42.123Z",
+  "releaseTag": "20260823.014042.204f2fe07f39",
   "publicBasePath": "assets/images",
   "files": [
     {
@@ -2013,6 +2013,21 @@
       "size": 121669
     },
     {
+      "path": "assets/images/img-operator/提丰/险关护手.png",
+      "sha256": "41c5b4a9ef4f8d3107e6cb148dabdac358182ff8c77e2994ee9414a1a1571519",
+      "size": 22774
+    },
+    {
+      "path": "assets/images/img-operator/提丰/险关护甲.png",
+      "sha256": "22e3aeac7766d4e4bc090bf35d4d21abd85795bf2650e90d6f0491f2b06b6351",
+      "size": 27810
+    },
+    {
+      "path": "assets/images/img-operator/提丰/险关配件.png",
+      "sha256": "cebbf0dbd045e76c6c760cc745ddf7e3d33875ca541fe008e609909d8201f251",
+      "size": 18839
+    },
+    {
       "path": "assets/images/img-operator/昼雪.png",
       "sha256": "b4cda4124192dc046c02ae01ebb78d825436fa490e613be05496adffa487c5f3",
       "size": 99376
@@ -2668,42 +2683,42 @@
       "size": 53211
     }
   ],
-  "totalBytes": 36793629,
+  "totalBytes": 36863052,
   "archive": {
-    "path": "resources/releases/20260822.175836.6a42921e7583/images/assets-20260822.175836.372cefb253db-full.zip",
-    "fileName": "assets-20260822.175836.372cefb253db-full.zip",
-    "sha256": "b96076339571b218871767bcc7a744c95403725beb8fa968c1eeccc9aa73c86c",
-    "size": 19614819,
+    "path": "resources/releases/20260823.014042.204f2fe07f39/images/assets-20260823.014042.4c099898d5b6-full.zip",
+    "fileName": "assets-20260823.014042.4c099898d5b6-full.zip",
+    "sha256": "fcebd36aebf84592452a60fb4f8cb6de7a93ed75b7cc52d8c64e360c02bb967a",
+    "size": 19684748,
     "parts": [
       {
-        "path": "resources/releases/20260822.175836.6a42921e7583/packages/assets-20260822.175836.372cefb253db-full.zip.part-001",
-        "sha256": "84e06366e3f68eccf12ccb87a879ab2a5b5e92a0b309a4a70ddbbb03f0f1a531",
+        "path": "resources/releases/20260823.014042.204f2fe07f39/packages/assets-20260823.014042.4c099898d5b6-full.zip.part-001",
+        "sha256": "792b57828aa5c90b08763f21e4649a206f461ad74adf2f5ec2d60d1b77b8c914",
         "size": 4194304,
-        "fileName": "assets-20260822.175836.372cefb253db-full.zip.part-001"
+        "fileName": "assets-20260823.014042.4c099898d5b6-full.zip.part-001"
       },
       {
-        "path": "resources/releases/20260822.175836.6a42921e7583/packages/assets-20260822.175836.372cefb253db-full.zip.part-002",
-        "sha256": "56ff0f1aa7401f663e6a850004e4a3ae3de58de78f2eab82829009bb738080fb",
+        "path": "resources/releases/20260823.014042.204f2fe07f39/packages/assets-20260823.014042.4c099898d5b6-full.zip.part-002",
+        "sha256": "84744fb1a46e14f8df87b0f8962a3eeae423310b323406bee20021da4e4c8e46",
         "size": 4194304,
-        "fileName": "assets-20260822.175836.372cefb253db-full.zip.part-002"
+        "fileName": "assets-20260823.014042.4c099898d5b6-full.zip.part-002"
       },
       {
-        "path": "resources/releases/20260822.175836.6a42921e7583/packages/assets-20260822.175836.372cefb253db-full.zip.part-003",
-        "sha256": "bb7fe1322bd5bcbfcff685e96a7f03528c4fd2b64f087e2dfd25c5493b3b2c7a",
+        "path": "resources/releases/20260823.014042.204f2fe07f39/packages/assets-20260823.014042.4c099898d5b6-full.zip.part-003",
+        "sha256": "7bd6d54ab932d9f2b0dc9534fcd068d0feedb072bf7c0d002b64fb702342ba5c",
         "size": 4194304,
-        "fileName": "assets-20260822.175836.372cefb253db-full.zip.part-003"
+        "fileName": "assets-20260823.014042.4c099898d5b6-full.zip.part-003"
       },
       {
-        "path": "resources/releases/20260822.175836.6a42921e7583/packages/assets-20260822.175836.372cefb253db-full.zip.part-004",
-        "sha256": "c16403723503d9451a0e0355d0576c145bd9d8ac2cee954f64acc87608ad19ec",
+        "path": "resources/releases/20260823.014042.204f2fe07f39/packages/assets-20260823.014042.4c099898d5b6-full.zip.part-004",
+        "sha256": "989d5eb3554e92b0c7ed64df099d3c46a8cabb0bfb19a04337bf0cbe2d4c9ce2",
         "size": 4194304,
-        "fileName": "assets-20260822.175836.372cefb253db-full.zip.part-004"
+        "fileName": "assets-20260823.014042.4c099898d5b6-full.zip.part-004"
       },
       {
-        "path": "resources/releases/20260822.175836.6a42921e7583/packages/assets-20260822.175836.372cefb253db-full.zip.part-005",
-        "sha256": "8d79f6cdd959671a81d275a969eecd18a7d1a10f39d037a73fc0e79187b549b2",
-        "size": 2837603,
-        "fileName": "assets-20260822.175836.372cefb253db-full.zip.part-005"
+        "path": "resources/releases/20260823.014042.204f2fe07f39/packages/assets-20260823.014042.4c099898d5b6-full.zip.part-005",
+        "sha256": "9fd9bf9e2b57541f4835ba02b9ea932d9e5fdf22f62a14d1cff8049ab9ef0497",
+        "size": 2907532,
+        "fileName": "assets-20260823.014042.4c099898d5b6-full.zip.part-005"
       }
     ]
   }

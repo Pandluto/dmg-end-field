@@ -1,12 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ConfigSnapshot } from '../../core/calculators/operatorPanelCalculator';
-import type {
-  EquipmentEffect,
-  EquipmentItem,
-  EquipmentLibrary,
-  EquipmentPart,
+import {
+  getOperatorEquipmentEffectLevelOptions,
+  getOperatorEquipmentEffectMaxLevel,
+  type EquipmentEffect,
+  type EquipmentItem,
+  type EquipmentLibrary,
+  type EquipmentPart,
 } from '../../core/services/operatorEquipmentLibrary';
-import type { Character, SkillType } from '../../types';
+import type {
+  Character,
+  SkillType,
+} from '../../types';
 import type {
   MobileCatalog,
   MobileEquipmentSlotKey,
@@ -160,19 +165,6 @@ function getEquipmentItems(library: EquipmentLibrary): EquipmentItem[] {
   return Array.from(itemMap.values()).sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'));
 }
 
-function getEffectLevelOptions(effect: EquipmentEffect): number[] {
-  const levels = Object.keys(effect.levels)
-    .map((level) => Number(level))
-    .filter((level) => Number.isFinite(level))
-    .sort((left, right) => left - right);
-  return levels.length > 0 ? levels : [0];
-}
-
-function getDefaultEffectLevel(effect: EquipmentEffect): number {
-  const levels = getEffectLevelOptions(effect);
-  return levels[levels.length - 1] ?? 0;
-}
-
 function formatNumber(value: number | undefined): string {
   if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
   return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 0 }).format(value);
@@ -211,7 +203,7 @@ function createEquipmentSelection(
     effectLevels: Object.fromEntries(
       Object.entries(item.effects).map(([effectId, effect]) => [
         effectId,
-        getDefaultEffectLevel(effect as EquipmentEffect),
+        getOperatorEquipmentEffectMaxLevel(effect as EquipmentEffect),
       ]),
     ) as MobileOperatorConfig['equipment'][MobileEquipmentSlotKey]['effectLevels'],
   };
@@ -611,7 +603,7 @@ export function MobileOperatorConfigPage({
                     <div className="mobile-operator-config-effect-list">
                       {Object.values(selectedItem.effects).map((effect) => {
                         if (!effect) return null;
-                        const currentLevel = selection.effectLevels[effect.effectId] ?? getDefaultEffectLevel(effect);
+                        const currentLevel = selection.effectLevels[effect.effectId] ?? getOperatorEquipmentEffectMaxLevel(effect);
                         return (
                           <label className="mobile-operator-config-effect-row" key={effect.effectId}>
                             <span>{effect.label}</span>
@@ -626,7 +618,7 @@ export function MobileOperatorConfigPage({
                               }))}
                               aria-label={`${label}${effect.label}等级`}
                             >
-                              {getEffectLevelOptions(effect).map((level) => <option value={level} key={level}>{level} 级</option>)}
+                              {getOperatorEquipmentEffectLevelOptions(effect).map((level) => <option value={level} key={level}>{level} 级</option>)}
                             </select>
                           </label>
                         );

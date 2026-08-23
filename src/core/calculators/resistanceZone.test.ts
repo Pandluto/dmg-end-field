@@ -1,5 +1,6 @@
 import { calculateBuffTotals, calculateResistanceZone } from './buffCalculator';
 import type { SkillButtonBuff } from '../../types/storage';
+import { CORROSION_MULTIPLIER_BUFF_TYPES, isMultiplierSupportedBuffType } from '../domain/buffTypeRegistry';
 
 function assertClose(actual: number, expected: number, message: string): void {
   if (Math.abs(actual - expected) > 0.000001) {
@@ -20,6 +21,26 @@ function buff(type: string, value: number): SkillButtonBuff {
   };
 }
 
+function multiplierBuff(type: string, coefficient: number): SkillButtonBuff {
+  return {
+    id: `${type}-multiplier-${coefficient}`,
+    name: `${type}-multiplier`,
+    displayName: `${type}-multiplier`,
+    sourceName: 'test',
+    type,
+    multiplier: { coefficient },
+    category: 'condition',
+    source: 'test',
+    refCount: 1,
+  };
+}
+
+CORROSION_MULTIPLIER_BUFF_TYPES.forEach((type) => {
+  if (!isMultiplierSupportedBuffType(type)) {
+    throw new Error(`${type} should be selectable as a corrosion multiplier target`);
+  }
+});
+
 assertClose(
   calculateResistanceZone('nature', undefined, calculateBuffTotals([])).resistanceZone,
   1,
@@ -36,6 +57,24 @@ assertClose(
   calculateResistanceZone('nature', { natureResistance: 20 }, calculateBuffTotals([buff('allCorrosion', 12)])).resistanceZone,
   0.92,
   'all corrosion should reduce effective resistance'
+);
+
+assertClose(
+  calculateResistanceZone('nature', { natureResistance: 20 }, calculateBuffTotals([
+    buff('allCorrosion', 12),
+    multiplierBuff('allCorrosion', 1.2),
+  ])).corrosion,
+  14.4,
+  'all corrosion multiplier should scale corrosion points instead of target resistance'
+);
+
+assertClose(
+  calculateResistanceZone('nature', { natureResistance: 20 }, calculateBuffTotals([
+    buff('allCorrosion', 12),
+    multiplierBuff('allCorrosion', 1.2),
+  ])).resistanceZone,
+  0.944,
+  'scaled corrosion should enter the resistance formula as points'
 );
 
 assertClose(

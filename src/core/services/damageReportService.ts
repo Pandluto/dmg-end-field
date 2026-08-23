@@ -33,6 +33,7 @@ import {
 } from '../calculators/buffCalculator';
 import type { ResistanceZoneResult } from '../calculators/buffCalculator';
 import type { BuffContribution, ZoneCalculationResult } from '../calculators/buffZoneCalculator';
+import { compareTimelineChronology } from '../domain/timelineChronology';
 import { persistentLocalStorage } from '../../platform/storage/persistentStorage';
 import { resolveExtraHitBaseScaling, resolveSpecialDamageLevelCoefficient } from './buffExtraHit';
 
@@ -185,6 +186,9 @@ function formatBuffEffect(buff: SkillButtonBuff): string {
   if (buff.description?.trim()) {
     return buff.description.trim();
   }
+  if (buff.multiplier) {
+    return `${buff.type || 'multiplier'}: ×${buff.multiplier.coefficient}`;
+  }
   if (buff.type && typeof buff.value === 'number') {
     return `${buff.type}: ${buff.value}`;
   }
@@ -318,6 +322,11 @@ function toBuffRows(
         effectiveValue: contribution.effectiveValue,
         multiplierCoefficient: contribution.multiplierCoefficient,
         multiplier: contribution.multiplier,
+      } : buff.multiplier ? {
+        type: buff.type,
+        effectiveValue: buff.multiplier.coefficient,
+        multiplierCoefficient: buff.multiplier.coefficient,
+        multiplier: true,
       } : {};
     })(),
     id: buff.id,
@@ -1177,21 +1186,13 @@ export function resolveDamageReportContext(options: DamageReportSnapshotOptions 
   const allowedButtonIds = options.buttonIds ? new Set(options.buttonIds) : null;
   const flattenedButtons = timelineData.staffLines.flatMap((staffLine) =>
     (Array.isArray(staffLine.buttons) ? staffLine.buttons : []).map((timelineButton) => ({
+      id: timelineButton.id,
+      nodeIndex: timelineButton.nodeIndex,
       timelineButton,
       staffIndex: staffLine.staffIndex,
     }))
   );
-  const sorted = [...flattenedButtons].sort((left, right) => {
-    const xDiff = (left.timelineButton.position?.x ?? 0) - (right.timelineButton.position?.x ?? 0);
-    if (Math.abs(xDiff) > 0.001) {
-      return xDiff;
-    }
-    const yDiff = (left.timelineButton.position?.y ?? 0) - (right.timelineButton.position?.y ?? 0);
-    if (Math.abs(yDiff) > 0.001) {
-      return yDiff;
-    }
-    return (left.timelineButton.nodeIndex ?? 0) - (right.timelineButton.nodeIndex ?? 0);
-  });
+  const sorted = [...flattenedButtons].sort(compareTimelineChronology);
 
   const persistedButtons: Array<{ persisted: PersistedSkillButton; orderIndex: number }> = [];
   sorted.forEach(({ timelineButton, staffIndex }, orderIndex) => {
