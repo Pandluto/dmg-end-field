@@ -37,6 +37,10 @@ import {
   type MobileShareRecord,
 } from '../mobileShare';
 import { MobilePortal } from '../components/MobilePortal';
+import {
+  buildReportDonutSegmentPath,
+  buildReportDonutSegments,
+} from '../reportDonutGeometry';
 import './MobileReportPage.css';
 
 export interface MobileReportPageProps {
@@ -379,15 +383,9 @@ function OperatorShareChart({ rows }: { rows: DisplayReportRow[] }) {
   const total = positiveRows.reduce((sum, row) => sum + row.expected, 0);
   if (positiveRows.length === 0 || total <= 0) return <EmptyReportState>暂无干员伤害数据</EmptyReportState>;
 
-  let accumulatedShare = 0;
-  const segments = positiveRows.map((row, index) => {
-    const share = row.expected / total;
-    const segment = { ...row, index, share, offset: accumulatedShare };
-    accumulatedShare += share;
-    return segment;
-  });
+  const segments = buildReportDonutSegments(positiveRows, (row) => row.expected);
   const description = segments
-    .map((row) => `${row.label} ${formatDamage(row.expected)}，占比 ${formatPercentage(row.share)}`)
+    .map((segment) => `${segment.data.label} ${formatDamage(segment.data.expected)}，占比 ${formatPercentage(segment.share)}`)
     .join('；');
 
   return (
@@ -407,28 +405,16 @@ function OperatorShareChart({ rows }: { rows: DisplayReportRow[] }) {
             strokeWidth="34"
             style={{ fill: 'none', stroke: REPORT_CHART_COLORS.grid, strokeWidth: 34 }}
           />
-          {segments.map((row) => (
-            <circle
-              key={`${row.id}-${row.index}`}
+          {segments.map((segment) => (
+            <path
+              key={`${segment.data.id}-${segment.index}`}
               className="mobile-report-share-segment"
-              cx="100"
-              cy="100"
-              r="66"
-              pathLength="100"
-              fill="none"
-              stroke={getSeriesColor(row.index)}
-              strokeWidth="34"
-              strokeLinecap="butt"
-              strokeDasharray={`${row.share * 100} ${100 - row.share * 100}`}
-              strokeDashoffset={-row.offset * 100}
-              transform="rotate(-90 100 100)"
+              d={buildReportDonutSegmentPath(100, 100, 83, 49, segment.startAngle, segment.endAngle)}
+              fill={getSeriesColor(segment.index)}
+              stroke="none"
               style={{
-                fill: 'none',
-                stroke: getSeriesColor(row.index),
-                strokeWidth: 34,
-                strokeLinecap: 'butt',
-                strokeDasharray: `${row.share * 100} ${100 - row.share * 100}`,
-                strokeDashoffset: -row.offset * 100,
+                fill: getSeriesColor(segment.index),
+                stroke: 'none',
               }}
             />
           ))}
@@ -459,14 +445,14 @@ function OperatorShareChart({ rows }: { rows: DisplayReportRow[] }) {
         </svg>
       </div>
       <ol className="mobile-report-share-legend" aria-label="干员伤害占比明细">
-        {segments.map((row) => (
-          <li key={`${row.id}-legend`} className="mobile-report-legend-item">
-            <span className="mobile-report-legend-swatch" style={{ backgroundColor: getSeriesColor(row.index) }} aria-hidden="true" />
+        {segments.map((segment) => (
+          <li key={`${segment.data.id}-legend`} className="mobile-report-legend-item">
+            <span className="mobile-report-legend-swatch" style={{ backgroundColor: getSeriesColor(segment.index) }} aria-hidden="true" />
             <span className="mobile-report-legend-copy">
-              <span className="mobile-report-legend-label">{row.label}</span>
-              <span className="mobile-report-legend-value">{formatDamage(row.expected)}</span>
+              <span className="mobile-report-legend-label">{segment.data.label}</span>
+              <span className="mobile-report-legend-value">{formatDamage(segment.data.expected)}</span>
             </span>
-            <span className="mobile-report-legend-share">{formatPercentage(row.share)}</span>
+            <span className="mobile-report-legend-share">{formatPercentage(segment.share)}</span>
           </li>
         ))}
       </ol>
@@ -596,12 +582,7 @@ function MobileRdpsOverview({ summary }: { summary: RdpsAttributionSummary | und
   const { actualTotal, characters, parts, canRenderPie } = model;
   if (characters.length === 0 && actualTotal === 0) return <EmptyReportState>当前队伍没有可归因干员</EmptyReportState>;
   const positiveParts = parts.filter((part) => part.damage > 0);
-  let accumulatedShare = 0;
-  const segments = positiveParts.map((part) => {
-    const segment = { ...part, offset: accumulatedShare };
-    accumulatedShare += part.shareOfActual;
-    return segment;
-  });
+  const segments = buildReportDonutSegments(positiveParts, (part) => part.damage);
   const maxAbsolute = Math.max(...characters.map((character) => Math.abs(character.damage)), 1);
 
   return (
@@ -621,32 +602,20 @@ function MobileRdpsOverview({ summary }: { summary: RdpsAttributionSummary | und
                 strokeWidth="34"
                 style={{ fill: 'none', stroke: REPORT_CHART_COLORS.grid, strokeWidth: 34 }}
               />
-              {segments.map((part) => (
-                <circle
-                  key={part.key}
+              {segments.map((segment) => (
+                <path
+                  key={segment.data.key}
                   className="mobile-report-share-segment"
-                  cx="100"
-                  cy="100"
-                  r="66"
-                  pathLength="100"
-                  fill="none"
-                  stroke={getSeriesColor(part.colorIndex)}
-                  strokeWidth="34"
-                  strokeLinecap="butt"
-                  strokeDasharray={`${part.shareOfActual * 100} ${100 - part.shareOfActual * 100}`}
-                  strokeDashoffset={-part.offset * 100}
-                  transform="rotate(-90 100 100)"
+                  d={buildReportDonutSegmentPath(100, 100, 83, 49, segment.startAngle, segment.endAngle)}
+                  fill={getSeriesColor(segment.data.colorIndex)}
+                  stroke="none"
                   style={{
-                    fill: 'none',
-                    stroke: getSeriesColor(part.colorIndex),
-                    strokeWidth: 34,
-                    strokeLinecap: 'butt',
-                    strokeDasharray: `${part.shareOfActual * 100} ${100 - part.shareOfActual * 100}`,
-                    strokeDashoffset: -part.offset * 100,
+                    fill: getSeriesColor(segment.data.colorIndex),
+                    stroke: 'none',
                   }}
                 >
-                  <title>{part.name}：{formatSignedDamage(part.damage)} / {formatPercentage(part.shareOfActual)}</title>
-                </circle>
+                  <title>{segment.data.name}：{formatSignedDamage(segment.data.damage)} / {formatPercentage(segment.data.shareOfActual)}</title>
+                </path>
               ))}
               <circle
                 className="mobile-report-share-hole"
