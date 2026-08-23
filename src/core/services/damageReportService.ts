@@ -36,6 +36,11 @@ import type { BuffContribution, ZoneCalculationResult } from '../calculators/buf
 import { compareTimelineChronology } from '../domain/timelineChronology';
 import { persistentLocalStorage } from '../../platform/storage/persistentStorage';
 import { resolveExtraHitBaseScaling, resolveSpecialDamageLevelCoefficient } from './buffExtraHit';
+import {
+  isSingleHitMultiplierBonusBuff,
+  resolveSingleHitMultiplierBonusTargets,
+  type SingleHitBuffTargetByBuffId,
+} from './singleHitMultiplierBonus';
 
 export interface DamageReportBuffRow {
   id: string;
@@ -764,6 +769,7 @@ function buildAnomalyReportHits(
   normalHitCount: number,
   modifierBuffList: SkillButtonBuff[],
   extraHitBuffList: Array<SkillButtonBuff & { effectKind: 'extraHit'; extraHitConfig: NonNullable<SkillButtonBuff['extraHitConfig']> }>,
+  singleHitBuffTargetByBuffId: SingleHitBuffTargetByBuffId,
   stackCounts: Record<string, number> = {}
 ): DamageReportHitRow[] {
   const anomalyCards = button.anomalyConfig?.selectedDamages ?? [];
@@ -781,7 +787,11 @@ function buildAnomalyReportHits(
     const appliedBuffs = ((card.selectedBuffIds?.length ?? 0) === 0
       ? modifierBuffList
       : modifierBuffList.filter((buff) => card.selectedBuffIds.includes(buff.id)))
-      .filter((buff) => !disabledBuffIds.has(buff.id));
+      .filter((buff) => (
+        isSingleHitMultiplierBonusBuff(buff)
+          ? singleHitBuffTargetByBuffId[buff.id] === card.id
+          : !disabledBuffIds.has(buff.id)
+      ));
     const segmentPanel = buildDamageReportPanel(panelBase, panel, appliedBuffs, stackCounts);
     const buffTotals = calculateBuffTotals(appliedBuffs, stackCounts);
     const sourceSkill = baseSourceSkill + buffTotals.sourceSkillBoost;
@@ -876,7 +886,11 @@ function buildAnomalyReportHits(
         ...(disabledBuffIdsBySegmentKey[baseSegmentKey] ?? []),
         ...(disabledBuffIdsBySegmentKey[segmentKey] ?? []),
       ]);
-      const appliedBuffs = modifierBuffList.filter((item) => !disabledBuffIds.has(item.id));
+      const appliedBuffs = modifierBuffList.filter((item) => (
+        isSingleHitMultiplierBonusBuff(item)
+          ? singleHitBuffTargetByBuffId[item.id] === segmentKey
+          : !disabledBuffIds.has(item.id)
+      ));
       const segmentPanel = buildDamageReportPanel(panelBase, panel, appliedBuffs, stackCounts);
       const buffTotals = calculateBuffTotals(appliedBuffs, stackCounts);
       const sourceSkill = baseSourceSkill + buffTotals.sourceSkillBoost;
@@ -932,6 +946,7 @@ export interface ResolvedButtonInputs {
   disabledHitKeys: string[];
   buffStackCountsByHitKey: Record<string, Record<string, number>>;
   disabledBuffIdsByHitKey: Record<string, string[]>;
+  singleHitBuffTargetByBuffId: SingleHitBuffTargetByBuffId;
   allBuffs: SkillButtonBuff[];
   globallyDisabledBuffIds: Set<string>;
   anomalyStatuses: PersistedAnomalyCard[];
@@ -995,6 +1010,7 @@ function resolveButtonInputs(
     disabledHitKeys,
     buffStackCountsByHitKey,
     disabledBuffIdsByHitKey,
+    singleHitBuffTargetByBuffId: button.panelConfig?.singleHitBuffTargetByBuffId ?? {},
     allBuffs,
     globallyDisabledBuffIds,
     anomalyStatuses,
@@ -1031,6 +1047,7 @@ function evaluateButtonReportRow(
     disabledHitKeys,
     buffStackCountsByHitKey,
     disabledBuffIdsByHitKey,
+    singleHitBuffTargetByBuffId,
     allBuffs,
     globallyDisabledBuffIds,
     anomalyStatuses,
@@ -1067,6 +1084,14 @@ function evaluateButtonReportRow(
   const effectiveDamageBonus = filter?.imbalanceEnabled === false
     ? { ...damageBonus, imbalanceDmgBonus: 0 }
     : damageBonus;
+  const resolvedSingleHitBuffTargets = resolvedTemplate
+    ? resolveSingleHitMultiplierBonusTargets(
+        combinedModifierBuffList,
+        resolvedTemplate.hits,
+        disabledBuffIdsByHitKey,
+        singleHitBuffTargetByBuffId,
+      )
+    : {};
   const normalHits = resolvedTemplate
     ? calculateSkillButtonDamageV2({
         buttonId: button.id,
@@ -1079,6 +1104,7 @@ function evaluateButtonReportRow(
         panel,
         panelBase: panelBase ?? undefined,
         disabledBuffIdsByHitKey,
+        singleHitBuffTargetByBuffId: resolvedSingleHitBuffTargets,
         disabledHitKeys,
         targetResistance: button.resistanceConfig?.targetResistance,
         damageBonus: effectiveDamageBonus,
@@ -1114,6 +1140,7 @@ function evaluateButtonReportRow(
     normalHits.length,
     combinedModifierBuffList,
     extraHitBuffList,
+    resolvedSingleHitBuffTargets,
     button.buffStackCounts ?? {}
   );
 
@@ -1274,7 +1301,7 @@ function buildContextFingerprint(inputs: readonly ResolvedButtonInputs[]): strin
     }).join(',');
     const anomalyFingerprints = input.anomalyStatuses.map((card) => `${card.id}:${card.key}:${String(card.sourceCharacterId ?? '')}`).join(',');
     const snapshotFingerprints = input.anomalyStateSnapshots.map((snapshot) => `${snapshot.id}:${snapshot.key}:${String(snapshot.sourceCharacterId ?? '')}`).join(',');
-    return `${input.button.id}[${buffFingerprints}][${anomalyFingerprints}][${snapshotFingerprints}][${JSON.stringify(input.button.buffStackCounts ?? {})}][${JSON.stringify(input.button.panelConfig?.globallyDisabledBuffIds ?? [])}]`;
+    return `${input.button.id}[${buffFingerprints}][${anomalyFingerprints}][${snapshotFingerprints}][${JSON.stringify(input.button.buffStackCounts ?? {})}][${JSON.stringify(input.button.panelConfig?.globallyDisabledBuffIds ?? [])}][${JSON.stringify(input.button.panelConfig?.singleHitBuffTargetByBuffId ?? {})}]`;
   });
   return parts.join('|');
 }

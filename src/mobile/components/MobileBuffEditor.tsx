@@ -11,6 +11,10 @@ import type { AnomalyDamageSegmentView } from '../../components/CanvasBoard/skil
 import type { MobileSlotCalculation, MobileTimelineAction } from '../model';
 import { getMobileBuffSourceLabel } from '../mobileBuffWorkbench';
 import { formatExtraHitFormulaLabel } from '../../core/services/buffExtraHit';
+import {
+  isSingleHitMultiplierBonusBuff,
+  resolveSingleHitMultiplierBonusTargets,
+} from '../../core/services/singleHitMultiplierBonus';
 import { MobileBuffCatalogSheet } from './MobileBuffCatalogSheet';
 import './MobileBuffEditor.css';
 
@@ -250,6 +254,12 @@ export function MobileBuffEditor({
   const globallyDisabled = new Set(action.globallyDisabledBuffIds ?? []);
   const disabledForCurrentSegment = new Set(currentBuffScopeKey ? action.disabledBuffIdsByHitKey?.[currentBuffScopeKey] ?? [] : []);
   const modifierBuffs = calculation?.modifierBuffs ?? buffs.filter((buff) => buff.effectKind !== 'extraHit');
+  const resolvedSingleHitBuffTargets = resolveSingleHitMultiplierBonusTargets(
+    modifierBuffs,
+    hits.map((hit) => hit.hit),
+    action.disabledBuffIdsByHitKey,
+    action.singleHitBuffTargetByBuffId,
+  );
 
   useEffect(() => {
     onInteractionLockChange?.(true);
@@ -334,6 +344,19 @@ export function MobileBuffEditor({
 
   const toggleCurrentSegmentBuff = (buffId: string) => {
     if (!currentBuffScopeKey) return;
+    const buff = modifierBuffs.find((item) => item.id === buffId);
+    if (buff && isSingleHitMultiplierBonusBuff(buff)) {
+      updateAction({
+        ...action,
+        singleHitBuffTargetByBuffId: {
+          ...(action.singleHitBuffTargetByBuffId ?? {}),
+          [buffId]: resolvedSingleHitBuffTargets[buffId] === currentBuffScopeKey
+            ? null
+            : currentBuffScopeKey,
+        },
+      });
+      return;
+    }
     updateAction(withHitDisabledBuffs(action, currentBuffScopeKey, buffId));
   };
 
@@ -352,6 +375,7 @@ export function MobileBuffEditor({
           return [hitKey, rest];
         }),
     );
+    const { [buffId]: _singleHitTarget, ...nextSingleHitBuffTargets } = action.singleHitBuffTargetByBuffId ?? {};
     updateAction({
       ...action,
       buffs: buffs.filter((buff) => buff.id !== buffId),
@@ -359,6 +383,7 @@ export function MobileBuffEditor({
       buffStackCountsByHitKey: nextStacksByHit,
       globallyDisabledBuffIds: (action.globallyDisabledBuffIds ?? []).filter((id) => id !== buffId),
       disabledBuffIdsByHitKey: nextByHit,
+      singleHitBuffTargetByBuffId: nextSingleHitBuffTargets,
       disabledHitKeys: (action.disabledHitKeys ?? []).filter((hitKey) => !hitKey.startsWith(extraHitSegmentPrefix)),
     });
   };
@@ -419,10 +444,15 @@ export function MobileBuffEditor({
     if (!currentBuffScopeKey) return;
     const { [currentBuffScopeKey]: _disabled, ...nextDisabledByHit } = action.disabledBuffIdsByHitKey ?? {};
     const { [currentBuffScopeKey]: _stacks, ...nextStacksByHit } = action.buffStackCountsByHitKey ?? {};
+    const nextSingleHitBuffTargets = Object.fromEntries(
+      Object.entries(action.singleHitBuffTargetByBuffId ?? {})
+        .filter(([, targetKey]) => targetKey !== currentBuffScopeKey),
+    );
     updateAction({
       ...action,
       disabledBuffIdsByHitKey: nextDisabledByHit,
       buffStackCountsByHitKey: nextStacksByHit,
+      singleHitBuffTargetByBuffId: nextSingleHitBuffTargets,
     });
   };
 
@@ -558,7 +588,9 @@ export function MobileBuffEditor({
                         <button type="button" onClick={resetCurrentSegmentBuffs} disabled={!currentBuffScopeKey}>重置</button>
                       </div>
                       {activeSegmentBuffs.length === 0 ? <span className="mobile-buff-muted-line">没有匹配到作用于本段的 Buff。</span> : activeSegmentBuffs.map((buff) => {
-                        const segmentDisabled = disabledForCurrentSegment.has(buff.id);
+                        const segmentDisabled = isSingleHitMultiplierBonusBuff(buff)
+                          ? resolvedSingleHitBuffTargets[buff.id] !== currentBuffScopeKey
+                          : disabledForCurrentSegment.has(buff.id);
                         const globalDisabled = globallyDisabled.has(buff.id);
                         const countable = isCountable(buff);
                         return (

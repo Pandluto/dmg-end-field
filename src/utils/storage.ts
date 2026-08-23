@@ -735,6 +735,12 @@ function normalizePersistedSkillButton(button: PersistedSkillButton): PersistedS
       Array.isArray(buffIds) ? buffIds : [],
     ])
   );
+  const singleHitBuffTargetByBuffId = Object.fromEntries(
+    Object.entries(button.panelConfig?.singleHitBuffTargetByBuffId ?? {})
+      .filter((entry): entry is [string, string | null] => (
+        entry[1] === null || typeof entry[1] === 'string'
+      )),
+  );
 
   return {
     ...buttonWithoutLegacySnapshot,
@@ -743,12 +749,14 @@ function normalizePersistedSkillButton(button: PersistedSkillButton): PersistedS
     panelConfig: button.panelConfig ?? {
       selectedBuff: [...selectedBuff],
       manualDisabledBuffIdsBySegmentKey: {},
+      singleHitBuffTargetByBuffId: {},
     },
     ...(button.panelConfig ? {
       panelConfig: {
         ...button.panelConfig,
         selectedBuff: Array.isArray(button.panelConfig.selectedBuff) ? button.panelConfig.selectedBuff : [...selectedBuff],
         manualDisabledBuffIdsBySegmentKey,
+        singleHitBuffTargetByBuffId,
       },
     } : {}),
     runtimeSnapshot: button.runtimeSnapshot ?? legacyButton.panelSnapshot ?? null,

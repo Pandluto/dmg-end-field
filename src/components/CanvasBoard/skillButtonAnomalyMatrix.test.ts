@@ -106,6 +106,9 @@ function buildSegments(selectedCards: SelectedAnomalyCard[]) {
     fullCombinedModifierBuffList: MATRIX_BUFFS,
     extraHitBuffList: [],
     manuallyDisabledBuffIdsBySegmentKey: {},
+    singleHitBuffTargetByBuffId: selectedCards[0]
+      ? { [MULTIPLIER_BONUS_BUFF.id]: selectedCards[0].id }
+      : {},
     getEffectiveCharacterSourceSkillBoost: (_characterId, buffs = []) => (
       12 + calculateBuffTotals(buffs).sourceSkillBoost
     ),
@@ -184,6 +187,9 @@ const [withoutSourceSkillBuff] = buildAnomalyDamageSegments({
   fullCombinedModifierBuffList: MATRIX_BUFFS,
   extraHitBuffList: [],
   manuallyDisabledBuffIdsBySegmentKey: {},
+  singleHitBuffTargetByBuffId: {
+    [MULTIPLIER_BONUS_BUFF.id]: 'matrix-conductive-default',
+  },
   getEffectiveCharacterSourceSkillBoost: (_characterId, buffs = []) => (
     12 + calculateBuffTotals(buffs).sourceSkillBoost
   ),

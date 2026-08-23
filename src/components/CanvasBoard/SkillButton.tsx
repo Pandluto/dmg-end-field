@@ -40,6 +40,12 @@ import type {
   SkillDamagePanelBase,
 } from '../../core/calculators/skillDamage.types';
 import { resolveSkillDamageTemplate } from '../../core/services/skillDamageTemplateResolver';
+import {
+  doesBuffApplyToResolvedHit,
+  isSingleHitMultiplierBonusBuff,
+  resolveSingleHitMultiplierBonusTargets,
+  type SingleHitBuffTargetByBuffId,
+} from '../../core/services/singleHitMultiplierBonus';
 import { useAppContext } from '../../context/AppContext';
 import { emitSkillButtonBuffAdded, emitSkillButtonBuffRemoved, onSkillButtonBuffAdded } from '../../core/events/buffEvents';
 import { buildBuffSearchIndex, searchBuffs } from '../../utils/buffFuzzySearch';
@@ -110,6 +116,12 @@ function getBuffSearchModeLabel(mode: BuffSearchMode): string {
 function getNextBuffSearchMode(mode: BuffSearchMode): BuffSearchMode {
   const index = BUFF_SEARCH_MODE_OPTIONS.findIndex((option) => option.key === mode);
   return BUFF_SEARCH_MODE_OPTIONS[(index + 1) % BUFF_SEARCH_MODE_OPTIONS.length].key;
+}
+
+function toSingleHitBuffTargetKey(segmentKey: string): string {
+  return segmentKey.startsWith('normal-hit-')
+    ? segmentKey.slice('normal-hit-'.length)
+    : segmentKey;
 }
 
 function formatAnomalyStateSnapshotValue(snapshot: AnomalyStateSnapshot): string {
@@ -297,6 +309,7 @@ export function SkillButtonComponent({
   const [operatorBuffGroupFilter, setOperatorBuffGroupFilter] = useState<OperatorBuffGroupFilter | null>(null);
   const [candidateBuffRefreshToken, setCandidateBuffRefreshToken] = useState(0);
   const [manuallyDisabledBuffIdsBySegmentKey, setManuallyDisabledBuffIdsBySegmentKey] = useState<Record<string, string[]>>({});
+  const [singleHitBuffTargetByBuffId, setSingleHitBuffTargetByBuffId] = useState<SingleHitBuffTargetByBuffId>({});
   const [globallyDisabledBuffIds, setGloballyDisabledBuffIds] = useState<string[]>([]);
   const [manualBuffStackCountsBySegmentKey, setManualBuffStackCountsBySegmentKey] = useState<Record<string, Record<string, number>>>({});
   const [manuallyDisabledHitKeys, setManuallyDisabledHitKeys] = useState<string[]>([]);
@@ -421,6 +434,15 @@ export function SkillButtonComponent({
       ])
     );
     setManuallyDisabledBuffIdsBySegmentKey(normalizedMap);
+    setSingleHitBuffTargetByBuffId(
+      Object.fromEntries(
+        Object.entries(persistedButton?.panelConfig?.singleHitBuffTargetByBuffId ?? {})
+          .filter((entry): entry is [string, string | null] => (
+            typeof entry[0] === 'string'
+            && (entry[1] === null || typeof entry[1] === 'string')
+          )),
+      ),
+    );
     setGloballyDisabledBuffIds(
       Array.isArray(persistedButton?.panelConfig?.globallyDisabledBuffIds)
         ? persistedButton.panelConfig.globallyDisabledBuffIds
@@ -539,6 +561,23 @@ export function SkillButtonComponent({
         ...(persistedButton.panelConfig ?? { selectedBuff: [...(persistedButton.selectedBuff ?? [])] }),
         selectedBuff: [...(persistedButton.selectedBuff ?? [])],
         manualDisabledBuffIdsBySegmentKey: nextMap,
+      },
+      updatedAt: Date.now(),
+    });
+  }, [button.id]);
+
+  const persistSingleHitBuffTargets = useCallback((nextMap: SingleHitBuffTargetByBuffId) => {
+    const persistedButton = getSkillButtonById(button.id);
+    if (!persistedButton) {
+      return;
+    }
+
+    upsertSkillButton({
+      ...persistedButton,
+      panelConfig: {
+        ...(persistedButton.panelConfig ?? { selectedBuff: [...(persistedButton.selectedBuff ?? [])] }),
+        selectedBuff: [...(persistedButton.selectedBuff ?? [])],
+        singleHitBuffTargetByBuffId: nextMap,
       },
       updatedAt: Date.now(),
     });
@@ -771,6 +810,7 @@ export function SkillButtonComponent({
     });
     setGloballyDisabledBuffIds([]);
     setManuallyDisabledBuffIdsBySegmentKey({});
+    setSingleHitBuffTargetByBuffId({});
     setManualBuffStackCountsBySegmentKey({});
     persistManualBuffTweaks({});
     persistManualBuffStackCounts({});
@@ -783,6 +823,7 @@ export function SkillButtonComponent({
           selectedBuff: [...(persistedButton.selectedBuff ?? [])],
           globallyDisabledBuffIds: [],
           manualDisabledBuffIdsBySegmentKey: {},
+          singleHitBuffTargetByBuffId: {},
           manualBuffStackCountsBySegmentKey: {},
         },
         updatedAt: Date.now(),
@@ -1002,6 +1043,21 @@ export function SkillButtonComponent({
       return acc;
     }, {});
   }, [manuallyDisabledBuffIdsBySegmentKey, resolvedTemplate]);
+  const resolvedSingleHitBuffTargets = useMemo(() => (
+    resolvedTemplate
+      ? resolveSingleHitMultiplierBonusTargets(
+          fullCombinedModifierBuffList,
+          resolvedTemplate.hits,
+          disabledBuffIdsByHitKey,
+          singleHitBuffTargetByBuffId,
+        )
+      : {}
+  ), [
+    disabledBuffIdsByHitKey,
+    fullCombinedModifierBuffList,
+    resolvedTemplate,
+    singleHitBuffTargetByBuffId,
+  ]);
 
   const fullDamageResult = useMemo(() => {
     if (!resolvedTemplate || resolvedTemplate.hits.length === 0 || !panelData) {
@@ -1022,10 +1078,11 @@ export function SkillButtonComponent({
           critDmg: panelData.critDmg,
         },
         panelBase: panelBase ?? undefined,
-      damageBonus: infoSnap as unknown as import('../../types/storage').DamageBonusSnapshot,
-      targetResistance,
-    });
-  }, [resolvedTemplate, panelData, button.id, button.characterId, targetResistance, fullCombinedModifierBuffList, panelBase, infoSnap, buttonStackCounts, buffStackCountsByHitKey]);
+        singleHitBuffTargetByBuffId: resolvedSingleHitBuffTargets,
+        damageBonus: infoSnap as unknown as import('../../types/storage').DamageBonusSnapshot,
+        targetResistance,
+      });
+  }, [resolvedTemplate, panelData, button.id, button.characterId, targetResistance, fullCombinedModifierBuffList, panelBase, resolvedSingleHitBuffTargets, infoSnap, buttonStackCounts, buffStackCountsByHitKey]);
 
   const damageResult = useMemo(() => {
     if (!resolvedTemplate || resolvedTemplate.hits.length === 0 || !panelData) {
@@ -1047,11 +1104,12 @@ export function SkillButtonComponent({
         },
         panelBase: panelBase ?? undefined,
         disabledBuffIdsByHitKey,
+        singleHitBuffTargetByBuffId: resolvedSingleHitBuffTargets,
         disabledHitKeys: manuallyDisabledHitKeys,
-      damageBonus: infoSnap as unknown as import('../../types/storage').DamageBonusSnapshot,
-      targetResistance,
-    });
-  }, [resolvedTemplate, panelData, button.id, button.characterId, targetResistance, fullCombinedModifierBuffList, panelBase, disabledBuffIdsByHitKey, manuallyDisabledHitKeys, infoSnap, buttonStackCounts, buffStackCountsByHitKey]);
+        damageBonus: infoSnap as unknown as import('../../types/storage').DamageBonusSnapshot,
+        targetResistance,
+      });
+  }, [resolvedTemplate, panelData, button.id, button.characterId, targetResistance, fullCombinedModifierBuffList, panelBase, disabledBuffIdsByHitKey, resolvedSingleHitBuffTargets, manuallyDisabledHitKeys, infoSnap, buttonStackCounts, buffStackCountsByHitKey]);
 
   const damageViewModel = useMemo(() => {
     if (!resolvedTemplate || !damageResult || !panelData) {
@@ -1083,7 +1141,14 @@ export function SkillButtonComponent({
 
     if (fullDamageResult) {
       fullDamageResult.hits.forEach((hit) => {
-        nextMap[getNormalHitSegmentKey(hit.hit.key)] = new Set(hit.appliedBuffs.map((buff) => buff.id));
+        const availableIds = new Set(hit.appliedBuffs.map((buff) => buff.id));
+        fullCombinedModifierBuffList
+          .filter((buff) => (
+            isSingleHitMultiplierBonusBuff(buff)
+            && doesBuffApplyToResolvedHit(buff, hit.hit)
+          ))
+          .forEach((buff) => availableIds.add(buff.id));
+        nextMap[getNormalHitSegmentKey(hit.hit.key)] = availableIds;
       });
     }
 
@@ -1116,11 +1181,31 @@ export function SkillButtonComponent({
   }, [manualBuffOptionIdsBySegmentKey]);
 
   const isBuffManuallyActive = useCallback((segmentKey: string, buffId: string) => {
+    const buff = fullCombinedModifierBuffList.find((item) => item.id === buffId);
+    if (buff && isSingleHitMultiplierBonusBuff(buff)) {
+      return resolvedSingleHitBuffTargets[buffId] === toSingleHitBuffTargetKey(segmentKey);
+    }
     const disabledIds = manuallyDisabledBuffIdsBySegmentKey[segmentKey] ?? [];
     return !disabledIds.includes(buffId);
-  }, [manuallyDisabledBuffIdsBySegmentKey]);
+  }, [fullCombinedModifierBuffList, manuallyDisabledBuffIdsBySegmentKey, resolvedSingleHitBuffTargets]);
 
   const toggleManualBuff = useCallback((segmentKey: string, buffId: string) => {
+    const buff = fullCombinedModifierBuffList.find((item) => item.id === buffId);
+    if (buff && isSingleHitMultiplierBonusBuff(buff)) {
+      const targetKey = toSingleHitBuffTargetKey(segmentKey);
+      setSingleHitBuffTargetByBuffId((prev) => {
+        const currentTarget = Object.prototype.hasOwnProperty.call(prev, buffId)
+          ? prev[buffId]
+          : resolvedSingleHitBuffTargets[buffId] ?? null;
+        const nextMap = {
+          ...prev,
+          [buffId]: currentTarget === targetKey ? null : targetKey,
+        };
+        persistSingleHitBuffTargets(nextMap);
+        return nextMap;
+      });
+      return;
+    }
     setManuallyDisabledBuffIdsBySegmentKey((prev) => {
       const current = prev[segmentKey] ?? [];
       const next = current.includes(buffId)
@@ -1136,7 +1221,7 @@ export function SkillButtonComponent({
       persistManualBuffTweaks(nextMap);
       return nextMap;
     });
-  }, [persistManualBuffTweaks]);
+  }, [fullCombinedModifierBuffList, persistManualBuffTweaks, persistSingleHitBuffTargets, resolvedSingleHitBuffTargets]);
 
   const resetManualBuffTweaks = useCallback((segmentKey: string) => {
     setManuallyDisabledBuffIdsBySegmentKey((prev) => {
@@ -1210,10 +1295,11 @@ export function SkillButtonComponent({
       buffStackCounts: buttonStackCounts,
       buffStackCountsBySegmentKey: manualBuffStackCountsBySegmentKey,
       manuallyDisabledBuffIdsBySegmentKey,
+      singleHitBuffTargetByBuffId: resolvedSingleHitBuffTargets,
       disabledHitKeys: manuallyDisabledHitKeys,
       getEffectiveCharacterSourceSkillBoost,
     });
-  }, [panelBase, panelData, damageViewModel, selectedAnomalyDamages, button.characterId, button.skillType, targetResistance, element, infoSnap, fullCombinedModifierBuffList, extraHitBuffList, buttonStackCounts, manualBuffStackCountsBySegmentKey, manuallyDisabledBuffIdsBySegmentKey, manuallyDisabledHitKeys, getEffectiveCharacterSourceSkillBoost]);
+  }, [panelBase, panelData, damageViewModel, selectedAnomalyDamages, button.characterId, button.skillType, targetResistance, element, infoSnap, fullCombinedModifierBuffList, extraHitBuffList, buttonStackCounts, manualBuffStackCountsBySegmentKey, manuallyDisabledBuffIdsBySegmentKey, resolvedSingleHitBuffTargets, manuallyDisabledHitKeys, getEffectiveCharacterSourceSkillBoost]);
 
   useEffect(() => {
     if (!resolvedTemplate) {
@@ -2012,9 +2098,20 @@ export function SkillButtonComponent({
                 const effectiveStackCounts = segmentKey
                   ? getEffectiveSegmentStackCounts(segmentKey)
                   : buttonStackCounts;
-                const tuningBuffs = fullHitResult
-                  ? buildAppliedBuffTags(fullHitResult.appliedBuffs, effectiveStackCounts)
+                const tuningBuffCandidates = fullHitResult
+                  ? [...fullHitResult.appliedBuffs]
                   : [];
+                if (hit) {
+                  const existingIds = new Set(tuningBuffCandidates.map((buff) => buff.id));
+                  fullCombinedModifierBuffList
+                    .filter((buff) => (
+                      isSingleHitMultiplierBonusBuff(buff)
+                      && doesBuffApplyToResolvedHit(buff, hit)
+                      && !existingIds.has(buff.id)
+                    ))
+                    .forEach((buff) => tuningBuffCandidates.push(buff));
+                }
+                const tuningBuffs = buildAppliedBuffTags(tuningBuffCandidates, effectiveStackCounts);
                 return {
                   tuning: segmentKey ? {
                     title: `${hitCard.displayName} 详情`,
@@ -2053,37 +2150,44 @@ export function SkillButtonComponent({
                 setSelectedAnomalySegmentKey(null);
               },
             })) ?? []),
-            ...anomalyDamageSegments.map((segment) => ({
-              key: segment.key,
-              title: segment.sequenceTitle,
-              meta: `${segment.buffText} · ${segment.multiplierText}`,
-              expected: segment.expectedText,
-              crit: segment.critText,
-              nonCrit: segment.nonCritText,
-              selected: activeAnomalySegment?.key === segment.key,
-              disabled: segment.isDisabled,
-              tuning: {
-                title: segment.title,
-                stats: [],
-                buffs: buildAppliedBuffTags(
-                  fullCombinedModifierBuffList,
-                  getEffectiveSegmentStackCounts(segment.key)
-                ),
-                segmentKey: segment.key,
+            ...anomalyDamageSegments.map((segment) => {
+              const buffScopeKey = segment.sourceKind === 'anomaly'
+                ? selectedAnomalyDamages.find((card) => (
+                    segment.key === card.id || segment.key.startsWith(`${card.id}-`)
+                  ))?.id ?? segment.key
+                : segment.key;
+              return {
+                key: segment.key,
+                title: segment.sequenceTitle,
+                meta: `${segment.buffText} · ${segment.multiplierText}`,
+                expected: segment.expectedText,
+                crit: segment.critText,
+                nonCrit: segment.nonCritText,
+                selected: activeAnomalySegment?.key === segment.key,
                 disabled: segment.isDisabled,
-                onToggleDisabled: () => toggleManualHitDisabled(segment.key),
-                onToggleBuff: (buffId: string) => toggleManualBuff(segment.key, buffId),
-                isBuffActive: (buffId: string) => isBuffManuallyActive(segment.key, buffId),
-                onDecrementBuff: (buffId: string) => adjustSegmentBuffStack(segment.key, buffId, -1),
-                onIncrementBuff: (buffId: string) => adjustSegmentBuffStack(segment.key, buffId, 1),
-                onResetBuffs: () => resetManualBuffTweaks(segment.key),
-              },
-              onSelect: () => {
-                const isCurrentSegment = selectedHitIndex === null && selectedAnomalySegmentKey === segment.key;
-                setSelectedHitIndex(null);
-                setSelectedAnomalySegmentKey(isCurrentSegment ? null : segment.key);
-              },
-            })),
+                tuning: {
+                  title: segment.title,
+                  stats: [],
+                  buffs: buildAppliedBuffTags(
+                    fullCombinedModifierBuffList,
+                    getEffectiveSegmentStackCounts(buffScopeKey)
+                  ),
+                  segmentKey: buffScopeKey,
+                  disabled: segment.isDisabled,
+                  onToggleDisabled: () => toggleManualHitDisabled(segment.key),
+                  onToggleBuff: (buffId: string) => toggleManualBuff(buffScopeKey, buffId),
+                  isBuffActive: (buffId: string) => isBuffManuallyActive(buffScopeKey, buffId),
+                  onDecrementBuff: (buffId: string) => adjustSegmentBuffStack(buffScopeKey, buffId, -1),
+                  onIncrementBuff: (buffId: string) => adjustSegmentBuffStack(buffScopeKey, buffId, 1),
+                  onResetBuffs: () => resetManualBuffTweaks(buffScopeKey),
+                },
+                onSelect: () => {
+                  const isCurrentSegment = selectedHitIndex === null && selectedAnomalySegmentKey === segment.key;
+                  setSelectedHitIndex(null);
+                  setSelectedAnomalySegmentKey(isCurrentSegment ? null : segment.key);
+                },
+              };
+            }),
           ]}
           summary={damageViewModel ? {
             title: damageViewModel.header.fullText,

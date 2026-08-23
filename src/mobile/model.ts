@@ -57,6 +57,7 @@ export interface MobileTimelineAction {
   buffStackCountsByHitKey: Record<string, Record<string, number>>;
   globallyDisabledBuffIds: string[];
   disabledBuffIdsByHitKey: Record<string, string[]>;
+  singleHitBuffTargetByBuffId?: Record<string, string | null>;
   disabledHitKeys: string[];
   targetResistance: HitResistanceInput;
   /** Mobile drafts own their anomaly data instead of relying on desktop SQLite/local caches. */

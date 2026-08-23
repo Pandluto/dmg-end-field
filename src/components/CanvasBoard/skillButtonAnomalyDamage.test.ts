@@ -112,7 +112,12 @@ const segments = buildAnomalyDamageSegments({
     modifierBuff('multiplier', undefined, 1.2),
   ],
   extraHitBuffList: [extraHitBuff],
-  manuallyDisabledBuffIdsBySegmentKey: {},
+  manuallyDisabledBuffIdsBySegmentKey: {
+    'buff-extra-hit-extra-hit': ['additive'],
+  },
+  singleHitBuffTargetByBuffId: {
+    additive: 'buff-extra-hit-extra-hit',
+  },
   getEffectiveCharacterSourceSkillBoost: () => 0,
 });
 
@@ -120,15 +125,15 @@ assertEqual(segments.length, 3, 'golden should include anomaly, burn DoT, and ex
 
 const [anomaly, burnDot, extraHit] = segments;
 
-assertEqual(anomaly.multiplierText, '327.2%', 'anomaly multiplier text should include additive and multiplier buffs');
-assertEqual(anomaly.multiplierFormulaText, '(232.7% + 40.0%) × 1.200', 'anomaly formula should expose operation order');
-assertEqual(anomaly.nonCritText, '1636', 'anomaly non-crit text should use the final multiplier');
-assertClose(anomaly.nonCritValue, 1635.9183673469388, 'anomaly damage should apply (base + additive) times multiplier');
+assertEqual(anomaly.multiplierText, '279.2%', 'anomaly should not inherit a single-hit additive Buff targeted elsewhere');
+assertEqual(anomaly.multiplierFormulaText, '(232.7% + 0.0%) × 1.200', 'anomaly formula should retain the ordinary multiplier Buff');
+assertEqual(anomaly.nonCritText, '1396', 'anomaly non-crit text should exclude the single-hit additive Buff');
+assertClose(anomaly.nonCritValue, 1395.9183673469388, 'anomaly damage should exclude a single-hit additive Buff targeted elsewhere');
 
-assertEqual(burnDot.multiplierText, '466.8%', 'burn DoT multiplier text should include additive and multiplier buffs');
-assertEqual(burnDot.multiplierFormulaText, '(349.0% + 40.0%) × 1.200', 'burn DoT formula should expose operation order');
-assertEqual(burnDot.nonCritText, '2334', 'burn DoT non-crit text should use the final multiplier');
-assertClose(burnDot.nonCritValue, 2333.877551020408, 'burn DoT damage should apply (base + additive) times multiplier');
+assertEqual(burnDot.multiplierText, '418.8%', 'burn DoT should not inherit a single-hit additive Buff targeted elsewhere');
+assertEqual(burnDot.multiplierFormulaText, '(349.0% + 0.0%) × 1.200', 'burn DoT formula should retain the ordinary multiplier Buff');
+assertEqual(burnDot.nonCritText, '2094', 'burn DoT non-crit text should exclude the single-hit additive Buff');
+assertClose(burnDot.nonCritValue, 2093.877551020408, 'burn DoT damage should exclude a single-hit additive Buff targeted elsewhere');
 
 assertEqual(extraHit.multiplierText, '288.0%', 'extra-hit multiplier text should include additive and multiplier buffs');
 assertEqual(extraHit.multiplierFormulaText, '(200.0% + 40.0%) × 1.200', 'extra-hit formula should expose operation order');

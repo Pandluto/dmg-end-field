@@ -65,6 +65,12 @@ function normalizeSkillButton(button: PersistedSkillButton): PersistedSkillButto
       ),
     ])
   );
+  const singleHitBuffTargetByBuffId = Object.fromEntries(
+    Object.entries(button.panelConfig?.singleHitBuffTargetByBuffId ?? {})
+      .filter((entry): entry is [string, string | null] => (
+        entry[1] === null || typeof entry[1] === 'string'
+      )),
+  );
 
   return {
     ...buttonWithoutLegacySnapshot,
@@ -94,6 +100,7 @@ function normalizeSkillButton(button: PersistedSkillButton): PersistedSkillButto
           manualDisabledBuffIdsBySegmentKey,
           manualBuffStackCountsBySegmentKey,
           manualDisabledHitKeys,
+          singleHitBuffTargetByBuffId,
         }
       : {
           selectedBuff: [...selectedBuff],
@@ -101,6 +108,7 @@ function normalizeSkillButton(button: PersistedSkillButton): PersistedSkillButto
           manualDisabledBuffIdsBySegmentKey: {},
           manualBuffStackCountsBySegmentKey: {},
           manualDisabledHitKeys: [],
+          singleHitBuffTargetByBuffId: {},
         },
     runtimeSnapshot: button.runtimeSnapshot ?? legacyButton.panelSnapshot ?? null,
   };

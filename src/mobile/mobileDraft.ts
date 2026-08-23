@@ -176,6 +176,14 @@ function normalizeAction(value: unknown): MobileTimelineAction | null {
           .map(([key, ids]) => [key, normalizeStringArray(ids)]),
       )
     : {};
+  const singleHitBuffTargetByBuffId = isRecord(value.singleHitBuffTargetByBuffId)
+    ? Object.fromEntries(
+        Object.entries(value.singleHitBuffTargetByBuffId)
+          .filter((entry): entry is [string, string | null] => (
+            entry[1] === null || typeof entry[1] === 'string'
+          )),
+      )
+    : {};
   const resistanceKeys = new Set<keyof HitResistanceInput>([
     'physicalResistance',
     'fireResistance',
@@ -209,6 +217,7 @@ function normalizeAction(value: unknown): MobileTimelineAction | null {
     buffStackCountsByHitKey: normalizeNestedNumberMap(value.buffStackCountsByHitKey),
     globallyDisabledBuffIds: normalizeStringArray(value.globallyDisabledBuffIds),
     disabledBuffIdsByHitKey,
+    singleHitBuffTargetByBuffId,
     disabledHitKeys: normalizeStringArray(value.disabledHitKeys),
     targetResistance,
     anomalyStatuses: normalizeAnomalyCards(value.anomalyStatuses, 'state'),
