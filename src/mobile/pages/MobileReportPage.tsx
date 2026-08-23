@@ -122,6 +122,8 @@ const SERIES_COLORS = ['#1f6f8b', '#d17742', '#688a55', '#8d6b9e', '#bf5d62', '#
 // narrow composition at an intrinsic 1280px width; no canvas or DPR upscaling.
 const REPORT_EXPORT_PANEL_WIDTH = 1280;
 const REPORT_EXPORT_PIXEL_RATIO = 1;
+const REPORT_EXPORT_BALANCE_MIN_COLUMN_GAP = 160;
+const REPORT_EXPORT_BALANCE_MIN_HEIGHT_GAIN = 48;
 const REPORT_CHART_COLORS = {
   accent: '#1f6f8b',
   ink: '#172d32',
@@ -774,11 +776,11 @@ function ChartReportSlide({
         <h3><span>图 3</span>总 RD 归因</h3>
         <MobileRdpsOverview summary={report.rdps} />
       </article>
-      <article className="mobile-report-chart-card">
+      <article className="mobile-report-chart-card" data-export-balance-card="rdps-domains">
         <h3><span>图 4</span>干员来源域 RD</h3>
         <MobileRdpsDomains summary={report.rdps} />
       </article>
-      <article className="mobile-report-chart-card">
+      <article className="mobile-report-chart-card" data-export-balance-card="skill-damage">
         <h3><span>明细</span>技能伤害</h3>
         <SkillDamageBars rows={skillRows} />
       </article>
@@ -984,6 +986,173 @@ function assertCanvasHasVisibleContent(canvas: HTMLCanvasElement): void {
   if (visiblePixelCount < 24) throw new Error('生成图片为空白，已取消下载。');
 }
 
+type ReportExportBalancePlan =
+  | { kind: 'none' }
+  | { kind: 'skill-tail'; rowCount: number }
+  | { kind: 'domain-tail'; rowCount: number }
+  | { kind: 'card-suffix'; cardCount: number };
+
+interface ReportExportBalanceScore {
+  maxHeight: number;
+  outerColumnGap: number;
+}
+
+function readReportExportPanelHeights(panels: HTMLElement[]): number[] {
+  return panels.map((panel) => Math.ceil(Math.max(
+    panel.scrollHeight,
+    ...Array.from(panel.children, (child) => (child as HTMLElement).scrollHeight || 0),
+  )));
+}
+
+function scoreReportExportBalance(heights: number[]): ReportExportBalanceScore {
+  return {
+    maxHeight: Math.max(...heights, 1),
+    outerColumnGap: Math.abs((heights[0] ?? 0) - (heights[2] ?? 0)),
+  };
+}
+
+function isBetterReportExportBalance(
+  candidate: ReportExportBalanceScore,
+  current: ReportExportBalanceScore,
+): boolean {
+  if (candidate.maxHeight < current.maxHeight - 1) return true;
+  return Math.abs(candidate.maxHeight - current.maxHeight) <= 1
+    && candidate.outerColumnGap < current.outerColumnGap;
+}
+
+function stripClonedElementIds(root: HTMLElement): void {
+  root.removeAttribute('id');
+  root.querySelectorAll<HTMLElement>('[id]').forEach((element) => element.removeAttribute('id'));
+}
+
+/**
+ * The timeline should remain the visual height anchor when it is long. When the
+ * analysis column is the clear outlier, move only its trailing, list-like
+ * content into the free space below the team card. Plans are measured against
+ * the real export DOM so different teams and report lengths balance themselves.
+ */
+function balanceReportExportColumns(stage: HTMLElement, panels: HTMLElement[]): number[] {
+  const [teamPanel, timelinePanel, chartPanel] = panels;
+  const tailHost = teamPanel?.querySelector<HTMLElement>('[data-export-balance-tail]');
+  const chartSlide = chartPanel?.querySelector<HTMLElement>('.mobile-report-export-panel-stack > .mobile-report-slide');
+  if (!teamPanel || !timelinePanel || !chartPanel || !tailHost || !chartSlide) {
+    stage.dataset.exportBalance = 'none';
+    return readReportExportPanelHeights(panels);
+  }
+
+  const movableCards = Array.from(
+    chartSlide.querySelectorAll<HTMLElement>('[data-export-balance-card]'),
+  );
+  const skillCard = chartSlide.querySelector<HTMLElement>('[data-export-balance-card="skill-damage"]');
+  const skillRows = skillCard
+    ? Array.from(skillCard.querySelectorAll<HTMLElement>('.mobile-report-skill-bar-row'))
+    : [];
+  const domainCard = chartSlide.querySelector<HTMLElement>('[data-export-balance-card="rdps-domains"]');
+  const domainRows = domainCard
+    ? Array.from(domainCard.querySelectorAll<HTMLElement>('.mobile-report-rdps-character-card'))
+    : [];
+  const domainWarnings = domainCard
+    ? Array.from(domainCard.querySelectorAll<HTMLElement>('.mobile-report-rdps-warning'))
+    : [];
+
+  const clearPlan = () => {
+    tailHost.replaceChildren();
+    movableCards.forEach((card) => card.style.removeProperty('display'));
+    skillRows.forEach((row) => row.style.removeProperty('display'));
+    domainRows.forEach((row) => row.style.removeProperty('display'));
+    domainWarnings.forEach((warning) => warning.style.removeProperty('display'));
+  };
+
+  const appendClone = (source: HTMLElement): HTMLElement => {
+    const clone = source.cloneNode(true) as HTMLElement;
+    clone.dataset.exportBalancedClone = 'true';
+    stripClonedElementIds(clone);
+    tailHost.appendChild(clone);
+    return clone;
+  };
+
+  const applyPlan = (plan: ReportExportBalancePlan) => {
+    clearPlan();
+    if (plan.kind === 'skill-tail' && skillCard) {
+      const clone = appendClone(skillCard);
+      const cloneRows = Array.from(clone.querySelectorAll<HTMLElement>('.mobile-report-skill-bar-row'));
+      cloneRows.slice(0, Math.max(0, cloneRows.length - plan.rowCount)).forEach((row) => row.remove());
+      skillRows.slice(-plan.rowCount).forEach((row) => { row.style.display = 'none'; });
+      const heading = clone.querySelector('h3');
+      if (heading) heading.append(' · 续');
+      return;
+    }
+    if (plan.kind === 'domain-tail' && domainCard && skillCard) {
+      const domainClone = appendClone(domainCard);
+      const cloneRows = Array.from(
+        domainClone.querySelectorAll<HTMLElement>('.mobile-report-rdps-character-card'),
+      );
+      cloneRows.slice(0, Math.max(0, cloneRows.length - plan.rowCount)).forEach((row) => row.remove());
+      domainRows.slice(-plan.rowCount).forEach((row) => { row.style.display = 'none'; });
+      domainWarnings.forEach((warning) => { warning.style.display = 'none'; });
+      const heading = domainClone.querySelector('h3');
+      if (heading) heading.append(' · 续');
+      appendClone(skillCard);
+      skillCard.style.display = 'none';
+      return;
+    }
+    if (plan.kind === 'card-suffix') {
+      movableCards.slice(-plan.cardCount).forEach((card) => {
+        appendClone(card);
+        card.style.display = 'none';
+      });
+    }
+  };
+
+  clearPlan();
+  const baselineHeights = readReportExportPanelHeights(panels);
+  const baselineScore = scoreReportExportBalance(baselineHeights);
+  const analysisIsOutlier = (baselineHeights[2] ?? 0)
+    > Math.max(baselineHeights[0] ?? 0, baselineHeights[1] ?? 0)
+      + REPORT_EXPORT_BALANCE_MIN_COLUMN_GAP;
+  if (!analysisIsOutlier || movableCards.length === 0) {
+    stage.dataset.exportBalance = 'none';
+    return baselineHeights;
+  }
+
+  const plans: ReportExportBalancePlan[] = [];
+  for (let rowCount = 1; rowCount < skillRows.length; rowCount += 1) {
+    plans.push({ kind: 'skill-tail', rowCount });
+  }
+  for (let rowCount = 1; rowCount < domainRows.length; rowCount += 1) {
+    plans.push({ kind: 'domain-tail', rowCount });
+  }
+  for (let cardCount = 1; cardCount <= movableCards.length; cardCount += 1) {
+    plans.push({ kind: 'card-suffix', cardCount });
+  }
+
+  let bestPlan: ReportExportBalancePlan = { kind: 'none' };
+  let bestScore = baselineScore;
+  for (const plan of plans) {
+    applyPlan(plan);
+    const score = scoreReportExportBalance(readReportExportPanelHeights(panels));
+    if (isBetterReportExportBalance(score, bestScore)) {
+      bestPlan = plan;
+      bestScore = score;
+    }
+  }
+
+  if (
+    bestPlan.kind === 'none'
+    || baselineScore.maxHeight - bestScore.maxHeight < REPORT_EXPORT_BALANCE_MIN_HEIGHT_GAIN
+  ) {
+    clearPlan();
+    stage.dataset.exportBalance = 'none';
+    return baselineHeights;
+  }
+
+  applyPlan(bestPlan);
+  stage.dataset.exportBalance = bestPlan.kind === 'card-suffix'
+    ? `card-suffix:${bestPlan.cardCount}`
+    : `${bestPlan.kind}:${bestPlan.rowCount}`;
+  return readReportExportPanelHeights(panels);
+}
+
 function buildReportFilename(timestamp = Date.now(), shared = false): string {
   const date = new Date(timestamp);
   const pad = (value: number) => String(value).padStart(2, '0');
@@ -996,8 +1165,8 @@ function ReportShareQrCard({ share }: { share: ReportShareQr }) {
       <img src={share.qrDataUrl} alt="战术报告分享二维码" />
       <span>
         <small>MOBILE TACTICAL SHARE</small>
-        <strong>扫码导入此战术报告</strong>
-        <p>手机与桌面会按生成端自动选择当前快照或完整节点树；导入不会持续同步。</p>
+        <strong>扫码进入 dmgendfield.cloud</strong>
+        <p>网站会先展示分享内容，由你确认是否导入；导入不会持续同步。</p>
         <code>{share.id}</code>
       </span>
     </aside>
@@ -1116,15 +1285,8 @@ export function MobileReportPage({
       await nextPaint();
       const shareQrCard = stage.querySelector<HTMLElement>('.mobile-report-share-qr');
       if (shareQr && !shareQrCard) throw new Error('分享二维码没有进入导出画布。');
-      const chartSlide = stage.querySelector<HTMLElement>('.mobile-report-export-panel-stack > .mobile-report-slide');
-      const chartShareHeight = shareQrCard
-        ? Math.ceil((chartSlide?.scrollHeight ?? 0) + shareQrCard.scrollHeight + 16)
-        : 0;
-      const maxHeight = Math.max(
-        ...panels.map((panel) => Math.ceil(panel.scrollHeight)),
-        chartShareHeight,
-        1,
-      );
+      const panelHeights = balanceReportExportColumns(stage, panels);
+      const maxHeight = Math.max(...panelHeights, 1);
       panels.forEach((panel) => { panel.style.height = `${maxHeight}px`; });
       stage.style.height = `${maxHeight}px`;
       await nextPaint();
@@ -1253,7 +1415,7 @@ export function MobileReportPage({
       {exportStageMounted ? (
         <MobilePortal>
           <div ref={exportStageRef} className="mobile-report-page mobile-report-export-stage" aria-hidden="true">
-            <div className="mobile-report-export-panel">
+            <div className="mobile-report-export-panel mobile-report-export-team-panel">
               <TeamReportSlide
                 operators={operators}
                 operatorConfigs={operatorConfigs}
@@ -1262,6 +1424,7 @@ export function MobileReportPage({
                 equipmentMap={equipmentMap}
                 titleId="mobile-report-export-team-title"
               />
+              <div className="mobile-report-export-balance-tail" data-export-balance-tail />
             </div>
             <div className="mobile-report-export-panel">
               <TimelineReportSlide
