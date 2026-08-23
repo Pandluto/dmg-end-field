@@ -976,8 +976,7 @@
   overflow: visible;
 }
 
-.mobile-report-share-track,
-.mobile-report-share-segment {
+.mobile-report-share-track {
   fill: none;
 }
 
@@ -987,8 +986,7 @@
 }
 
 .mobile-report-share-segment {
-  stroke-linecap: butt;
-  stroke-width: 34;
+  stroke: none;
 }
 
 .mobile-report-share-hole {

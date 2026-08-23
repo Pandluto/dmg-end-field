@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "slimmingBranch": "codex/v1.8-lts-slimming",
-  "slimmingCommit": "c736e82eac4f9c1ad224d3589b9cbf0bcdd8798e",
+  "slimmingCommit": "62c8464fe5a2c96c8debb9a4ef2ac5c13764f5c9",
   "desktopBranch": "codex/v1.8-lts-desktop-overlay",
   "desktopOverrides": [
     {
