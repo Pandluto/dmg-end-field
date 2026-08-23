@@ -1453,9 +1453,9 @@
 
 .mobile-report-export-panel {
   display: flex;
-  width: var(--mobile-report-export-panel-width, 360px);
-  min-width: var(--mobile-report-export-panel-width, 360px);
-  flex: 0 0 var(--mobile-report-export-panel-width, 360px);
+  width: var(--mobile-report-export-panel-width, 640px);
+  min-width: var(--mobile-report-export-panel-width, 640px);
+  flex: 0 0 var(--mobile-report-export-panel-width, 640px);
   align-items: stretch;
   overflow: hidden;
   background: var(--report-paper);
@@ -1486,6 +1486,89 @@
   min-width: 0;
   flex: 0 0 auto;
   margin: 0;
+}
+
+/* Keep the exported composition on one fixed design grid, even inside a narrow host viewport. */
+.mobile-report-export-stage .mobile-report-slide {
+  padding: 12px;
+}
+
+.mobile-report-export-stage .mobile-report-loadout-row {
+  grid-template-columns: minmax(92px, 29%) minmax(0, 1fr);
+}
+
+.mobile-report-export-stage .mobile-report-weapon-panel {
+  padding-right: 72px;
+}
+
+.mobile-report-export-stage .mobile-report-weapon-art {
+  width: 64px;
+}
+
+.mobile-report-export-stage .mobile-report-equipment-panel {
+  padding-right: 36px;
+}
+
+.mobile-report-export-stage .mobile-report-equipment-art {
+  width: 31px;
+}
+
+.mobile-report-export-stage .mobile-report-timeline-matrix {
+  --mobile-report-timeline-column-gap: 4px;
+}
+
+.mobile-report-export-stage .mobile-report-timeline-lane-heading {
+  min-height: 44px;
+  gap: 4px;
+  padding: 3px 4px;
+}
+
+.mobile-report-export-stage .mobile-report-timeline-rows {
+  gap: 4px;
+}
+
+.mobile-report-export-stage .mobile-report-timeline-row,
+.mobile-report-export-stage .mobile-report-timeline-cell {
+  min-height: 46px;
+}
+
+.mobile-report-export-stage .mobile-report-timeline-cell::before {
+  top: -4px;
+  bottom: -4px;
+}
+
+.mobile-report-export-stage .mobile-report-timeline-action {
+  --mobile-report-timeline-action-media-size: 36px;
+
+  min-height: 42px;
+  gap: 3px;
+  padding: 2px;
+}
+
+.mobile-report-export-stage .mobile-report-timeline-note-button,
+.mobile-report-export-stage .mobile-report-timeline-note-static {
+  width: calc(100% - 6px);
+  min-height: 36px;
+  margin: 0 3px;
+  padding: 3px 4px;
+}
+
+.mobile-report-export-stage .mobile-report-timeline-note-text {
+  font-size: 7.5px;
+}
+
+.mobile-report-export-stage .mobile-report-timeline-action-copy strong {
+  font-size: 8.5px;
+}
+
+.mobile-report-export-stage .mobile-report-timeline-action-copy small {
+  gap: 3px;
+  font-size: 6.5px;
+}
+
+.mobile-report-export-stage .mobile-report-rdps-domain-row {
+  grid-template-columns: 48px minmax(0, 1fr) 38px 56px;
+  gap: 6px;
 }
 
 .mobile-report-share-qr {

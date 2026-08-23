@@ -114,6 +114,8 @@ const REPORT_SKILL_TYPE_LABELS: Record<SkillType, string> = {
   Dot: '持续',
 };
 const SERIES_COLORS = ['#1f6f8b', '#d17742', '#688a55', '#8d6b9e', '#bf5d62', '#be9852'];
+const REPORT_EXPORT_PANEL_WIDTH = 640;
+const REPORT_EXPORT_PIXEL_RATIO = 2;
 const REPORT_CHART_COLORS = {
   accent: '#1f6f8b',
   ink: '#172d32',
@@ -1050,7 +1052,6 @@ export function MobileReportPage({
   const [exportPreview, setExportPreview] = useState<ReportExportPreview | null>(null);
   const [exportShareQr, setExportShareQr] = useState<ReportShareQr | null>(null);
   const [timelineNoteEditor, setTimelineNoteEditor] = useState<TimelineReportNoteEditor | null>(null);
-  const reportPageRef = useRef<HTMLElement>(null);
   const exportStageRef = useRef<HTMLDivElement>(null);
   const exportPreviewUrlRef = useRef<string | null>(null);
   const safeReport = report ?? {
@@ -1124,13 +1125,11 @@ export function MobileReportPage({
       });
       await nextPaint();
       const stage = exportStageRef.current;
-      const visibleSlide = reportPageRef.current?.querySelector<HTMLElement>(
-        ':scope > .mobile-report-ppt-team-slide, :scope > .mobile-report-slide',
-      );
       if (!stage) throw new Error('导出画布尚未准备完成。');
 
-      const pageWidth = Math.max(280, Math.ceil(visibleSlide?.getBoundingClientRect().width ?? 0));
+      const pageWidth = REPORT_EXPORT_PANEL_WIDTH;
       stage.style.setProperty('--mobile-report-export-panel-width', `${pageWidth}px`);
+      stage.style.width = `${pageWidth * REPORT_PAGES.length}px`;
       stage.style.height = 'auto';
       const panels = Array.from(stage.querySelectorAll<HTMLElement>('.mobile-report-export-panel'));
       panels.forEach((panel) => { panel.style.height = 'auto'; });
@@ -1152,11 +1151,10 @@ export function MobileReportPage({
       stage.style.height = `${maxHeight}px`;
       await nextPaint();
 
-      const pixelRatio = Math.max(1, window.devicePixelRatio || 1);
       const canvas = await toCanvas(stage, {
         backgroundColor: '#fbfcfb',
         cacheBust: true,
-        pixelRatio,
+        pixelRatio: REPORT_EXPORT_PIXEL_RATIO,
         skipAutoScale: true,
         width: pageWidth * panels.length,
         height: maxHeight,
@@ -1211,7 +1209,7 @@ export function MobileReportPage({
   });
 
   return (
-    <main ref={reportPageRef} className="mobile-report-page" aria-label="伤害报表">
+    <main className="mobile-report-page" aria-label="伤害报表">
       <header className="mobile-report-page-header">
         <div><p>04 / 伤害报表</p><h1>战术报告</h1></div>
         <span><small>总期望</small><strong>{safeReport.slotCount > 0 ? formatDamage(safeReport.totalExpected) : '—'}</strong></span>
@@ -1254,7 +1252,7 @@ export function MobileReportPage({
         <span>
           <small>EXPORT COMPOSITE</small>
           <strong>导出三联战术报告</strong>
-          <p>01 / 02 / 03 原尺寸横向拼接，按最高页面补齐</p>
+          <p>01 / 02 / 03 固定 640px 设计宽度，2× 高清横向拼接</p>
         </span>
         <div className="mobile-report-export-actions">
           <button type="button" onClick={handleExport} disabled={isExporting}>
