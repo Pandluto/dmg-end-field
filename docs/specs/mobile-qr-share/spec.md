@@ -14,7 +14,7 @@
 - draft 约束：`selectedOperatorIds` ≤ 4；`slots` ≤ 128；`operatorConfigs` 为对象；`reportNotes` ≤ 128 条、每条 ≤ 160 字符。
 - 内容上限：`MOBILE_SHARE_MAX_PAYLOAD_BYTES = 256 KB`（请求体另有 16 KB 余量）。
 - 分享 ID：16 位 `[A-Za-z0-9_-]`（`randomBytes(12).toString('base64url')`）。
-- 分享 URL：`/mobile?share=<id>`；文本前缀 `DEFMS1:<id>` 也接受。
+- 新分享 URL：`https://dmgendfield.cloud/share/<id>`；历史 `/mobile?share=<id>`、`#/share/<id>` 与文本前缀 `DEFMS1:<id>` 仍接受。
 
 ## 服务端（server/mobile-share-server.mjs）
 
@@ -55,9 +55,9 @@
 ## 客户端（src/mobile/mobileShare.ts 等）
 
 - 开关：`__DEF_MOBILE_SHARE_ENABLED__` 构建注入。开发默认开启；Sites 构建默认关闭；`DEF_MOBILE_SHARE_ENABLED=1` 可强制开启。
-- 创建：报表页把当前 draft + 数据/图片版本 POST 到 `/api/mobile-shares`；返回 `reused` 时提示"已复用相同内容的永久二维码"。
+- 创建：报表页把当前 draft + 数据/图片版本 POST 到 `https://dmgendfield.cloud/api/mobile-shares`；线上站点为同源，本地 3030 与桌面壳 31457 由国内节点的精确 CORS 白名单放行。返回 `reused` 时提示"已复用相同内容的永久二维码"。
 - 二维码：qrcode 库生成（纠错 H、边距 2、320px、深色 `#172d32` / 浅色 `#ffffff`），随报表导出进入画布（导出的图片中包含二维码）。
-- 导入（MobileShareImporter）：`/mobile?share=<id>` 直接拉取；或选择图片文件（≤ 24 MB），用 jsqr 在整图、右侧 60%、中央横条三个区域解码（`inversionAttempts: 'attemptBoth'`），识别 `DEFMS1:` 前缀或分享 URL。
+- 导入（MobileShareImporter）：手机打开 `/share/<id>` 时自动进入移动导入预览，桌面打开同路径时进入完整节点树预览；两端都需用户确认后才导入。也可选择图片文件（≤ 24 MB），用 jsqr 在整图、右侧 60%、中央横条三个区域解码（`inversionAttempts: 'attemptBoth'`），历史格式仍会并发查询国内与退役海外节点。
 - 导入结果写入本机存档（加入排轴、配装、Buff 与批注），不覆盖既有存档。
 
 ## 边界

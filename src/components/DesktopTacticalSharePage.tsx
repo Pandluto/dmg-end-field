@@ -41,14 +41,14 @@ function buildLabel(value: ReadyShare, operatorNames: string[]): string {
 
 export function DesktopTacticalSharePage() {
   const shareId = useMemo(() => parseMobileShareId(window.location.href), []);
-  const [state, setState] = useState<PageState>({ status: 'loading', message: '正在并发读取国内、海外分享节点…' });
+  const [state, setState] = useState<PageState>({ status: 'loading', message: '正在读取国内分享，并兼容查询旧分享节点…' });
 
   const load = async () => {
     if (!shareId) {
       setState({ status: 'error', message: '分享地址中的编号无效。' });
       return;
     }
-    setState({ status: 'loading', message: '正在并发读取国内、海外分享节点…' });
+    setState({ status: 'loading', message: '正在读取国内分享，并兼容查询旧分享节点…' });
     try {
       const [share, catalog] = await Promise.all([
         fetchMobileShare(shareId),
@@ -151,7 +151,7 @@ export function DesktopTacticalSharePage() {
     <main className="desktop-tactical-share-page">
       <section className="desktop-tactical-share-card" aria-live="polite">
         <header>
-          <span><small>TACTICAL SHARE</small><strong>导入战术分享</strong></span>
+          <span><small>TACTICAL SHARE</small><strong>是否导入这份战术分享？</strong></span>
           <button type="button" onClick={() => navigateToAppPath(APP_ROUTE_PATHS.timelineWorkspace)}>返回工作台</button>
         </header>
 
@@ -159,7 +159,7 @@ export function DesktopTacticalSharePage() {
           <div className="desktop-tactical-share-state">
             <i aria-hidden="true" />
             <strong>{state.message}</strong>
-            <p>任一固定节点先返回有效内容，就立即采用该结果。</p>
+            <p>读取完成后会先展示内容，由你确认是否导入；不会自动覆盖当前存档。</p>
           </div>
         ) : null}
 
@@ -201,7 +201,7 @@ export function DesktopTacticalSharePage() {
                 >
                   {state.status === 'importing'
                     ? '正在写入 SQLite…'
-                    : readyValue.source === 'desktop' ? '迁移完整节点树' : '新建桌面节点树'}
+                    : readyValue.source === 'desktop' ? '确认迁移完整节点树' : '确认新建桌面节点树'}
                 </button>
               )}
             </footer>

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   buildMobileShareUrl,
+  createMobileShare,
   fetchMobileShare,
   isMobileSnapshotSharePayload,
   parseMobileShareId,
@@ -35,13 +36,38 @@ function mobileRecord() {
   };
 }
 
-test('uses a neutral share route while retaining legacy QR parsing', () => {
+test('always publishes the domestic share route while retaining legacy QR parsing', () => {
   const url = buildMobileShareUrl(SHARE_ID);
   assert.equal(url, `https://dmgendfield.cloud/share/${SHARE_ID}`);
   assert.equal(parseMobileShareId(url), SHARE_ID);
-  assert.equal(parseMobileShareId(`https://example.test/mobile?share=${SHARE_ID}`), SHARE_ID);
-  assert.equal(parseMobileShareId(`https://example.test/#/share/${SHARE_ID}`), SHARE_ID);
+  assert.equal(parseMobileShareId(`https://dmgendfield.online/mobile?share=${SHARE_ID}`), SHARE_ID);
+  assert.equal(parseMobileShareId(`https://dmgendfield.online/#/share/${SHARE_ID}`), SHARE_ID);
   assert.equal(parseMobileShareId(`DEFMS1:${SHARE_ID}`), SHARE_ID);
+});
+
+test('creates shares on the domestic node so locally authored QR codes remain scannable', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = '';
+  globalThis.fetch = (async (input) => {
+    requestedUrl = String(input);
+    return Response.json({
+      id: SHARE_ID,
+      createdAt: 1_800_000_000_000,
+      expiresAt: null,
+      permanent: true,
+      reused: false,
+    }, { status: 201 });
+  }) as typeof fetch;
+  try {
+    await createMobileShare(
+      mobileRecord().payload.draft,
+      'data-v2',
+      'image-v2',
+    );
+    assert.equal(requestedUrl, 'https://dmgendfield.cloud/api/mobile-shares');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('keeps waiting after a fast 404 and accepts the first valid fixed-node response', async () => {
