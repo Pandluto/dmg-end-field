@@ -118,8 +118,10 @@ const REPORT_SKILL_TYPE_LABELS: Record<SkillType, string> = {
   Dot: '持续',
 };
 const SERIES_COLORS = ['#1f6f8b', '#d17742', '#688a55', '#8d6b9e', '#bf5d62', '#be9852'];
-const REPORT_EXPORT_PANEL_WIDTH = 640;
-const REPORT_EXPORT_PIXEL_RATIO = 2;
+// Export on an intrinsic final-size HTML canvas. The output must not depend on
+// the host display's DPR or enlarge a compressed mobile layout after rendering.
+const REPORT_EXPORT_PANEL_WIDTH = 1600;
+const REPORT_EXPORT_PIXEL_RATIO = 1;
 const REPORT_CHART_COLORS = {
   accent: '#1f6f8b',
   ink: '#172d32',
@@ -755,26 +757,28 @@ function ChartReportSlide({
         <span><small>非暴击</small><strong>{formatDamage(report.totalNonCrit)}</strong></span>
         <span><small>暴击</small><strong>{formatDamage(report.totalCrit)}</strong></span>
       </div>
-      <article className="mobile-report-chart-card">
-        <h3><span>图 1</span>干员伤害占比</h3>
-        <OperatorShareChart rows={operatorRows} />
-      </article>
-      <article className="mobile-report-chart-card">
-        <h3><span>图 2</span>伤害过程时序</h3>
-        <CumulativeDamageChart entries={entries} />
-      </article>
-      <article className="mobile-report-chart-card">
-        <h3><span>图 3</span>总 RD 归因</h3>
-        <MobileRdpsOverview summary={report.rdps} />
-      </article>
-      <article className="mobile-report-chart-card">
-        <h3><span>图 4</span>干员来源域 RD</h3>
-        <MobileRdpsDomains summary={report.rdps} />
-      </article>
-      <article className="mobile-report-chart-card">
-        <h3><span>明细</span>技能伤害</h3>
-        <SkillDamageBars rows={skillRows} />
-      </article>
+      <div className="mobile-report-chart-grid">
+        <article className="mobile-report-chart-card">
+          <h3><span>图 1</span>干员伤害占比</h3>
+          <OperatorShareChart rows={operatorRows} />
+        </article>
+        <article className="mobile-report-chart-card">
+          <h3><span>图 2</span>伤害过程时序</h3>
+          <CumulativeDamageChart entries={entries} />
+        </article>
+        <article className="mobile-report-chart-card">
+          <h3><span>图 3</span>总 RD 归因</h3>
+          <MobileRdpsOverview summary={report.rdps} />
+        </article>
+        <article className="mobile-report-chart-card">
+          <h3><span>图 4</span>干员来源域 RD</h3>
+          <MobileRdpsDomains summary={report.rdps} />
+        </article>
+        <article className="mobile-report-chart-card">
+          <h3><span>明细</span>技能伤害</h3>
+          <SkillDamageBars rows={skillRows} />
+        </article>
+      </div>
     </section>
   );
 }
@@ -1019,6 +1023,7 @@ export function MobileReportPage({
   const [exportStageMounted, setExportStageMounted] = useState(false);
   const [exportMessage, setExportMessage] = useState('');
   const [exportPreview, setExportPreview] = useState<ReportExportPreview | null>(null);
+  const [exportPreviewActualSize, setExportPreviewActualSize] = useState(false);
   const [exportShareQr, setExportShareQr] = useState<ReportShareQr | null>(null);
   const [timelineNoteEditor, setTimelineNoteEditor] = useState<TimelineReportNoteEditor | null>(null);
   const exportStageRef = useRef<HTMLDivElement>(null);
@@ -1056,6 +1061,7 @@ export function MobileReportPage({
     if (exportPreviewUrlRef.current) URL.revokeObjectURL(exportPreviewUrlRef.current);
     exportPreviewUrlRef.current = null;
     setExportPreview(null);
+    setExportPreviewActualSize(false);
     setExportStageMounted(false);
   };
 
@@ -1141,6 +1147,7 @@ export function MobileReportPage({
       const filename = buildReportFilename(Date.now(), Boolean(shareQr));
       if (exportPreviewUrlRef.current) URL.revokeObjectURL(exportPreviewUrlRef.current);
       exportPreviewUrlRef.current = url;
+      setExportPreviewActualSize(false);
       setExportPreview({ url, filename, width: canvas.width, height: canvas.height });
       previewReady = true;
       const anchor = document.createElement('a');
@@ -1221,7 +1228,7 @@ export function MobileReportPage({
         <span>
           <small>EXPORT COMPOSITE</small>
           <strong>导出三联战术报告</strong>
-          <p>01 / 02 / 03 固定 640px 设计宽度，2× 高清横向拼接</p>
+          <p>01 / 02 / 03 各按 1600px 原生 HTML 模板排版，固定 4800px 横向拼接</p>
         </span>
         <div className="mobile-report-export-actions">
           <button type="button" onClick={handleExport} disabled={isExporting}>
@@ -1293,12 +1300,21 @@ export function MobileReportPage({
                 </span>
                 <button type="button" onClick={closeExportPreview} aria-label="关闭导出预览">×</button>
               </header>
-              <div className="mobile-report-preview-image-frame">
-                <img className="mobile-report-preview-image" src={exportPreview.url} alt="三联战术报告导出预览" />
+              <div className={`mobile-report-preview-image-frame${exportPreviewActualSize ? ' is-actual-size' : ''}`}>
+                <img
+                  className={`mobile-report-preview-image${exportPreviewActualSize ? ' is-actual-size' : ''}`}
+                  src={exportPreview.url}
+                  alt="三联战术报告导出预览"
+                />
               </div>
               <footer>
                 <span>{exportPreview.width} × {exportPreview.height} PNG</span>
-                <a href={exportPreview.url} download={exportPreview.filename}>再次下载</a>
+                <div>
+                  <button type="button" onClick={() => setExportPreviewActualSize((value) => !value)}>
+                    {exportPreviewActualSize ? '适应窗口' : '1:1 看细节'}
+                  </button>
+                  <a href={exportPreview.url} download={exportPreview.filename}>再次下载</a>
+                </div>
               </footer>
             </section>
           </div>
