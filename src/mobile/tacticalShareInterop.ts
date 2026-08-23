@@ -1,5 +1,6 @@
 import type { ConfigSnapshot } from '../core/calculators/operatorPanelCalculator';
 import { validateTimelinePayload } from '../agentKernel/timelineWorktree/validator';
+import { compareTimelineChronology } from '../core/domain/timelineChronology';
 import type { Character, SkillButtonData, SkillType, TimelineData } from '../types';
 import type {
   AnomalyStateSnapshot,
@@ -211,12 +212,14 @@ export function timelinePayloadToMobileDraft(
   const buffById = new Map(payload.allBuffList.map((buff) => [buff.id, buff]));
   const anomalyById = new Map(payload.anomalyStateSnapshots.map((snapshot) => [snapshot.id, snapshot]));
   const timelineButtons = payload.timelineData.staffLines.flatMap((line) => (
-    line.buttons.map((button) => ({ line, button }))
-  )).sort((left, right) => (
-    left.button.nodeIndex - right.button.nodeIndex
-    || left.line.staffIndex - right.line.staffIndex
-    || left.button.id.localeCompare(right.button.id)
-  ));
+    line.buttons.map((button) => ({
+      id: button.id,
+      nodeIndex: button.nodeIndex,
+      staffIndex: line.staffIndex,
+      line,
+      button,
+    }))
+  )).sort(compareTimelineChronology);
 
   return normalizeMobileDraft({
     schemaVersion: 1,

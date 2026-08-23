@@ -2565,13 +2565,20 @@
     );
 }
 
-:root[data-theme="apple-midnight"] :is(
-  .report-ppt-axis-button-orb,
-  .report-ppt-axis-button-body
-) {
+:root[data-theme="apple-midnight"] .report-ppt-axis-button-body {
   color: var(--theme-text-title);
   border-color: var(--theme-graphic-line);
   background: var(--theme-control-bg);
+}
+
+:root[data-theme="apple-midnight"] .report-ppt-axis-button-orb {
+  color: var(--theme-text-title);
+  border-color: var(--theme-graphic-line);
+  background: color-mix(
+    in srgb,
+    var(--skill-button-element-color, var(--theme-control-bg)) 68%,
+    var(--theme-control-bg)
+  );
 }
 
 :root[data-theme="apple-midnight"] .report-ppt-petal-base {

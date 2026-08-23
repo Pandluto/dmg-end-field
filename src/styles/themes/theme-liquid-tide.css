@@ -1571,6 +1571,12 @@
   backdrop-filter: blur(22px) saturate(1.18) brightness(1.05);
 }
 
+:root[data-theme="liquid-tide"] .report-ppt-axis-button-orb {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.04)),
+    var(--skill-button-element-color, rgba(255, 255, 255, 0.12)) !important;
+}
+
 /* The rounded circle and rounded body already carry the glass edge. */
 :root[data-theme="liquid-tide"] :is(
   .skill-button-composite-outline,
@@ -1614,6 +1620,12 @@
       rgba(255, 255, 255, 0.02);
     -webkit-backdrop-filter: blur(22px) saturate(1.18) brightness(1.05);
     backdrop-filter: blur(22px) saturate(1.18) brightness(1.05);
+  }
+
+  :root[data-theme="liquid-tide"] .report-ppt-axis-button-orb.has-skill-icon-mask::before {
+    background:
+      linear-gradient(rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.04)),
+      var(--skill-button-element-color, rgba(255, 255, 255, 0.12));
   }
 }
 
