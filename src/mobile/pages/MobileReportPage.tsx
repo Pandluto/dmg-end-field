@@ -118,10 +118,10 @@ const REPORT_SKILL_TYPE_LABELS: Record<SkillType, string> = {
   Dot: '持续',
 };
 const SERIES_COLORS = ['#1f6f8b', '#d17742', '#688a55', '#8d6b9e', '#bf5d62', '#be9852'];
-// Keep the authored narrow composition stable across devices. The fixed 2x
-// sampling improves raster fidelity without consulting the host display's DPR.
-const REPORT_EXPORT_PANEL_WIDTH = 640;
-const REPORT_EXPORT_PIXEL_RATIO = 2;
+// Export from a native final-size HTML layout. Each panel keeps the authored
+// narrow composition at an intrinsic 1280px width; no canvas or DPR upscaling.
+const REPORT_EXPORT_PANEL_WIDTH = 1280;
+const REPORT_EXPORT_PIXEL_RATIO = 1;
 const REPORT_CHART_COLORS = {
   accent: '#1f6f8b',
   ink: '#172d32',
@@ -434,7 +434,7 @@ function OperatorShareChart({ rows }: { rows: DisplayReportRow[] }) {
             y="94"
             textAnchor="middle"
             fill={REPORT_CHART_COLORS.muted}
-            style={{ fill: REPORT_CHART_COLORS.muted }}
+            style={{ fill: REPORT_CHART_COLORS.muted, fontSize: 11.5, fontWeight: 650 }}
           >干员</text>
           <text
             className="mobile-report-share-total"
@@ -442,7 +442,7 @@ function OperatorShareChart({ rows }: { rows: DisplayReportRow[] }) {
             y="113"
             textAnchor="middle"
             fill={REPORT_CHART_COLORS.ink}
-            style={{ fill: REPORT_CHART_COLORS.ink }}
+            style={{ fill: REPORT_CHART_COLORS.ink, fontSize: 27, fontWeight: 800 }}
           >{positiveRows.length}</text>
         </svg>
       </div>
@@ -527,7 +527,12 @@ function CumulativeDamageChart({ entries }: { entries: TimelineReportEntry[] }) 
           style={{ fill: REPORT_CHART_COLORS.paper, stroke: REPORT_CHART_COLORS.ink, strokeWidth: 1.5 }}
         />
       ))}
-      <text x="24" y="14" fill={REPORT_CHART_COLORS.muted} style={{ fill: REPORT_CHART_COLORS.muted }}>
+      <text
+        x="24"
+        y="14"
+        fill={REPORT_CHART_COLORS.muted}
+        style={{ fill: REPORT_CHART_COLORS.muted, fontSize: 9.5, fontWeight: 720 }}
+      >
         累计总伤 {formatDamage(runningTotal)}
       </text>
       <text
@@ -535,7 +540,7 @@ function CumulativeDamageChart({ entries }: { entries: TimelineReportEntry[] }) 
         y="142"
         textAnchor="end"
         fill={REPORT_CHART_COLORS.muted}
-        style={{ fill: REPORT_CHART_COLORS.muted }}
+        style={{ fill: REPORT_CHART_COLORS.muted, fontSize: 9.5, fontWeight: 720 }}
       >{entries.length} 次技能</text>
     </svg>
   );
@@ -633,7 +638,7 @@ function MobileRdpsOverview({ summary }: { summary: RdpsAttributionSummary | und
                 y="92"
                 textAnchor="middle"
                 fill={REPORT_CHART_COLORS.muted}
-                style={{ fill: REPORT_CHART_COLORS.muted }}
+                style={{ fill: REPORT_CHART_COLORS.muted, fontSize: 11.5, fontWeight: 650 }}
               >总伤</text>
               <text
                 className="mobile-report-share-total mobile-report-rdps-total"
@@ -641,7 +646,7 @@ function MobileRdpsOverview({ summary }: { summary: RdpsAttributionSummary | und
                 y="113"
                 textAnchor="middle"
                 fill={REPORT_CHART_COLORS.ink}
-                style={{ fill: REPORT_CHART_COLORS.ink }}
+                style={{ fill: REPORT_CHART_COLORS.ink, fontSize: 19, fontWeight: 800 }}
               >
                 {formatCompactDamage(actualTotal)}
               </text>
@@ -1226,7 +1231,7 @@ export function MobileReportPage({
         <span>
           <small>EXPORT COMPOSITE</small>
           <strong>导出三联战术报告</strong>
-          <p>01 / 02 / 03 保持 640px 窄版 HTML 布局，原生字号提升一档</p>
+          <p>01 / 02 / 03 保持窄版构图，以 1280px 原生 HTML 模板直接成像</p>
         </span>
         <div className="mobile-report-export-actions">
           <button type="button" onClick={handleExport} disabled={isExporting}>

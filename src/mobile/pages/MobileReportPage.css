@@ -1447,14 +1447,15 @@
   padding: 0;
   overflow: visible;
   background: var(--report-paper);
+  font-size: 28px;
   text-rendering: geometricPrecision;
 }
 
 .mobile-report-export-panel {
   display: flex;
-  width: var(--mobile-report-export-panel-width, 640px);
-  min-width: var(--mobile-report-export-panel-width, 640px);
-  flex: 0 0 var(--mobile-report-export-panel-width, 640px);
+  width: var(--mobile-report-export-panel-width, 1280px);
+  min-width: var(--mobile-report-export-panel-width, 1280px);
+  flex: 0 0 var(--mobile-report-export-panel-width, 1280px);
   align-items: stretch;
   overflow: hidden;
   background: var(--report-paper);
@@ -1488,174 +1489,511 @@
 }
 
 /*
- * Export preserves the authored 640px narrow composition. Geometry stays on
- * the original mobile report grid; only the native HTML type scale is raised.
+ * Native export master: every authored 640px metric is represented at 2x in
+ * the DOM itself. The narrow composition is unchanged, while text, borders,
+ * spacing and image boxes land on final-size CSS pixels before rasterization.
  */
 .mobile-report-export-stage .mobile-report-slide {
-  padding: 12px;
+  min-height: 1120px;
+  padding: 24px;
+  border-width: 2px;
+  border-radius: 4px;
 }
 
-.mobile-report-export-stage .mobile-report-loadout-row {
-  grid-template-columns: minmax(92px, 29%) minmax(0, 1fr);
-}
-
-.mobile-report-export-stage .mobile-report-weapon-panel {
-  padding-right: 72px;
-}
-
-.mobile-report-export-stage .mobile-report-weapon-art {
-  width: 64px;
-}
-
-.mobile-report-export-stage .mobile-report-equipment-panel {
-  padding-right: 36px;
-}
-
-.mobile-report-export-stage .mobile-report-equipment-art {
-  width: 31px;
+.mobile-report-export-stage .mobile-report-slide-heading {
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 18px;
+  margin-bottom: 22px;
+  padding-bottom: 18px;
+  border-bottom-width: 2px;
 }
 
 .mobile-report-export-stage .mobile-report-slide-heading > span {
-  font-size: 12px;
+  font-size: 24px;
 }
 
 .mobile-report-export-stage .mobile-report-slide-heading h2 {
-  font-size: 22px;
+  font-size: 44px;
 }
 
 .mobile-report-export-stage .mobile-report-slide-heading p {
-  font-size: 10.5px;
+  margin-top: 8px;
+  font-size: 21px;
 }
 
 .mobile-report-export-stage .mobile-report-empty {
-  font-size: 12.5px;
+  min-height: 300px;
+  padding: 44px;
+  border-width: 2px;
+  font-size: 25px;
+}
+
+.mobile-report-export-stage .mobile-report-loadout-row {
+  grid-template-columns: minmax(184px, 29%) minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px;
+  border-width: 2px;
+}
+
+.mobile-report-export-stage .mobile-report-operator-portrait {
+  border-width: 2px;
+}
+
+.mobile-report-export-stage .mobile-report-operator-portrait::after,
+.mobile-report-export-stage .mobile-report-weapon-art::after,
+.mobile-report-export-stage .mobile-report-equipment-art::after,
+.mobile-report-export-stage .mobile-report-timeline-operator-avatar::after,
+.mobile-report-export-stage .mobile-report-timeline-card-avatar::after {
+  font-size: 24px;
+}
+
+.mobile-report-export-stage .mobile-report-potential {
+  top: 10px;
+  left: 10px;
+  min-width: 68px;
+  padding: 8px 10px;
+  border-width: 2px;
+  font-size: 18px;
+}
+
+.mobile-report-export-stage .mobile-report-operator-caption {
+  gap: 4px;
+  padding: 14px 12px;
+}
+
+.mobile-report-export-stage .mobile-report-operator-caption strong {
+  font-size: 24px;
+}
+
+.mobile-report-export-stage .mobile-report-operator-caption small {
+  font-size: 14px;
+}
+
+.mobile-report-export-stage .mobile-report-loadout-body {
+  gap: 8px;
+}
+
+.mobile-report-export-stage .mobile-report-weapon-panel {
+  min-height: 144px;
+  padding: 16px 144px 12px 16px;
+  border-width: 2px;
+}
+
+.mobile-report-export-stage .mobile-report-block-label,
+.mobile-report-export-stage .mobile-report-weapon-panel > small,
+.mobile-report-export-stage .mobile-report-equipment-panel > span,
+.mobile-report-export-stage .mobile-report-equipment-panel > small {
+  font-size: 14px;
+}
+
+.mobile-report-export-stage .mobile-report-weapon-panel > strong {
+  margin: 6px 0 4px;
+  font-size: 22px;
+}
+
+.mobile-report-export-stage .mobile-report-level-rail {
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.mobile-report-export-stage .mobile-report-level-rail span {
+  padding: 4px 6px;
+  border-width: 2px;
+  font-size: 12px;
+}
+
+.mobile-report-export-stage .mobile-report-weapon-art {
+  top: 8px;
+  right: 8px;
+  bottom: 8px;
+  width: 128px;
+  border-left-width: 2px;
+}
+
+.mobile-report-export-stage .mobile-report-set-name {
+  padding: 6px 12px;
+  border-width: 2px;
+  font-size: 14px;
+}
+
+.mobile-report-export-stage .mobile-report-equipment-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.mobile-report-export-stage .mobile-report-equipment-panel {
+  min-height: 104px;
+  padding: 12px 72px 10px 12px;
+  border-width: 2px;
+}
+
+.mobile-report-export-stage .mobile-report-equipment-panel > strong {
+  margin: 4px 0;
+  font-size: 16px;
+}
+
+.mobile-report-export-stage .mobile-report-equipment-art {
+  top: 10px;
+  right: 8px;
+  width: 62px;
+  height: 78px;
+}
+
+.mobile-report-export-stage .mobile-report-skill-levels {
+  gap: 4px;
+}
+
+.mobile-report-export-stage .mobile-report-skill-levels span {
+  gap: 4px;
+  min-height: 48px;
+  padding: 6px;
+  border-width: 2px;
+}
+
+.mobile-report-export-stage .mobile-report-skill-levels b,
+.mobile-report-export-stage .mobile-report-skill-levels strong {
+  font-size: 14px;
+}
+
+.mobile-report-export-stage .mobile-report-ppt-team-slide {
+  --mobile-report-ppt-row-height: 192px;
+  --mobile-report-ppt-square-column: 176px;
+  --mobile-report-ppt-weapon-image-size: 172px;
+  --mobile-report-ppt-weapon-column: 176px;
+}
+
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-slide-inner {
+  padding: 16px;
+  border-width: 2px;
+}
+
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-slide-head {
+  height: 56px;
+  gap: 14px;
+  margin-bottom: 14px;
+  border-bottom-width: 2px;
 }
 
 .mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-slide-head span {
-  font-size: 9px;
+  font-size: 18px;
 }
 
 .mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-slide-head h1 {
-  font-size: 18px;
+  font-size: 36px;
+}
+
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-team-list {
+  gap: 6px;
+}
+
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-operator-row {
+  grid-template-columns:
+    var(--mobile-report-ppt-square-column)
+    var(--mobile-report-ppt-weapon-column)
+    minmax(0, 1fr)
+    60px;
+  gap: 4px;
+  padding: 6px;
+  border-width: 2px;
+}
+
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-avatar-frame,
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-weapon-block,
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-equipment-block,
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-equipment-icon,
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-skill-levels {
+  border-width: 2px;
+}
+
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-avatar-frame {
+  background:
+    linear-gradient(135deg, transparent calc(50% - 2px), rgba(0, 0, 0, 0.18) 50%, transparent calc(50% + 2px)),
+    rgba(242, 243, 245, 0.9);
+}
+
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-avatar-frame::after,
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-weapon-image-frame::after,
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-weapon-image::after,
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-equipment-icon::after {
+  font-size: 24px;
+}
+
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-potential-star-wrap {
+  width: 62px;
+  height: 62px;
+}
+
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-potential-star {
+  top: 4px;
+  left: 4px;
+  width: 38px;
+  height: 38px;
+}
+
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-operator-main {
+  padding: 2px 50px 2px 6px;
 }
 
 .mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-operator-main h2,
 .mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-weapon-name,
 .mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-equipment-set-name {
-  font-size: 8.5px;
+  font-size: 17px;
 }
 
 .mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-operator-level,
 .mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-weapon-level {
-  font-size: 6.5px;
+  right: 4px;
+  bottom: 4px;
+  min-width: 44px;
+  height: 24px;
+  padding: 0 4px;
+  border-width: 2px;
+  font-size: 13px;
+}
+
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-weapon-name {
+  padding: 2px 48px 2px 4px;
+}
+
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-weapon-level-rows {
+  right: 6px;
+  bottom: 30px;
+  width: 16px;
+  padding: 2px 0;
+  gap: 0;
+}
+
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-equipment-set-name {
+  height: 24px;
+  padding: 0 4px;
+  border-bottom-width: 2px;
+}
+
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-equipment-icons {
+  height: 100%;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  column-gap: 6px;
+  row-gap: 2px;
+  padding: 2px;
+}
+
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-equipment-set-name + .report-ppt-equipment-icons {
+  height: calc(100% - 24px);
 }
 
 .mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-equipment-icons > strong {
-  font-size: 8.5px;
+  font-size: 17px;
+}
+
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-weapon-equipment-item {
+  width: max-content;
+  gap: 2px;
 }
 
 .mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-equipment-name {
-  font-size: 6px;
+  padding: 2px;
+  font-size: 12px;
+}
+
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-equipment-level-rows {
+  width: 16px;
+  min-width: 16px;
+  flex-basis: 16px;
+  gap: 0;
+}
+
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-level-row {
+  grid-template-columns: 10px 6px;
+  gap: 0;
+}
+
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-level-capsule {
+  width: 10px;
+  height: 10px;
+}
+
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-level-capsule i {
+  width: 10px;
+  height: 4px;
+  border-width: 1px;
 }
 
 .mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-level-row strong {
-  font-size: 5.5px;
+  font-size: 11px;
+}
+
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-equipment-icon span {
+  font-size: 20px;
+}
+
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-skill-levels {
+  gap: 2px;
+  padding: 2px;
+}
+
+.mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-skill-levels span {
+  gap: 0;
+  padding: 0;
+  border-width: 2px;
 }
 
 .mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-skill-levels b,
 .mobile-report-export-stage .mobile-report-ppt-team-slide .report-ppt-skill-levels strong {
-  font-size: 6px;
-}
-
-.mobile-report-export-stage .mobile-report-damage-strip small {
-  font-size: 9.5px;
-}
-
-.mobile-report-export-stage .mobile-report-damage-strip strong {
-  font-size: 14px;
-}
-
-.mobile-report-export-stage .mobile-report-timeline-matrix {
-  --mobile-report-timeline-column-gap: 4px;
-}
-
-.mobile-report-export-stage .mobile-report-timeline-lane-heading {
-  min-height: 44px;
-  gap: 4px;
-  padding: 3px 4px;
-}
-
-.mobile-report-export-stage .mobile-report-timeline-lane-heading strong {
   font-size: 12px;
 }
 
+.mobile-report-export-stage .mobile-report-damage-strip {
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.mobile-report-export-stage .mobile-report-damage-strip > span {
+  gap: 6px;
+  padding: 18px;
+  border-width: 2px;
+}
+
+.mobile-report-export-stage .mobile-report-damage-strip small {
+  font-size: 19px;
+}
+
+.mobile-report-export-stage .mobile-report-damage-strip strong {
+  font-size: 28px;
+}
+
+.mobile-report-export-stage .mobile-report-timeline-matrix {
+  --mobile-report-timeline-column-gap: 8px;
+
+  gap: 8px;
+}
+
+.mobile-report-export-stage .mobile-report-timeline-head {
+  padding-bottom: 8px;
+  border-bottom-width: 2px;
+}
+
+.mobile-report-export-stage .mobile-report-timeline-lane-heading {
+  grid-template-columns: 72px minmax(0, 1fr);
+  min-height: 88px;
+  gap: 8px;
+  padding: 6px 8px;
+}
+
+.mobile-report-export-stage .mobile-report-timeline-lane-heading::after {
+  width: 2px;
+  height: 18px;
+}
+
+.mobile-report-export-stage .mobile-report-timeline-operator-avatar {
+  width: 72px;
+  height: 72px;
+  border-width: 2px;
+}
+
+.mobile-report-export-stage .mobile-report-timeline-lane-heading strong {
+  font-size: 24px;
+}
+
 .mobile-report-export-stage .mobile-report-timeline-rows {
-  gap: 4px;
+  gap: 8px;
 }
 
 .mobile-report-export-stage .mobile-report-timeline-row,
 .mobile-report-export-stage .mobile-report-timeline-cell {
-  min-height: 46px;
+  min-height: 92px;
 }
 
 .mobile-report-export-stage .mobile-report-timeline-cell::before {
-  top: -4px;
-  bottom: -4px;
+  top: -8px;
+  bottom: -8px;
+  width: 2px;
 }
 
 .mobile-report-export-stage .mobile-report-timeline-action {
-  --mobile-report-timeline-action-media-size: 36px;
+  --mobile-report-timeline-action-media-size: 72px;
 
-  min-height: 42px;
-  gap: 3px;
-  padding: 2px;
+  min-height: 84px;
+  gap: 6px;
+  padding: 4px;
+  border-width: 2px;
+  border-radius: 8px;
+}
+
+.mobile-report-export-stage .mobile-report-timeline-skill-icon,
+.mobile-report-export-stage .mobile-report-timeline-card-avatar {
+  border-width: 2px;
+  border-radius: 6px;
 }
 
 .mobile-report-export-stage .mobile-report-timeline-skill-icon {
-  font-size: 9px;
+  font-size: 18px;
 }
 
 .mobile-report-export-stage .mobile-report-timeline-card-avatar {
-  font-size: 8px;
+  font-size: 16px;
+}
+
+.mobile-report-export-stage .mobile-report-timeline-action-copy {
+  gap: 4px;
 }
 
 .mobile-report-export-stage .mobile-report-timeline-note-button,
 .mobile-report-export-stage .mobile-report-timeline-note-static {
-  width: calc(100% - 6px);
-  min-height: 36px;
-  margin: 0 3px;
-  padding: 3px 4px;
+  width: calc(100% - 12px);
+  min-height: 72px;
+  margin: 0 6px;
+  padding: 6px 8px;
+  border-width: 2px;
 }
 
 .mobile-report-export-stage .mobile-report-timeline-note-placeholder {
-  font-size: 13.5px;
+  font-size: 27px;
 }
 
 .mobile-report-export-stage .mobile-report-timeline-note-text {
-  font-size: 9px;
+  font-size: 18px;
 }
 
 .mobile-report-export-stage .mobile-report-timeline-action-copy strong {
-  font-size: 10px;
+  font-size: 20px;
 }
 
 .mobile-report-export-stage .mobile-report-timeline-action-copy small {
-  gap: 3px;
-  font-size: 7.5px;
+  gap: 6px;
+  font-size: 15px;
 }
 
 .mobile-report-export-stage .mobile-report-timeline-action-copy small b {
-  font-size: 7px;
+  font-size: 14px;
+}
+
+.mobile-report-export-stage .mobile-report-chart-card {
+  margin: 0 0 16px;
+  padding: 18px;
+  border-width: 2px;
 }
 
 .mobile-report-export-stage .mobile-report-chart-card h3 {
-  font-size: 13px;
+  gap: 14px;
+  margin-bottom: 16px;
+  font-size: 26px;
 }
 
 .mobile-report-export-stage .mobile-report-chart-card h3 span {
-  font-size: 9.5px;
+  font-size: 19px;
 }
 
+.mobile-report-export-stage .mobile-report-share-layout {
+  grid-template-columns: minmax(252px, 0.86fr) minmax(0, 1.14fr);
+  gap: 20px;
+}
+
+.mobile-report-export-stage .mobile-report-share-chart {
+  width: min(100%, 340px);
+}
+
+/* SVG viewBox content scales with its doubled viewport; keep user units intact. */
 .mobile-report-export-stage .mobile-report-share-total-label {
   font-size: 11.5px;
 }
@@ -1664,29 +2002,74 @@
   font-size: 27px;
 }
 
+.mobile-report-export-stage .mobile-report-share-legend {
+  gap: 14px;
+}
+
+.mobile-report-export-stage .mobile-report-legend-item {
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.mobile-report-export-stage .mobile-report-legend-swatch {
+  width: 16px;
+  height: 16px;
+}
+
+.mobile-report-export-stage .mobile-report-legend-copy {
+  gap: 2px;
+}
+
 .mobile-report-export-stage .mobile-report-legend-label {
-  font-size: 10.5px;
+  font-size: 21px;
 }
 
 .mobile-report-export-stage .mobile-report-legend-value {
-  font-size: 8.5px;
+  font-size: 17px;
 }
 
 .mobile-report-export-stage .mobile-report-legend-share {
-  font-size: 9.5px;
+  font-size: 19px;
 }
 
 .mobile-report-export-stage .mobile-report-line-chart text {
   font-size: 9.5px;
 }
 
+.mobile-report-export-stage .mobile-report-skill-bars {
+  gap: 20px;
+}
+
+.mobile-report-export-stage .mobile-report-skill-bar-heading {
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.mobile-report-export-stage .mobile-report-skill-label {
+  gap: 2px;
+}
+
 .mobile-report-export-stage .mobile-report-skill-group {
-  font-size: 8.5px;
+  font-size: 17px;
 }
 
 .mobile-report-export-stage .mobile-report-skill-label > span:last-child,
 .mobile-report-export-stage .mobile-report-skill-bar-heading strong {
-  font-size: 10.5px;
+  font-size: 21px;
+}
+
+.mobile-report-export-stage .mobile-report-skill-bar-track {
+  height: 14px;
+  border-width: 2px;
+}
+
+.mobile-report-export-stage .mobile-report-rdps-overview {
+  gap: 24px;
+}
+
+.mobile-report-export-stage .mobile-report-rdps-share-layout {
+  padding-bottom: 22px;
+  border-bottom-width: 2px;
 }
 
 .mobile-report-export-stage .mobile-report-rdps-total {
@@ -1694,56 +2077,116 @@
 }
 
 .mobile-report-export-stage .mobile-report-rdps-signed-notice {
-  font-size: 10.5px;
+  min-height: 184px;
+  gap: 8px;
+  border-width: 2px;
+  font-size: 21px;
 }
 
 .mobile-report-export-stage .mobile-report-rdps-signed-notice strong {
-  font-size: 20px;
+  font-size: 40px;
+}
+
+.mobile-report-export-stage .mobile-report-rdps-team-bars {
+  gap: 18px;
+}
+
+.mobile-report-export-stage .mobile-report-rdps-team-bar-heading {
+  gap: 16px;
+  margin-bottom: 8px;
 }
 
 .mobile-report-export-stage .mobile-report-rdps-team-bar-heading strong,
 .mobile-report-export-stage .mobile-report-rdps-team-bar-heading em {
-  font-size: 10.5px;
+  font-size: 21px;
+}
+
+.mobile-report-export-stage .mobile-report-rdps-team-bar-track {
+  height: 16px;
+  border-width: 2px;
+}
+
+.mobile-report-export-stage .mobile-report-rdps-domains {
+  gap: 14px;
+}
+
+.mobile-report-export-stage .mobile-report-rdps-character-card {
+  gap: 16px;
+  padding: 18px;
+  border-width: 2px;
+}
+
+.mobile-report-export-stage .mobile-report-rdps-character-card > header {
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom-width: 2px;
 }
 
 .mobile-report-export-stage .mobile-report-rdps-character-card > header strong {
-  font-size: 11.5px;
+  font-size: 23px;
 }
 
 .mobile-report-export-stage .mobile-report-rdps-character-card > header span {
-  font-size: 9.5px;
+  font-size: 19px;
+}
+
+.mobile-report-export-stage .mobile-report-rdps-domain-list {
+  gap: 12px;
 }
 
 .mobile-report-export-stage .mobile-report-rdps-domain-row {
-  grid-template-columns: 48px minmax(0, 1fr) 38px 56px;
-  gap: 6px;
+  grid-template-columns: 96px minmax(0, 1fr) 76px 112px;
+  gap: 12px;
 }
 
 .mobile-report-export-stage .mobile-report-rdps-domain-row > span:first-child,
 .mobile-report-export-stage .mobile-report-rdps-domain-row > em,
 .mobile-report-export-stage .mobile-report-rdps-domain-row > strong {
-  font-size: 8.75px;
+  font-size: 18px;
+}
+
+.mobile-report-export-stage .mobile-report-rdps-domain-track {
+  height: 14px;
 }
 
 .mobile-report-export-stage .mobile-report-rdps-character-card > small {
-  font-size: 8.5px;
+  font-size: 17px;
 }
 
 .mobile-report-export-stage .mobile-report-rdps-warning {
-  font-size: 9.5px;
+  padding: 14px 16px;
+  border-width: 2px;
+  font-size: 19px;
+}
+
+.mobile-report-export-stage .mobile-report-share-qr {
+  grid-template-columns: 216px minmax(0, 1fr);
+  gap: 24px;
+  margin: 16px;
+  padding: 18px;
+  border-width: 2px;
+}
+
+.mobile-report-export-stage .mobile-report-share-qr > img {
+  width: 216px;
+  height: 216px;
+}
+
+.mobile-report-export-stage .mobile-report-share-qr > span {
+  gap: 8px;
 }
 
 .mobile-report-export-stage .mobile-report-share-qr small {
-  font-size: 8.5px;
+  font-size: 17px;
 }
 
 .mobile-report-export-stage .mobile-report-share-qr strong {
-  font-size: 14px;
+  font-size: 28px;
 }
 
 .mobile-report-export-stage .mobile-report-share-qr p,
 .mobile-report-export-stage .mobile-report-share-qr code {
-  font-size: 8.5px;
+  font-size: 17px;
 }
 
 .mobile-report-share-qr {
