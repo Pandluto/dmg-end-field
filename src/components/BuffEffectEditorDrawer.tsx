@@ -11,6 +11,8 @@ import {
 import * as buffModel from './operatorDraftBuffModel';
 import './BuffEffectEditorDrawer.css';
 
+const EXTRA_HIT_MULTIPLIER_BONUS_ESCAPE = 'multiplierBonus';
+
 const BUSINESS_TYPE_LABELS: Record<buffModel.OperatorBuffBusinessType, string> = {
   passive: 'passive 常驻',
   condition: 'condition 条件',
@@ -185,8 +187,24 @@ export default function BuffEffectEditorDrawer({
               <div className="buff-editor-drawer-grid">
                 <label className="is-wide">
                   <span>计算方式</span>
-                  <select value={config.formulaMode} onChange={(event) => update({ ...effect, extraHitConfig: normalizeExtraHitConfig({ ...config, formulaMode: event.target.value as typeof config.formulaMode }, config.key) })}>
+                  <select
+                    value={config.formulaMode}
+                    onChange={(event) => {
+                      if (event.target.value === EXTRA_HIT_MULTIPLIER_BONUS_ESCAPE) {
+                        update(buffModel.convertExtraHitToMultiplierBonus(effect));
+                        return;
+                      }
+                      update({
+                        ...effect,
+                        extraHitConfig: normalizeExtraHitConfig({
+                          ...config,
+                          formulaMode: event.target.value as typeof config.formulaMode,
+                        }, config.key),
+                      });
+                    }}
+                  >
                     {EXTRA_HIT_FORMULA_MODES.map((mode) => <option key={mode} value={mode}>{EXTRA_HIT_FORMULA_MODE_LABELS[mode]}</option>)}
+                    <option value={EXTRA_HIT_MULTIPLIER_BONUS_ESCAPE}>倍率加算（切回{effect.category === 'countable' ? '计层' : '条件'} Buff）</option>
                   </select>
                 </label>
                 {config.formulaMode === 'sourceSkill' ? (

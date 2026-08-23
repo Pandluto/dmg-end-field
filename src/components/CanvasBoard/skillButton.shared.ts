@@ -1,5 +1,6 @@
 import type { BuffExtraHitConfig, BuffMultiplier, CandidateBuff } from '../../core/domain/buff';
 import { calculateBuffedPanel, getBuffEffectiveValue } from '../../core/calculators/buffCalculator';
+import { formatExtraHitFormulaLabel } from '../../core/services/buffExtraHit';
 import type {
   AppliedBuffTagViewModel,
   SkillDamagePanel,
@@ -143,6 +144,37 @@ export const BUFF_SOURCE_SEARCH_MODE_OPTIONS: Array<{ key: BuffSourceSearchMode;
 
 export function getBuffSourceSearchModeLabel(mode: BuffSourceSearchMode): string {
   return BUFF_SOURCE_SEARCH_MODE_OPTIONS.find((option) => option.key === mode)?.label || 'Buff组';
+}
+
+export function formatBuffCardSummary(buff: {
+  category?: SkillButtonBuff['category'];
+  type?: string;
+  value?: number;
+  maxStacks?: number;
+  effectKind?: 'modifier' | 'extraHit';
+  extraHitConfig?: BuffExtraHitConfig;
+}): string {
+  if (buff.effectKind === 'extraHit') {
+    const formulaLabel = buff.extraHitConfig
+      ? formatExtraHitFormulaLabel(buff.extraHitConfig)
+      : '普通继承段';
+    const maxStacks = typeof buff.maxStacks === 'number' && Number.isFinite(buff.maxStacks)
+      ? Math.max(1, Math.floor(buff.maxStacks))
+      : 1;
+    const segmentLabel = buff.category === 'countable'
+      ? `计段/${maxStacks}`
+      : '条件单段';
+    const baseMultiplier = buff.extraHitConfig?.baseMultiplier ?? 1;
+    const damageType = buff.extraHitConfig?.damageType ?? 'physical';
+    const skillType = buff.extraHitConfig?.skillType || '空';
+    const cooldownSeconds = buff.extraHitConfig?.cooldownSeconds ?? 0;
+    return `${segmentLabel} / ${formulaLabel} / 倍率 ${(baseMultiplier * 100).toFixed(1)}% / ${damageType} / ${skillType} / CD ${cooldownSeconds}s`;
+  }
+
+  const categoryLabel = buff.category === 'countable'
+    ? '计层 countable'
+    : buff.category === 'condition' ? '条件 condition' : '常驻 passive';
+  return `${categoryLabel} / ${buff.type || '暂无'}${buff.value !== undefined ? ` · ${buff.value}` : ''}`;
 }
 
 export function filterBuffSearchEntriesBySourceMode(

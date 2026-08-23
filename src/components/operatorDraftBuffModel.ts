@@ -219,6 +219,7 @@ const OPERATOR_COUNTABLE_EXTRA_BUFF_TYPES = new Set([
   'atkPercentBoost',
   'critRateBoost',
   'critDmgBonusBoost',
+  'multiplierBonus',
 ]);
 const OPERATOR_MULTIPLIER_BUFF_TYPES = new Set([
   'multiplierBonus',
@@ -453,6 +454,28 @@ export function applyBuffEffectKind(effect: OperatorBuffEffect, effectKind: Buff
     ...effect,
     effectKind,
     extraHitConfig: undefined,
+  };
+}
+
+export function convertExtraHitToMultiplierBonus(effect: OperatorBuffEffect): OperatorBuffEffect {
+  const config = normalizeExtraHitConfig(effect.extraHitConfig, `${effect.effectId || 'effect'}-extra-hit`);
+  const category: OperatorBuffCategory = effect.category === 'countable' ? 'countable' : 'condition';
+  const {
+    extraHitConfig: _extraHitConfig,
+    multiplier: _multiplier,
+    derivedValue: _derivedValue,
+    maxStacks: _maxStacks,
+    ...rest
+  } = effect;
+  return {
+    ...rest,
+    effectKind: 'modifier',
+    type: 'multiplierBonus',
+    unit: inferOperatorBuffUnit('multiplierBonus'),
+    category,
+    value: config.baseMultiplier,
+    valueMode: 'fixed',
+    ...(category === 'countable' ? { maxStacks: effect.maxStacks ?? 1 } : {}),
   };
 }
 
