@@ -1,7 +1,7 @@
 {
   "name": "dmg-end-field",
   "private": true,
-  "version": "1.8.6",
+  "version": "1.8.7",
   "author": "SailStellar <190052366@qq.com>",
   "description": "终末地配装、排轴与伤害计算的离线优先 Web 工作台",
   "type": "module",
