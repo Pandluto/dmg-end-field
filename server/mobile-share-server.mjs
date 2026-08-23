@@ -26,6 +26,8 @@ const DEFAULT_ALLOWED_ORIGINS = [
   'http://150.158.133.176',
   'http://127.0.0.1:3030',
   'http://localhost:3030',
+  'http://127.0.0.1:31457',
+  'http://localhost:31457',
 ];
 
 const SHARE_ID_PATTERN = /^[A-Za-z0-9_-]{16}$/;

@@ -891,6 +891,16 @@ test('allows official cross-node reads and rejects untrusted browser origins', a
     assert.equal(preflight.status, 204);
     assert.match(preflight.headers.get('access-control-allow-methods') || '', /GET/);
 
+    const desktopCreator = await fetch(`${service.baseUrl}/api/mobile-shares`, {
+      method: 'OPTIONS',
+      headers: { origin: 'http://127.0.0.1:31457' },
+    });
+    assert.equal(desktopCreator.status, 204);
+    assert.equal(
+      desktopCreator.headers.get('access-control-allow-origin'),
+      'http://127.0.0.1:31457',
+    );
+
     const blocked = await fetch(`${service.baseUrl}/api/mobile-shares/health`, {
       headers: { origin: 'https://untrusted.example' },
     });
