@@ -309,6 +309,7 @@ const thinShellElectronFiles = new Set([
   'electron/legacy-fill-runtime.cjs',
   'electron/main.cjs',
   'electron/dev-launch.cjs',
+  'electron/desktop-feature-flags.cjs',
   'electron/official-resource-proxy.cjs',
   'electron/official-resource-proxy.test.cjs',
   'electron/preload.cjs',
