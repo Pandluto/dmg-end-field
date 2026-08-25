@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { clearAccessLease, readAccessLeaseStatus } from '../../platform/auth/accessLease';
 import {
   readBrowserStorageEstimate,
   requestPersistentBrowserStorage,
@@ -18,7 +17,6 @@ import {
 } from '../../platform/resources/imagePackage';
 import { usePageVersionUpdate } from '../../platform/runtime/usePageVersionUpdate';
 import { getAppHostExtension } from '../../platform/host/appHost';
-import { workspaceLease } from '../../platform/runtime/workspaceLease';
 import { flushPersistentStorage } from '../../platform/storage/persistentStorage';
 import {
   APP_THEME_OPTIONS,
@@ -42,27 +40,14 @@ function formatBytes(value: number): string {
   return `${(value / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
-function formatDate(value: number | null): string {
-  if (!value) return '—';
-  return new Intl.DateTimeFormat('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(value);
-}
-
 export function SettingsPage() {
   const hostUi = getAppHostExtension().ui;
   const showPageVersionUpdate = hostUi?.showPageVersionUpdate !== false;
-  const showAccessSettings = hostUi?.showAccessSettings !== false;
   const showLocalResourcePackager = hostUi?.showLocalResourcePackager !== false;
   const [databaseInfo] = useState<WebDatabaseInfo | null>(() => webDatabase.getInfo());
   const [storage, setStorage] = useState<StorageOverview>({ usage: 0, quota: 0, persisted: false });
   const [resourcePackage, setResourcePackage] = useState<InstalledResourcePackage | null>(null);
   const [imagePackage, setImagePackage] = useState<InstalledImagePackage | null>(null);
-  const [leaseExpiresAt, setLeaseExpiresAt] = useState<number | null>(null);
   const [message, setMessage] = useState('');
   const [theme, setTheme] = useState<AppThemeId>(() => readAppTheme());
   const [loadingTheme, setLoadingTheme] = useState<AppThemeId | null>(null);
@@ -75,16 +60,14 @@ export function SettingsPage() {
     && pageVersionUpdate.latestVersionLabel !== pageVersionUpdate.currentVersionLabel;
 
   const refresh = async () => {
-    const [nextStorage, installed, images, lease] = await Promise.all([
+    const [nextStorage, installed, images] = await Promise.all([
       readBrowserStorageEstimate(),
       readInstalledResourcePackage(),
       readInstalledImagePackage(),
-      readAccessLeaseStatus(),
     ]);
     setStorage(nextStorage);
     setResourcePackage(installed);
     setImagePackage(images);
-    setLeaseExpiresAt(lease.expiresAt);
   };
 
   useEffect(() => {
@@ -140,14 +123,6 @@ export function SettingsPage() {
       removeDefaultResourcePackage(),
       removeDefaultImagePackage(),
     ]);
-    window.location.reload();
-  };
-
-  const handleLock = async () => {
-    await flushPersistentStorage();
-    clearAccessLease();
-    await webDatabase.close();
-    workspaceLease.release();
     window.location.reload();
   };
 
@@ -334,24 +309,6 @@ export function SettingsPage() {
         )}
       </section>
 
-      {showAccessSettings && <section className="settings-section">
-        <div className="settings-section-heading">
-          <div>
-            <p>访问</p>
-            <h2>访问门禁</h2>
-          </div>
-        </div>
-        <div className="settings-action-row">
-          <div>
-            <strong>本浏览器放行至 {formatDate(leaseExpiresAt)}</strong>
-            <span>门禁有效期为首次正确输入密码后的 30 天。</span>
-          </div>
-          <button className="danger-button" type="button" onClick={handleLock}>立即锁定</button>
-        </div>
-        <p className="settings-security-note">
-          当前是本地部署的纯前端门禁，用来过滤无效访问，不等同于服务器身份认证。
-        </p>
-      </section>}
     </div>
   );
 }

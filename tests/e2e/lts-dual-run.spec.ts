@@ -133,6 +133,7 @@ const COMMON_ROUTES = [
 interface DualRunTarget {
   name: string;
   baseUrl: string;
+  publicEntry: boolean;
   legacyDamageSheet: boolean;
   legacyThreePieceTypeEditor: boolean;
 }
@@ -142,7 +143,6 @@ interface CommonObservation {
     operators: number;
     weapons: number;
     images: number;
-    leaseStored: boolean;
     version: string;
   };
   routeHeadings: string[];
@@ -713,17 +713,19 @@ async function openRoute(page: Page, baseUrl: string, path: string, heading: str
   await expect(page.getByRole('alert')).toHaveCount(0);
 }
 
-async function bootstrap(page: Page, baseUrl: string): Promise<CommonObservation['install']> {
-  await page.goto(baseUrl);
-  await expect(page.getByRole('heading', { name: '终末地伤害工作台', exact: true })).toBeVisible();
-
+async function bootstrap(page: Page, target: DualRunTarget): Promise<CommonObservation['install']> {
+  await page.goto(target.baseUrl);
   const password = page.getByRole('textbox', { name: '访问密码', exact: true });
-  await password.fill(`${ACCESS_PASSWORD}-wrong`);
-  await page.getByRole('button', { name: '进入工作台', exact: true }).click();
-  await expect(page.getByRole('alert')).toHaveText('访问密码不正确。');
-
-  await password.fill(ACCESS_PASSWORD);
-  await page.getByRole('button', { name: '进入工作台', exact: true }).click();
+  if (target.publicEntry) {
+    await expect(password).toHaveCount(0);
+  } else {
+    await expect(page.getByRole('heading', { name: '终末地伤害工作台', exact: true })).toBeVisible();
+    await password.fill(`${ACCESS_PASSWORD}-wrong`);
+    await page.getByRole('button', { name: '进入工作台', exact: true }).click();
+    await expect(page.getByRole('alert')).toHaveText('访问密码不正确。');
+    await password.fill(ACCESS_PASSWORD);
+    await page.getByRole('button', { name: '进入工作台', exact: true }).click();
+  }
   await expect(page.getByRole('heading', { name: '先把基础资料装进浏览器', exact: true })).toBeVisible();
   await expect(page.getByText(`${EXPECTED_OPERATOR_COUNT} 位本地干员`, { exact: true })).toBeVisible();
   await expect(page.getByText(`${EXPECTED_WEAPON_COUNT} 件本地武器`, { exact: true })).toBeVisible();
@@ -739,7 +741,6 @@ async function bootstrap(page: Page, baseUrl: string): Promise<CommonObservation
     operators: EXPECTED_OPERATOR_COUNT,
     weapons: EXPECTED_WEAPON_COUNT,
     images: EXPECTED_IMAGE_COUNT,
-    leaseStored: await page.evaluate(() => Boolean(window.localStorage.getItem('dmg.web.access-lease.v1'))),
     version,
   };
 }
@@ -1208,7 +1209,7 @@ async function runTarget(browser: Browser, target: DualRunTarget): Promise<Targe
 
   try {
     const install = await test.step(`${target.name}: access and install`, () =>
-      bootstrap(page, target.baseUrl));
+      bootstrap(page, target));
     const routeHeadings: string[] = [];
     await test.step(`${target.name}: common lazy routes`, async () => {
       for (const [path, heading] of COMMON_ROUTES) {
@@ -1279,12 +1280,14 @@ test('baseline and candidate share one black-box contract', async ({ browser }, 
     {
       name: BASELINE_LABEL,
       baseUrl: LTS_BASE_URL,
+      publicEntry: readBooleanEnvironment('LTS_DUAL_BASELINE_PUBLIC_ENTRY', false),
       legacyDamageSheet: readBooleanEnvironment('LTS_DUAL_BASELINE_LEGACY_DAMAGE_SHEET', true),
       legacyThreePieceTypeEditor: readBooleanEnvironment('LTS_DUAL_BASELINE_LEGACY_THREE_PIECE_TYPE_EDITOR', true),
     },
     {
       name: CANDIDATE_LABEL,
       baseUrl: SLIM_BASE_URL,
+      publicEntry: readBooleanEnvironment('LTS_DUAL_CANDIDATE_PUBLIC_ENTRY', true),
       legacyDamageSheet: readBooleanEnvironment('LTS_DUAL_CANDIDATE_LEGACY_DAMAGE_SHEET', false),
       legacyThreePieceTypeEditor: readBooleanEnvironment('LTS_DUAL_CANDIDATE_LEGACY_THREE_PIECE_TYPE_EDITOR', false),
     },

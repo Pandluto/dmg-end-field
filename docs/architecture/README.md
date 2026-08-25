@@ -7,7 +7,7 @@
 - [系统全景](./current-system.md)：组件、职责、依赖方向与关键入口。
 - [运行拓扑](./runtime-topology.md)：静态站点、浏览器能力与本地开发入口。
 - [数据生命周期](./data-lifecycle.md)：资料包、用户数据库、工作区与备份。
-- [安全边界](./security-boundaries.md)：客户端门禁、同源存储、导入与包完整性。
+- [安全边界](./security-boundaries.md)：公开入口、同源存储、导入与包完整性。
 - [验证矩阵](./verification-matrix.md)：哪些检查在 CI、构建或真实浏览器验收中执行。
 - [CI/CD](./ci-cd.md)：质量门、Desktop 构建、Draft 归档和国内生产发布边界。
 - [1.8 LTS 分支合同](./lts-branch-contract.md)：Desktop、Slimming 与共同基线的职责和补丁同步规则。

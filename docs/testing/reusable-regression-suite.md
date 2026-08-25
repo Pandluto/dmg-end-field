@@ -43,7 +43,6 @@ npm run test:regression:dual
 | `E2E_BASE_URL` | `http://127.0.0.1:3040` | 指向待测候选服务 |
 | `E2E_SERVER_COMMAND` | `npm run dev:e2e` | 目标未启动时由 Playwright 执行的启动命令 |
 | `E2E_SKIP_WEB_SERVER` | 未设置 | 设为 `1` 时只连接已有服务，不自动启动 |
-| `E2E_ACCESS_PASSWORD` | `zmd` | 当前 Web 访问密码 |
 | `E2E_EXPECTED_OPERATOR_COUNT` | `30` | 首次安装页预期干员数 |
 | `E2E_EXPECTED_WEAPON_COUNT` | `75` | 首次安装页预期武器数 |
 | `E2E_EXPECTED_IMAGE_COUNT` | `559` | 首次安装页预期图片资源数 |
@@ -69,6 +68,9 @@ npm run test:regression
 | `SLIM_DUAL_WORKTREE` | 当前测试仓库 | 候选 worktree 绝对路径 |
 | `LTS_DUAL_BASELINE_LABEL` | `v1.8-LTS` | 测试报告中的基线名称 |
 | `LTS_DUAL_CANDIDATE_LABEL` | `v1.8-slim` | 测试报告中的候选名称 |
+| `LTS_DUAL_BASELINE_PUBLIC_ENTRY` | `false` | 基线是否已关闭客户端密码门禁 |
+| `LTS_DUAL_CANDIDATE_PUBLIC_ENTRY` | `true` | 候选是否已关闭客户端密码门禁 |
+| `E2E_ACCESS_PASSWORD` | `zmd` | 仍保留旧门禁的基线访问密码；公开候选不使用 |
 | `LTS_DUAL_BASELINE_LEGACY_DAMAGE_SHEET` | `true` | 基线是否应保留旧 Damage/XLSX/入口组 |
 | `LTS_DUAL_CANDIDATE_LEGACY_DAMAGE_SHEET` | `false` | 候选是否应保留旧 Damage/XLSX/入口组 |
 | `LTS_DUAL_BASELINE_LEGACY_THREE_PIECE_TYPE_EDITOR` | `true` | 基线是否应保留三件套旧 type 下拉 |

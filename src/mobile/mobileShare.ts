@@ -5,6 +5,7 @@ import type { TimelineBundleV2 } from '../utils/timelineSnapshotStorage';
 export const MOBILE_SHARE_SCHEMA_VERSION = 1 as const;
 export const TACTICAL_SHARE_SCHEMA_VERSION = 2 as const;
 export const TACTICAL_SHARE_ROUTE_PREFIX = '/share';
+export const MOBILE_TACTICAL_SHARE_ROUTE = '/mobile';
 export const TACTICAL_SHARE_NODE_ORIGINS = [
   'https://dmgendfield.cloud',
   'https://dmgendfield.online',
@@ -151,7 +152,8 @@ export function isMobileShareEnabled(): boolean {
 
 export function buildMobileShareUrl(shareId: string): string {
   if (!SHARE_ID_PATTERN.test(shareId)) throw new Error('分享编号无效。');
-  const url = new URL(`${TACTICAL_SHARE_ROUTE_PREFIX}/${shareId}`, TACTICAL_SHARE_NODE_ORIGINS[0]);
+  const url = new URL(MOBILE_TACTICAL_SHARE_ROUTE, TACTICAL_SHARE_NODE_ORIGINS[0]);
+  url.searchParams.set('share', shareId);
   return url.toString();
 }
 

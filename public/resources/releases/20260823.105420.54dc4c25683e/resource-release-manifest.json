@@ -1,20 +1,20 @@
 {
   "type": "dmg.resource-deployment.v1",
   "schemaVersion": 1,
-  "releaseVersion": "20260823.014042.204f2fe07f39",
-  "rootSha256": "204f2fe07f392c8cfcf9db4e7207730cff21f0c15f7b4aeeae78d6fd8503c989",
-  "generatedAt": "2026-08-22T17:40:42.123Z",
+  "releaseVersion": "20260823.105420.54dc4c25683e",
+  "rootSha256": "54dc4c25683ea96e1fac39c146e8fd751c4238ff419a775178f9a73fc6ec3a02",
+  "generatedAt": "2026-08-23T02:54:20.908Z",
   "source": {
-    "fileName": "local-20260822173847.json",
-    "archiveId": "local-20260822173847",
-    "exportedAt": "2026-08-22T17:38:47.131Z"
+    "fileName": "local-20260823025133.json",
+    "archiveId": "local-20260823025133",
+    "exportedAt": "2026-08-23T02:51:33.925Z"
   },
   "data": {
-    "version": "20260823.014042.c45e0329",
+    "version": "20260823.105420.1197a87e",
     "file": {
       "path": "data/default-local-data.json",
-      "sha256": "c45e032967e4a9fb08eeb9ef6c26c16bc191b001d659b669ce017f464c30f962",
-      "size": 6326226
+      "sha256": "1197a87ef5a0810ea31ee2764250dc9e0d95412018630bdde1accb46e8a1a849",
+      "size": 6775456
     },
     "summary": {
       "operators": 32,
@@ -23,13 +23,13 @@
     }
   },
   "images": {
-    "version": "20260823.014042.4c099898d5b6",
+    "version": "20260823.105420.4c099898d5b6",
     "totalBytes": 36863052,
     "indexSha256": "4c099898d5b6676866a31a8e8546a35d8e3fc7ca964239a4ad64109de7504b7d",
     "archive": {
-      "path": "images/assets-20260823.014042.4c099898d5b6-full.zip",
-      "fileName": "assets-20260823.014042.4c099898d5b6-full.zip",
-      "sha256": "fcebd36aebf84592452a60fb4f8cb6de7a93ed75b7cc52d8c64e360c02bb967a",
+      "path": "images/assets-20260823.105420.4c099898d5b6-full.zip",
+      "fileName": "assets-20260823.105420.4c099898d5b6-full.zip",
+      "sha256": "56087586193e41b3cf89bcab32dc0a7269494f9619a401db82ab95f7802ee120",
       "size": 19684748
     },
     "files": [
@@ -2712,13 +2712,13 @@
   },
   "delivery": {
     "dataManifest": {
-      "path": "resources/releases/20260823.014042.204f2fe07f39/web-data-manifest.json",
-      "sha256": "5b5bfce157f933c7cecc040fb744266b9d28a7f081b88870902e78978e38d2fb",
+      "path": "resources/releases/20260823.105420.54dc4c25683e/web-data-manifest.json",
+      "sha256": "85a8b071fe3ee75b483055c8edf5f73b047db9c2d55da7d8518cb1692ab5de65",
       "size": 592
     },
     "imageManifest": {
-      "path": "resources/releases/20260823.014042.204f2fe07f39/web-image-manifest.json",
-      "sha256": "3d3454d9484797309f172759754ea45d828b36f1f880a3d2aa394d931f0bc98f",
+      "path": "resources/releases/20260823.105420.54dc4c25683e/web-image-manifest.json",
+      "sha256": "10903efc18a39418869bfd6993379b58cc1a3859bde69c026e4a13cbe7c4997d",
       "size": 105028
     }
   }

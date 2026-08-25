@@ -9,7 +9,6 @@
 | 自定义图片 | SQLite `image_assets` BLOB | 随数据库备份 |
 | 官方 JSON 资料 | Cache Storage + `data_packages` 安装记录 | 可删除并重新下载 |
 | 官方图片 | Cache Storage + 图片包安装记录 | 可删除并重新下载 |
-| 30 天门禁 | 浏览器站点存储 | 到期或设置页退出后重新输入 |
 
 ## 首次安装
 

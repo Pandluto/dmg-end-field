@@ -23,6 +23,13 @@ const root = ReactDOM.createRoot(document.getElementById('root')!)
 
 async function mountEntry() {
   await getAppHostExtension().beforeMount?.()
+  // The retired public-entry gate used this lease. Remove stale credentials
+  // once so existing browsers do not keep obsolete access state indefinitely.
+  try {
+    window.localStorage.removeItem('dmg.web.access-lease.v1')
+  } catch {
+    // Public startup must also work when browser storage is restricted.
+  }
   const isLocalResourcePackager = (
     ['127.0.0.1', 'localhost'].includes(window.location.hostname)
     && window.location.hash.split('?')[0] === '#/settings/resource-packager'

@@ -1,7 +1,7 @@
 {
   "name": "dmg-end-field",
   "private": true,
-  "version": "1.8.6",
+  "version": "1.8.7",
   "main": "electron/main.cjs",
   "author": "SailStellar <190052366@qq.com>",
   "description": "Slim LTS 浏览器工作台与独立 Electron 桌面 Shell",
