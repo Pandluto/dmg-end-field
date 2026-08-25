@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AccessGate } from '../components/WebApp/AccessGate';
-import { readAccessLeaseStatus } from '../platform/auth/accessLease';
 import type { MobileCatalog } from './model';
 import { loadMobileCatalog } from './mobileCatalog';
 import { MobileApp } from './MobileApp';
@@ -8,7 +6,7 @@ import { fetchCurrentResourceRelease } from '../platform/resources/resourceChann
 import '../components/WebApp/web-app.css';
 import './MobileBootstrap.css';
 
-type MobileBootstrapPhase = 'checking-access' | 'locked' | 'loading' | 'ready' | 'failed';
+type MobileBootstrapPhase = 'loading' | 'ready' | 'failed';
 
 const VERSION_CHECK_INTERVAL_MS = 5 * 60 * 1_000;
 
@@ -23,7 +21,7 @@ async function readLatestMobileVersions(): Promise<{ dataVersion: string; imageV
 }
 
 export function MobileBootstrap() {
-  const [phase, setPhase] = useState<MobileBootstrapPhase>('checking-access');
+  const [phase, setPhase] = useState<MobileBootstrapPhase>('loading');
   const [catalog, setCatalog] = useState<MobileCatalog | null>(null);
   const [failure, setFailure] = useState('');
   const [updateAvailable, setUpdateAvailable] = useState(false);
@@ -44,12 +42,8 @@ export function MobileBootstrap() {
 
   useEffect(() => {
     let cancelled = false;
-    void readAccessLeaseStatus().then((status) => {
+    void Promise.resolve().then(() => {
       if (cancelled) return;
-      if (!status.granted) {
-        setPhase('locked');
-        return;
-      }
       void initialize();
     });
     return () => {
@@ -79,19 +73,6 @@ export function MobileBootstrap() {
       window.clearInterval(timer);
     };
   }, [catalog, phase]);
-
-  if (phase === 'checking-access') {
-    return (
-      <main className="mobile-bootstrap-state" aria-live="polite">
-        <span className="mobile-bootstrap-spinner" />
-        <strong>正在检查访问权限</strong>
-      </main>
-    );
-  }
-
-  if (phase === 'locked') {
-    return <AccessGate variant="mobile" onUnlocked={() => void initialize()} />;
-  }
 
   if (phase === 'loading') {
     return (

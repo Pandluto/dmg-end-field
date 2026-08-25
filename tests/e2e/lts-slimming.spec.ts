@@ -10,7 +10,6 @@ const packageMetadata = JSON.parse(
 ) as { version: string };
 
 const BASE_URL = process.env.E2E_BASE_URL || 'http://127.0.0.1:3040';
-const ACCESS_PASSWORD = readTextEnvironment('E2E_ACCESS_PASSWORD', 'zmd');
 const EXPECTED_OPERATOR_COUNT = readCountEnvironment('E2E_EXPECTED_OPERATOR_COUNT', 30);
 const EXPECTED_WEAPON_COUNT = readCountEnvironment('E2E_EXPECTED_WEAPON_COUNT', 75);
 const EXPECTED_IMAGE_COUNT = readCountEnvironment('E2E_EXPECTED_IMAGE_COUNT', 559);
@@ -402,17 +401,9 @@ test('candidate browser behavior regression', async ({ context, page }) => {
     if (message.type() === 'error') browserErrors.push(`console: ${message.text()}`);
   });
 
-  await test.step('access lease and first installation stay functional', async () => {
+  await test.step('public entry and first installation stay functional', async () => {
     await page.goto(BASE_URL);
-    await expect(page.getByRole('heading', { name: '终末地伤害工作台', exact: true })).toBeVisible();
-
-    const password = page.getByRole('textbox', { name: '访问密码', exact: true });
-    await password.fill(`${ACCESS_PASSWORD}-wrong`);
-    await page.getByRole('button', { name: '进入工作台', exact: true }).click();
-    await expect(page.getByRole('alert')).toHaveText('访问密码不正确。');
-
-    await password.fill(ACCESS_PASSWORD);
-    await page.getByRole('button', { name: '进入工作台', exact: true }).click();
+    await expect(page.getByRole('textbox', { name: '访问密码', exact: true })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: '先把基础资料装进浏览器', exact: true })).toBeVisible();
     await expect(page.getByText(`${EXPECTED_OPERATOR_COUNT} 位本地干员`, { exact: true })).toBeVisible();
     await expect(page.getByText(`${EXPECTED_WEAPON_COUNT} 件本地武器`, { exact: true })).toBeVisible();
@@ -423,7 +414,7 @@ test('candidate browser behavior regression', async ({ context, page }) => {
       timeout: 120_000,
     });
     await expect(page.getByText(EXPECTED_VERSION_LABEL, { exact: true })).toBeVisible();
-    expect(await page.evaluate(() => window.localStorage.getItem('dmg.web.access-lease.v1'))).toBeTruthy();
+    expect(await page.evaluate(() => window.localStorage.getItem('dmg.web.access-lease.v1'))).toBeNull();
   });
 
   await test.step('version check is automatic while update activation stays manual', async () => {

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import App from '../../App';
 import { AppProvider } from '../../context/AppContext';
-import { readAccessLeaseStatus } from '../../platform/auth/accessLease';
 import {
   requestPersistentBrowserStorage,
   webDatabase,
@@ -31,20 +30,17 @@ import { initializeAppTheme } from '../../platform/theme/appTheme';
 import { NotificationCenterProvider } from '../../platform/notifications/NotificationCenterProvider';
 import { getAppHostExtension } from '../../platform/host/appHost';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
-import { AccessGate } from './AccessGate';
 import { RuntimeFailurePage } from './RuntimeFailurePage';
 import { SecondaryTabPage } from './SecondaryTabPage';
 import { WelcomePage } from './WelcomePage';
 import './web-app.css';
 
-type BootstrapPhase = 'checking-access' | 'locked' | 'starting' | 'secondary' | 'onboarding' | 'ready' | 'failed';
+type BootstrapPhase = 'starting' | 'secondary' | 'onboarding' | 'ready' | 'failed';
 
 export function WebBootstrap() {
   const [hostExtension] = useState(() => getAppHostExtension());
   const hostWorkspace = hostExtension.workspace;
-  const [phase, setPhase] = useState<BootstrapPhase>(
-    () => (hostWorkspace?.skipAccessGate ? 'starting' : 'checking-access'),
-  );
+  const [phase, setPhase] = useState<BootstrapPhase>('starting');
   const [failure, setFailure] = useState('');
   const [installedPackage, setInstalledPackage] = useState<InstalledResourcePackage | null>(null);
   const [installedImagePackage, setInstalledImagePackage] = useState<InstalledImagePackage | null>(null);
@@ -126,17 +122,9 @@ export function WebBootstrap() {
   }, [hostWorkspace]);
 
   useEffect(() => {
-    if (hostWorkspace?.skipAccessGate) {
-      void initializeWorkspace();
-      return undefined;
-    }
     let cancelled = false;
-    void readAccessLeaseStatus().then((status) => {
+    void Promise.resolve().then(() => {
       if (cancelled) return;
-      if (!status.granted) {
-        setPhase('locked');
-        return;
-      }
       void initializeWorkspace();
     });
     return () => {
@@ -169,21 +157,15 @@ export function WebBootstrap() {
     return () => document.removeEventListener('visibilitychange', flushOnHide);
   }, []);
 
-  if (phase === 'checking-access' || phase === 'starting') {
+  if (phase === 'starting') {
     return (
       <main className="web-entry-screen">
         <div className="boot-indicator">
           <span />
-          <p>{phase === 'checking-access'
-            ? '检查访问状态'
-            : hostWorkspace?.startupLabel?.() || '正在打开浏览器工作区'}</p>
+          <p>{hostWorkspace?.startupLabel?.() || '正在打开浏览器工作区'}</p>
         </div>
       </main>
     );
-  }
-
-  if (phase === 'locked') {
-    return <AccessGate onUnlocked={() => void initializeWorkspace()} />;
   }
 
   if (phase === 'secondary') {

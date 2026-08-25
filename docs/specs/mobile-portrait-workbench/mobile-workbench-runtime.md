@@ -7,7 +7,7 @@
 ## 入口与启动
 
 - 路由：`/mobile`（Cloudflare Worker 将 `/mobile` 与 `/mobile/*` 重写为根页面壳；移动端入口由 `window.__DMG_MOBILE_ENTRY__` 标记触发 `MobileBootstrap`）。
-- 启动：访问门禁（AccessGate，mobile 变体）→ 读取线上目录（干员、武器、装备、Buff 与图片）→ 就绪。
+- 启动：公开进入 `/mobile` → 读取线上目录（干员、武器、装备、Buff 与图片）→ 就绪。
 - 数据与图片**强制同一版本**：目录从资源通道读取，`dataVersion` 与 `imageVersion` 来自同一 release；图片 URL 追加 `imageVersion` 查询参数并随版本切换。
 - 后台每 5 分钟检查一次稳定通道；发现新数据/图片版本时提示更新（不打断当前草稿）。
 
@@ -33,7 +33,7 @@
 
 - 竖屏优先，但允许横屏与桌面访问；桌面浏览器打开 /mobile 也可使用（54f7fccb、bdc86d43）。
 - Buff 编辑器、选人、配置、排轴、报表各页在窄屏/宽屏下的布局由 `MobileApp.css` 响应式规则保证。
-- 门禁：AccessGate 移动端变体；与桌面共用 30 天访问凭据（accessLease）。
+- 分享入口：新二维码直接使用 `/mobile?share=<id>`；手机扫描旧 `/share/<id>` 或旧 hash 二维码时会先规范化到手机路由。
 
 ## 边界
 

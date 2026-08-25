@@ -36,10 +36,11 @@ function mobileRecord() {
   };
 }
 
-test('always publishes the domestic share route while retaining legacy QR parsing', () => {
+test('publishes an explicit domestic mobile route while retaining legacy QR parsing', () => {
   const url = buildMobileShareUrl(SHARE_ID);
-  assert.equal(url, `https://dmgendfield.cloud/share/${SHARE_ID}`);
+  assert.equal(url, `https://dmgendfield.cloud/mobile?share=${SHARE_ID}`);
   assert.equal(parseMobileShareId(url), SHARE_ID);
+  assert.equal(parseMobileShareId(`https://dmgendfield.cloud/share/${SHARE_ID}`), SHARE_ID);
   assert.equal(parseMobileShareId(`https://dmgendfield.online/mobile?share=${SHARE_ID}`), SHARE_ID);
   assert.equal(parseMobileShareId(`https://dmgendfield.online/#/share/${SHARE_ID}`), SHARE_ID);
   assert.equal(parseMobileShareId(`DEFMS1:${SHARE_ID}`), SHARE_ID);

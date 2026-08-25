@@ -5,7 +5,6 @@ import path from 'node:path';
 import { chromium } from '@playwright/test';
 
 const buildDirectory = path.resolve(process.argv[2] || 'dist');
-const accessPassword = process.env.E2E_ACCESS_PASSWORD || 'zmd';
 for (const requiredFile of [
   'index.html',
   'sw.js',
@@ -131,9 +130,6 @@ try {
   const onlineResponse = await onlinePage.goto(origin, { waitUntil: 'domcontentloaded' });
   assert.equal(onlineResponse?.status(), 200, 'The online workspace must open before installation.');
 
-  await onlinePage.getByRole('heading', { name: '终末地伤害工作台', exact: true }).waitFor();
-  await onlinePage.getByRole('textbox', { name: '访问密码', exact: true }).fill(accessPassword);
-  await onlinePage.getByRole('button', { name: '进入工作台', exact: true }).click();
   await onlinePage.getByRole('heading', {
     name: '先把基础资料装进浏览器',
     exact: true,

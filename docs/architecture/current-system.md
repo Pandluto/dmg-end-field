@@ -3,7 +3,7 @@
 | 组件 | 入口 | 责任 |
 | --- | --- | --- |
 | Web 应用 | `src/App.tsx` | 路由、工作台与业务页面 |
-| 启动边界 | `src/components/WebApp/WebBootstrap.tsx` | 门禁、租约、数据库、存储与资料包启动顺序 |
+| 启动边界 | `src/components/WebApp/WebBootstrap.tsx` | 租约、数据库、存储与资料包启动顺序 |
 | 浏览器数据库 | `src/platform/database/` | SQLite WASM、OPFS VFS、schema 与备份 |
 | 持久存储 | `src/platform/storage/` | 将既有 Storage API 投影到 SQLite |
 | Timeline repository | `src/platform/timeline/browserTimelineStore.ts` | 文档、快照、Work Node、CAS、checkout、审计与存档 |
