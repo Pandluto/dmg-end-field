@@ -1,36 +1,36 @@
 {
   "type": "dmg.resource-deployment.v1",
   "schemaVersion": 1,
-  "releaseVersion": "20260823.105420.54dc4c25683e",
-  "rootSha256": "54dc4c25683ea96e1fac39c146e8fd751c4238ff419a775178f9a73fc6ec3a02",
-  "generatedAt": "2026-08-23T02:54:20.908Z",
+  "releaseVersion": "20260902.092658.831b4fda55cf",
+  "rootSha256": "831b4fda55cfe8bdb2d46cf57f348e8db4ffe1bd92a8e2276ff7bec8a38ddc3b",
+  "generatedAt": "2026-09-02T01:26:58.357Z",
   "source": {
-    "fileName": "local-20260823025133.json",
-    "archiveId": "local-20260823025133",
-    "exportedAt": "2026-08-23T02:51:33.925Z"
+    "fileName": "share-data-with-images.json",
+    "archiveId": "local-20260902012238",
+    "exportedAt": "2026-09-02T01:22:38.252Z"
   },
   "data": {
-    "version": "20260823.105420.1197a87e",
+    "version": "20260902.092658.aae6a346",
     "file": {
       "path": "data/default-local-data.json",
-      "sha256": "1197a87ef5a0810ea31ee2764250dc9e0d95412018630bdde1accb46e8a1a849",
-      "size": 6775456
+      "sha256": "aae6a3466b9fdfb9f91f6cab7bc22ca4cc195aa5e6d20d0743a2886fcdfc4a7e",
+      "size": 6794401
     },
     "summary": {
       "operators": 32,
-      "weapons": 77,
-      "images": 535
+      "weapons": 78,
+      "images": 541
     }
   },
   "images": {
-    "version": "20260823.105420.4c099898d5b6",
-    "totalBytes": 36863052,
-    "indexSha256": "4c099898d5b6676866a31a8e8546a35d8e3fc7ca964239a4ad64109de7504b7d",
+    "version": "20260902.092658.b585fc730933",
+    "totalBytes": 46857206,
+    "indexSha256": "b585fc7309332099aeed021ad2e0f055b91b54971ea4bb76d8457665e74b1ca1",
     "archive": {
-      "path": "images/assets-20260823.105420.4c099898d5b6-full.zip",
-      "fileName": "assets-20260823.105420.4c099898d5b6-full.zip",
-      "sha256": "56087586193e41b3cf89bcab32dc0a7269494f9619a401db82ab95f7802ee120",
-      "size": 19684748
+      "path": "images/assets-20260902.092658.b585fc730933-full.zip",
+      "fileName": "assets-20260902.092658.b585fc730933-full.zip",
+      "sha256": "f25d454e94cc3122e11402c64ddc85074e31ca122c3bcf1de094eaa360497974",
+      "size": 20086093
     },
     "files": [
       {
@@ -419,9 +419,19 @@
         "size": 18225
       },
       {
+        "path": "assets/images/img-equipment/icon_cn/沉水手套.png",
+        "sha256": "19f2cf93af2113c78ccf46f8027260c46c58eb410779e8cad12e38e03cb4bf9e",
+        "size": 262604
+      },
+      {
         "path": "assets/images/img-equipment/icon_cn/浊流切割炬.png",
         "sha256": "9c85d550c517c5ffc36f7b0b7835b93edbbbbef81fea50a9c458899e2cc7df4a",
         "size": 12041
+      },
+      {
+        "path": "assets/images/img-equipment/icon_cn/浊流切割炬·壹型.png",
+        "sha256": "ed7bfdf7cd0145e93b441b5e8f8020ecda1670a07ba2ce7933e78b4cb92171bc",
+        "size": 262604
       },
       {
         "path": "assets/images/img-equipment/icon_cn/测试型重甲.png",
@@ -432,6 +442,11 @@
         "path": "assets/images/img-equipment/icon_cn/测试型重甲·壹型.png",
         "sha256": "aa23a45283b16446f750d1b2a4becc8ede0056a560c20f9ce09d860e30d3a5a7",
         "size": 10703
+      },
+      {
+        "path": "assets/images/img-equipment/icon_cn/涌浪重装甲.png",
+        "sha256": "aabd7726e8044f67dac9d3d081b7d11b9a9fef27c54ccd061066704a6d0f76fa",
+        "size": 262604
       },
       {
         "path": "assets/images/img-equipment/icon_cn/清波定位仪.png",
@@ -854,6 +869,11 @@
         "size": 22874
       },
       {
+        "path": "assets/images/img-equipment/icon_cn/落潮轻甲·壹型.png",
+        "sha256": "fd776ff75f75351d8b986040d8914c030fc464c9f0b69d97010d90e633c0b512",
+        "size": 262604
+      },
+      {
         "path": "assets/images/img-equipment/icon_cn/蓝铁装备原件.png",
         "sha256": "bfbf28765086a2bcc809f16eb3070a0f23bf01acef8c91d298aca4460b785178",
         "size": 17217
@@ -1039,6 +1059,11 @@
         "size": 19021
       },
       {
+        "path": "assets/images/img-equipment/icon_cn/长息加固板·壹型.png",
+        "sha256": "846b9624031c2523f4a460937d07265c14bff61600cc79efa0ef026324653f88",
+        "size": 262604
+      },
+      {
         "path": "assets/images/img-equipment/icon_cn/长息护手.png",
         "sha256": "89ca436a8a6296fc388851a6dcc7db131c556866e8ebf72364d59219060f69a9",
         "size": 16938
@@ -1062,6 +1087,11 @@
         "path": "assets/images/img-equipment/icon_cn/长息辅助臂.png",
         "sha256": "de65d29281c8d6aa4b4eee9e1a0d2cfe4f864ab46050abf53ca7888bd532ee04",
         "size": 17402
+      },
+      {
+        "path": "assets/images/img-equipment/icon_cn/长息重护板.png",
+        "sha256": "300ac9805d1d07514c63b8e6948b6701515f8a4ffb77b41661e8d4147fa89ac4",
+        "size": 262604
       },
       {
         "path": "assets/images/img-equipment/icon_cn/阿伯莉传感芯片.png",
@@ -2010,8 +2040,8 @@
       },
       {
         "path": "assets/images/img-operator/提丰/寒夜幽影.png",
-        "sha256": "b1783d2003b62022fab5acebce2b431821db0af2d6cfaa62cf51342c805d7e72",
-        "size": 117481
+        "sha256": "57c4821ac2b6b3e2c79f1c017be4797f1a85c14a0e69c154e138e3744767db8d",
+        "size": 8395076
       },
       {
         "path": "assets/images/img-operator/提丰/提丰.png",
@@ -2035,8 +2065,8 @@
       },
       {
         "path": "assets/images/img-operator/提丰/苦难的尽头.png",
-        "sha256": "b35559f257664dfdb50d2de26843a5f893cb813246d3081ce31bc933e49cc9f0",
-        "size": 121669
+        "sha256": "2e15ae9d125378970d6a801fe62ab638ad0fa1bc91acb300c0a1bcd2d5dc4add",
+        "size": 262604
       },
       {
         "path": "assets/images/img-operator/提丰/险关护手.png",
@@ -2712,14 +2742,14 @@
   },
   "delivery": {
     "dataManifest": {
-      "path": "resources/releases/20260823.105420.54dc4c25683e/web-data-manifest.json",
-      "sha256": "85a8b071fe3ee75b483055c8edf5f73b047db9c2d55da7d8518cb1692ab5de65",
+      "path": "resources/releases/20260902.092658.831b4fda55cf/web-data-manifest.json",
+      "sha256": "ad8340f6c799d2f6afc3243de9dd33a41fd337c05c88896d1f55d4246c193820",
       "size": 592
     },
     "imageManifest": {
-      "path": "resources/releases/20260823.105420.54dc4c25683e/web-image-manifest.json",
-      "sha256": "10903efc18a39418869bfd6993379b58cc1a3859bde69c026e4a13cbe7c4997d",
-      "size": 105028
+      "path": "resources/releases/20260902.092658.831b4fda55cf/web-image-manifest.json",
+      "sha256": "003e89a3ec79d8ba8998b53c5893da7c1038c2a0d28f4e90f0ffefba43a94288",
+      "size": 106193
     }
   }
 }

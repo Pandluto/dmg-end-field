@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "packageId": "dmg-end-field-image-pack",
-  "version": "20260823.105420.4c099898d5b6",
-  "releaseVersion": "20260823.105420.54dc4c25683e",
-  "generatedAt": "2026-08-23T02:54:20.908Z",
-  "releaseTag": "20260823.105420.54dc4c25683e",
+  "version": "20260902.092658.b585fc730933",
+  "releaseVersion": "20260902.092658.831b4fda55cf",
+  "generatedAt": "2026-09-02T01:26:58.357Z",
+  "releaseTag": "20260902.092658.831b4fda55cf",
   "publicBasePath": "assets/images",
   "files": [
     {
@@ -393,9 +393,19 @@
       "size": 18225
     },
     {
+      "path": "assets/images/img-equipment/icon_cn/沉水手套.png",
+      "sha256": "19f2cf93af2113c78ccf46f8027260c46c58eb410779e8cad12e38e03cb4bf9e",
+      "size": 262604
+    },
+    {
       "path": "assets/images/img-equipment/icon_cn/浊流切割炬.png",
       "sha256": "9c85d550c517c5ffc36f7b0b7835b93edbbbbef81fea50a9c458899e2cc7df4a",
       "size": 12041
+    },
+    {
+      "path": "assets/images/img-equipment/icon_cn/浊流切割炬·壹型.png",
+      "sha256": "ed7bfdf7cd0145e93b441b5e8f8020ecda1670a07ba2ce7933e78b4cb92171bc",
+      "size": 262604
     },
     {
       "path": "assets/images/img-equipment/icon_cn/测试型重甲.png",
@@ -406,6 +416,11 @@
       "path": "assets/images/img-equipment/icon_cn/测试型重甲·壹型.png",
       "sha256": "aa23a45283b16446f750d1b2a4becc8ede0056a560c20f9ce09d860e30d3a5a7",
       "size": 10703
+    },
+    {
+      "path": "assets/images/img-equipment/icon_cn/涌浪重装甲.png",
+      "sha256": "aabd7726e8044f67dac9d3d081b7d11b9a9fef27c54ccd061066704a6d0f76fa",
+      "size": 262604
     },
     {
       "path": "assets/images/img-equipment/icon_cn/清波定位仪.png",
@@ -828,6 +843,11 @@
       "size": 22874
     },
     {
+      "path": "assets/images/img-equipment/icon_cn/落潮轻甲·壹型.png",
+      "sha256": "fd776ff75f75351d8b986040d8914c030fc464c9f0b69d97010d90e633c0b512",
+      "size": 262604
+    },
+    {
       "path": "assets/images/img-equipment/icon_cn/蓝铁装备原件.png",
       "sha256": "bfbf28765086a2bcc809f16eb3070a0f23bf01acef8c91d298aca4460b785178",
       "size": 17217
@@ -1013,6 +1033,11 @@
       "size": 19021
     },
     {
+      "path": "assets/images/img-equipment/icon_cn/长息加固板·壹型.png",
+      "sha256": "846b9624031c2523f4a460937d07265c14bff61600cc79efa0ef026324653f88",
+      "size": 262604
+    },
+    {
       "path": "assets/images/img-equipment/icon_cn/长息护手.png",
       "sha256": "89ca436a8a6296fc388851a6dcc7db131c556866e8ebf72364d59219060f69a9",
       "size": 16938
@@ -1036,6 +1061,11 @@
       "path": "assets/images/img-equipment/icon_cn/长息辅助臂.png",
       "sha256": "de65d29281c8d6aa4b4eee9e1a0d2cfe4f864ab46050abf53ca7888bd532ee04",
       "size": 17402
+    },
+    {
+      "path": "assets/images/img-equipment/icon_cn/长息重护板.png",
+      "sha256": "300ac9805d1d07514c63b8e6948b6701515f8a4ffb77b41661e8d4147fa89ac4",
+      "size": 262604
     },
     {
       "path": "assets/images/img-equipment/icon_cn/阿伯莉传感芯片.png",
@@ -1984,8 +2014,8 @@
     },
     {
       "path": "assets/images/img-operator/提丰/寒夜幽影.png",
-      "sha256": "b1783d2003b62022fab5acebce2b431821db0af2d6cfaa62cf51342c805d7e72",
-      "size": 117481
+      "sha256": "57c4821ac2b6b3e2c79f1c017be4797f1a85c14a0e69c154e138e3744767db8d",
+      "size": 8395076
     },
     {
       "path": "assets/images/img-operator/提丰/提丰.png",
@@ -2009,8 +2039,8 @@
     },
     {
       "path": "assets/images/img-operator/提丰/苦难的尽头.png",
-      "sha256": "b35559f257664dfdb50d2de26843a5f893cb813246d3081ce31bc933e49cc9f0",
-      "size": 121669
+      "sha256": "2e15ae9d125378970d6a801fe62ab638ad0fa1bc91acb300c0a1bcd2d5dc4add",
+      "size": 262604
     },
     {
       "path": "assets/images/img-operator/提丰/险关护手.png",
@@ -2683,42 +2713,42 @@
       "size": 53211
     }
   ],
-  "totalBytes": 36863052,
+  "totalBytes": 46857206,
   "archive": {
-    "path": "resources/releases/20260823.105420.54dc4c25683e/images/assets-20260823.105420.4c099898d5b6-full.zip",
-    "fileName": "assets-20260823.105420.4c099898d5b6-full.zip",
-    "sha256": "56087586193e41b3cf89bcab32dc0a7269494f9619a401db82ab95f7802ee120",
-    "size": 19684748,
+    "path": "resources/releases/20260902.092658.831b4fda55cf/images/assets-20260902.092658.b585fc730933-full.zip",
+    "fileName": "assets-20260902.092658.b585fc730933-full.zip",
+    "sha256": "f25d454e94cc3122e11402c64ddc85074e31ca122c3bcf1de094eaa360497974",
+    "size": 20086093,
     "parts": [
       {
-        "path": "resources/releases/20260823.105420.54dc4c25683e/packages/assets-20260823.105420.4c099898d5b6-full.zip.part-001",
-        "sha256": "949c5c79839301669166a4f25c63af73f84ec49caab252a1abbbb1093a6a4f26",
+        "path": "resources/releases/20260902.092658.831b4fda55cf/packages/assets-20260902.092658.b585fc730933-full.zip.part-001",
+        "sha256": "73a4f90cf7f3e12bbf6b4a56d36e7dd8e13a928e5dacdfb884d8443a326b16a9",
         "size": 4194304,
-        "fileName": "assets-20260823.105420.4c099898d5b6-full.zip.part-001"
+        "fileName": "assets-20260902.092658.b585fc730933-full.zip.part-001"
       },
       {
-        "path": "resources/releases/20260823.105420.54dc4c25683e/packages/assets-20260823.105420.4c099898d5b6-full.zip.part-002",
-        "sha256": "d2a55814d6f9211c98bf219b99d5710ea2dd865afefa964f60cb1c958251d7ac",
+        "path": "resources/releases/20260902.092658.831b4fda55cf/packages/assets-20260902.092658.b585fc730933-full.zip.part-002",
+        "sha256": "62caf1cd96a400e6c01b1e04658c8cab511f99dd77d7303cf50d899af9b304cf",
         "size": 4194304,
-        "fileName": "assets-20260823.105420.4c099898d5b6-full.zip.part-002"
+        "fileName": "assets-20260902.092658.b585fc730933-full.zip.part-002"
       },
       {
-        "path": "resources/releases/20260823.105420.54dc4c25683e/packages/assets-20260823.105420.4c099898d5b6-full.zip.part-003",
-        "sha256": "7bd6d54ab932d9f2b0dc9534fcd068d0feedb072bf7c0d002b64fb702342ba5c",
+        "path": "resources/releases/20260902.092658.831b4fda55cf/packages/assets-20260902.092658.b585fc730933-full.zip.part-003",
+        "sha256": "21a36281032c8423e7cdead56eeb9d35055bf1267cbf49f9c72d1205f0dc1191",
         "size": 4194304,
-        "fileName": "assets-20260823.105420.4c099898d5b6-full.zip.part-003"
+        "fileName": "assets-20260902.092658.b585fc730933-full.zip.part-003"
       },
       {
-        "path": "resources/releases/20260823.105420.54dc4c25683e/packages/assets-20260823.105420.4c099898d5b6-full.zip.part-004",
-        "sha256": "fb89eceb9c479903380c86b16b2af3fa1edfc36482ede21144efb79842142841",
+        "path": "resources/releases/20260902.092658.831b4fda55cf/packages/assets-20260902.092658.b585fc730933-full.zip.part-004",
+        "sha256": "36958b3df71865fe7e2541f3214593efbb525ba0af5a4a62db945cd1254c6eee",
         "size": 4194304,
-        "fileName": "assets-20260823.105420.4c099898d5b6-full.zip.part-004"
+        "fileName": "assets-20260902.092658.b585fc730933-full.zip.part-004"
       },
       {
-        "path": "resources/releases/20260823.105420.54dc4c25683e/packages/assets-20260823.105420.4c099898d5b6-full.zip.part-005",
-        "sha256": "a0077e222e8f9c7bc7b0f6007fba7e702c5b135b33612b16ca2df240554b63e7",
-        "size": 2907532,
-        "fileName": "assets-20260823.105420.4c099898d5b6-full.zip.part-005"
+        "path": "resources/releases/20260902.092658.831b4fda55cf/packages/assets-20260902.092658.b585fc730933-full.zip.part-005",
+        "sha256": "72103e4a8d6f84f62a429e8ece0d2953a94ba8fe3e07b7d696022ce4e8645532",
+        "size": 3308877,
+        "fileName": "assets-20260902.092658.b585fc730933-full.zip.part-005"
       }
     ]
   }
