@@ -107,7 +107,7 @@
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.0.0",
-    "concurrently": "^9.1.2",
+    "concurrently": "^9.2.5",
     "electron": "^39.8.10",
     "electron-builder": "^26.0.12",
     "tailwindcss": "^4.2.2",
