@@ -91,7 +91,7 @@
     "electron:build:mac:dir": "npm run build && npm run build:opencode-runtime && electron-builder --mac dir --publish never"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.29.0",
+    "@modelcontextprotocol/sdk": "1.31.0",
     "exceljs": "^4.4.0",
     "fuse.js": "^7.3.0",
     "pinyin-pro": "^3.28.1",
